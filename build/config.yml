@@ -6,7 +6,7 @@ version: "3"
 # This information is used to generate the build assets.
 info:
   companyName: "xob0t" # The name of the company
-  productName: "gotohp" # The name of the application
+  productName: "Lumen" # The name of the application
   productIdentifier: "com.xob0t.gotohp" # The unique product identifier
   description: "Google Photos Unofficial Client" # The application description
   copyright: "" # Copyright text

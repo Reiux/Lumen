@@ -1,4 +1,11 @@
-# gotohp
+# Lumen
+
+Lumen is a fork of gotohp with a redesigned interface built around
+Material 3 Expressive: tonal color roles, large rounded shapes, and
+smooth motion. Upload logic is unchanged from upstream.
+Unofficial. Not affiliated with or endorsed by Google.
+Credit and thanks to xob0t for the original project (MIT license):
+https://github.com/xob0t/gotohp
 
 ![demo](readme_assets/app_demo.webp)
 
@@ -39,11 +46,11 @@ The GUI binary runs the same CLI when given a command, e.g. `gotohp upload ...`.
 
 ### Option 1 - Embedded setup
 
-1. Open gotohp and click **Add Google account**.
+1. Open Lumen and click **Add Google account**.
 2. Click **Open Google sign-in** and sign in with the account you want to add.
 3. Sign in on the Google Embedded Setup page and click **I agree**. The page may keep loading forever; this is expected.
 4. Open the browser developer tools. Under Application or Storage, open Cookies for `accounts.google.com`.
-5. Copy only the value of the `oauth_token` cookie and paste it into gotohp.
+5. Copy only the value of the `oauth_token` cookie and paste it into Lumen.
 6. Click **Connect account**.
 
 From the CLI, open the same page yourself and run `gotohp-cli creds add "<oauth_token value>"`.
@@ -102,8 +109,8 @@ From the CLI, open the same page yourself and run `gotohp-cli creds add "<oauth_
 5. Open Google Photos app and login with your account.
 6. A single request should appear.  
    Copy request body as text.
-7. Add that credential string in gotohp.
-8. If gotohp asks for a token binding key, keep the rooted device connected and click `Read from ADB`. gotohp will read the account's `lstBindingKeyAlias` from Android AccountManager and save it into the credential.
+7. Add that credential string in Lumen.
+8. If Lumen asks for a token binding key, keep the rooted device connected and click `Read from ADB`. Lumen will read the account's `lstBindingKeyAlias` from Android AccountManager and save it into the credential.
 
 #### Troubleshooting
 
