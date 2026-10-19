@@ -37,30 +37,49 @@ function toggle() {
     :aria-checked="modelValue"
     :aria-label="ariaLabel"
     :disabled="disabled"
-    class="relative inline-flex h-8 w-[52px] shrink-0 cursor-pointer items-center rounded-full p-1 transition-colors duration-200 outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)] disabled:cursor-not-allowed disabled:opacity-40 select-none"
+    class="group m3-switch relative inline-flex h-8 w-[52px] shrink-0 cursor-pointer items-center rounded-full border-2 p-0.5 outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)] disabled:cursor-not-allowed disabled:opacity-40 select-none"
     :class="[
       modelValue
         ? (variant === 'danger'
-          ? 'bg-[var(--md-sys-color-error)] border-2 border-[var(--md-sys-color-error)]'
-          : 'bg-[var(--md-sys-color-primary)] border-2 border-[var(--md-sys-color-primary)]')
-        : 'bg-[var(--md-sys-color-surface-container-highest)] border-2 border-[var(--md-sys-color-outline)]'
+          ? 'bg-[var(--md-sys-color-error)] border-[var(--md-sys-color-error)]'
+          : 'bg-[var(--md-sys-color-primary)] border-[var(--md-sys-color-primary)]')
+        : 'bg-[var(--md-sys-color-surface-container-highest)] border-[var(--md-sys-color-outline)]',
     ]"
     @click="toggle"
   >
     <span
-      class="flex size-6 items-center justify-center rounded-full transition-transform duration-200 shadow-xs"
+      class="m3-switch-thumb flex h-6 items-center justify-center rounded-full shadow-xs"
       :class="[
         modelValue
           ? (variant === 'danger'
-            ? 'translate-x-4 bg-[var(--md-sys-color-on-error)] text-[var(--md-sys-color-error)]'
-            : 'translate-x-4 bg-[var(--md-sys-color-on-primary)] text-[var(--md-sys-color-primary)]')
-          : 'translate-x-0 bg-[var(--md-sys-color-outline)] text-transparent scale-75'
+            ? 'w-6 translate-x-[20px] bg-[var(--md-sys-color-on-error)] text-[var(--md-sys-color-error)] group-active:w-7 group-active:translate-x-[16px]'
+            : 'w-6 translate-x-[20px] bg-[var(--md-sys-color-on-primary)] text-[var(--md-sys-color-primary)] group-active:w-7 group-active:translate-x-[16px]')
+          : 'w-4 translate-x-[4px] bg-[var(--md-sys-color-outline)] text-transparent group-active:w-6',
       ]"
     >
       <Check
-        v-if="modelValue"
-        class="size-3.5 stroke-[3]"
+        class="size-3.5 stroke-[3] m3-switch-icon"
+        :class="modelValue ? 'opacity-100 scale-100' : 'opacity-0 scale-50'"
       />
     </span>
   </button>
 </template>
+
+<style scoped>
+.m3-switch {
+  transition: background-color var(--md-sys-motion-effects),
+              border-color var(--md-sys-motion-effects);
+}
+
+.m3-switch-thumb {
+  transition: transform var(--md-sys-motion-spatial),
+              width var(--md-sys-motion-spatial-fast),
+              background-color var(--md-sys-motion-effects),
+              color var(--md-sys-motion-effects);
+}
+
+.m3-switch-icon {
+  transition: opacity var(--md-sys-motion-effects),
+              transform var(--md-sys-motion-effects);
+}
+</style>

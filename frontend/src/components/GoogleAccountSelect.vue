@@ -13,6 +13,7 @@ import {
   SelectGroup,
   SelectSeparator,
 } from '@/components/ui/select'
+import { vRipple } from '@/directives/ripple'
 
 interface Props {
   modelValue?: string
@@ -58,7 +59,8 @@ const selectedInitial = computed(() => {
     v-model:open="isOpen"
   >
     <SelectTriggerPrimitive
-      class="inline-flex h-9 max-w-[240px] items-center gap-2 rounded-full border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] pl-1.5 pr-3 text-xs font-medium text-[var(--md-sys-color-on-surface)] shadow-xs outline-none transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)] focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)] select-none cursor-pointer"
+      v-ripple
+      class="m3-interactive m3-chip inline-flex h-9 max-w-[240px] items-center gap-2 rounded-full border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] pl-1.5 pr-3 text-xs font-medium text-[var(--md-sys-color-on-surface)] shadow-xs outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)] select-none cursor-pointer"
       style="--wails-draggable: none"
     >
       <div
@@ -79,7 +81,11 @@ const selectedInitial = computed(() => {
       </span>
 
       <ChevronDown
-        class="size-3.5 shrink-0 text-[var(--md-sys-color-on-surface-variant)] transition-transform duration-200"
+        class="size-3.5 shrink-0 text-[var(--md-sys-color-on-surface-variant)] transition-transform"
+        :style="{
+          transitionDuration: 'var(--md-sys-motion-duration-spatial)',
+          transitionTimingFunction: 'var(--md-sys-motion-easing-spatial)',
+        }"
         :class="isOpen && 'rotate-180'"
       />
     </SelectTriggerPrimitive>
