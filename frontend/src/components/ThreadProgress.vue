@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { ThreadStatus } from '../utils/UploadManager'
-import { Progress } from '@/components/ui/progress'
 
 const props = defineProps<{
   thread: ThreadStatus
@@ -10,24 +9,60 @@ const props = defineProps<{
 const statusConfig = computed(() => {
   switch (props.thread.Status) {
     case 'error':
-      return { color: 'text-destructive', bg: 'bg-destructive/10', label: 'Error' }
+      return {
+        color: 'text-[var(--md-sys-color-on-error-container)]',
+        bg: 'bg-[var(--md-sys-color-error-container)]',
+        label: 'Error',
+      }
     case 'completed':
-      return { color: 'text-primary', bg: 'bg-primary/10', label: 'Done' }
+      return {
+        color: 'text-[var(--md-sys-color-on-tertiary-container)]',
+        bg: 'bg-[var(--md-sys-color-tertiary-container)]',
+        label: 'Done',
+      }
     case 'skipped':
-      return { color: 'text-amber-700 dark:text-amber-300', bg: 'bg-amber-500/10', label: 'Skipped' }
+      return {
+        color: 'text-amber-200',
+        bg: 'bg-amber-500/20',
+        label: 'Skipped',
+      }
     case 'uploading':
       if (props.thread.Attempt > 1) {
-        return { color: 'text-orange-500', bg: 'bg-orange-500/10', label: `Retry ${props.thread.Attempt - 1}` }
+        return {
+          color: 'text-orange-200',
+          bg: 'bg-orange-500/20',
+          label: `Retry #${props.thread.Attempt - 1}`,
+        }
       }
-      return { color: 'text-blue-500', bg: 'bg-blue-500/10', label: 'Uploading' }
+      return {
+        color: 'text-[var(--md-sys-color-on-primary-container)]',
+        bg: 'bg-[var(--md-sys-color-primary-container)]',
+        label: 'Uploading',
+      }
     case 'hashing':
-      return { color: 'text-cyan-500', bg: 'bg-cyan-500/10', label: 'Hashing' }
+      return {
+        color: 'text-cyan-200',
+        bg: 'bg-cyan-500/20',
+        label: 'Hashing',
+      }
     case 'checking':
-      return { color: 'text-yellow-500', bg: 'bg-yellow-500/10', label: 'Checking' }
+      return {
+        color: 'text-yellow-200',
+        bg: 'bg-yellow-500/20',
+        label: 'Checking',
+      }
     case 'finalizing':
-      return { color: 'text-purple-500', bg: 'bg-purple-500/10', label: 'Finalizing' }
+      return {
+        color: 'text-purple-200',
+        bg: 'bg-purple-500/20',
+        label: 'Finalizing',
+      }
     default:
-      return { color: 'text-muted-foreground', bg: 'bg-muted', label: props.thread.Status }
+      return {
+        color: 'text-[var(--md-sys-color-on-surface-variant)]',
+        bg: 'bg-[var(--md-sys-color-surface-container-high)]',
+        label: props.thread.Status,
+      }
   }
 })
 
@@ -50,59 +85,56 @@ const fileSizeDisplay = computed(() => {
   if (props.thread.Status !== 'uploading' || !props.thread.BytesTotal) {
     return null
   }
-  return `${formatBytes(props.thread.BytesUploaded)}/${formatBytes(props.thread.BytesTotal)}`
+  return `${formatBytes(props.thread.BytesUploaded)} / ${formatBytes(props.thread.BytesTotal)}`
 })
 
 const statusMessage = computed(() => props.thread.Message.replace(/^Error:\s*/, ''))
 </script>
 
 <template>
-  <div class="px-2.5 py-2 bg-card border rounded-md">
-    <!-- Top row: status badge + filename -->
-    <div class="flex items-center gap-2 mb-1">
-      <span 
-        :class="[
-          'text-[10px] font-medium px-1.5 py-0.5 rounded',
-          statusConfig.color,
-          statusConfig.bg
-        ]"
+  <div class="flex flex-col gap-2 rounded-[20px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-3.5 shadow-xs transition-colors select-none">
+    <div class="flex items-center justify-between gap-2">
+      <span class="rounded-full bg-[var(--md-sys-color-surface-container-high)] px-2 py-0.5 text-[10px] font-bold text-[var(--md-sys-color-on-surface-variant)]">
+        Worker #{{ thread.WorkerID }}
+      </span>
+      <span
+        class="inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase"
+        :class="[statusConfig.bg, statusConfig.color]"
       >
         {{ statusConfig.label }}
       </span>
+    </div>
+
+    <div class="flex flex-col gap-0.5 min-w-0">
       <span
-        v-if="thread.FileName"
-        class="flex-1 text-xs truncate"
-        :title="thread.FilePath"
+        class="truncate text-xs font-semibold text-[var(--md-sys-color-on-surface)]"
+        :title="thread.FileName || thread.FilePath"
       >
-        {{ thread.FileName }}
+        {{ thread.FileName || 'Processing...' }}
       </span>
       <span
-        v-else
-        class="flex-1 text-xs truncate text-muted-foreground"
+        v-if="statusMessage"
+        class="truncate text-[11px] text-[var(--md-sys-color-on-surface-variant)]"
       >
-        {{ thread.Message }}
+        {{ statusMessage }}
       </span>
     </div>
 
-    <!-- Progress bar (only when uploading) -->
-    <template v-if="uploadPercent !== null">
-      <Progress
-        :model-value="uploadPercent"
-        class="h-1 mb-1"
-      />
-      <div class="flex justify-between text-[10px] text-muted-foreground tabular-nums">
-        <span>{{ fileSizeDisplay }}</span>
-        <span>{{ uploadPercent }}%</span>
-      </div>
-    </template>
-    <p
-      v-else-if="thread.Status === 'error' || thread.Status === 'skipped'"
-      :class="[
-        'mt-1 text-[11px] leading-snug break-words',
-        thread.Status === 'error' ? 'text-destructive' : 'text-muted-foreground'
-      ]"
+    <!-- Mini Progress for thread -->
+    <div
+      v-if="uploadPercent !== null"
+      class="flex flex-col gap-1 pt-0.5"
     >
-      {{ statusMessage }}
-    </p>
+      <div class="relative h-1.5 w-full overflow-hidden rounded-full bg-[var(--md-sys-color-surface-container-highest)]">
+        <div
+          class="h-full rounded-full bg-[var(--md-sys-color-primary)] transition-all duration-200"
+          :style="{ width: `${uploadPercent}%` }"
+        />
+      </div>
+      <div class="flex items-center justify-between text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
+        <span>{{ fileSizeDisplay }}</span>
+        <span class="font-bold">{{ uploadPercent }}%</span>
+      </div>
+    </div>
   </div>
 </template>
