@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/sheet'
 import { useColorMode } from '@vueuse/core'
 import { onMounted, onUnmounted, ref, watch } from 'vue'
-import { UserPlus } from '@lucide/vue'
+import { CloudUpload, FolderPlus, Settings2, Sparkles, Upload as UploadIcon, UserPlus } from '@lucide/vue'
 import { ConfigManager } from '../bindings/app/core'
 import { Events } from '@wailsio/runtime'
 import Button from "./components/ui/button/Button.vue"
@@ -294,49 +294,100 @@ onUnmounted(() => {
 
 <template>
   <main
-    class="w-screen h-screen flex flex-col items-center"
+    class="relative flex h-full w-full flex-col overflow-hidden p-3.5 select-none bg-[var(--md-sys-color-surface)] text-[var(--md-sys-color-on-surface)]"
     style="--wails-draggable: drag"
   >
+    <!-- Header with Account Select and Settings -->
+    <header
+      v-if="!uploadState.isUploading && options.length > 0 && !isDraggingFiles"
+      class="flex w-full shrink-0 items-center justify-between pb-3"
+      style="--wails-draggable: drag"
+    >
+      <div style="--wails-draggable: none">
+        <GoogleAccountSelect
+          v-model="selectedOption"
+          :options="options"
+          :removing-account="removingAccount"
+          @item-removed="removeCredentials"
+          @add="openAccountSetup"
+        />
+      </div>
+
+      <Sheet>
+        <SheetTrigger as-child>
+          <button
+            type="button"
+            class="flex size-9 cursor-pointer items-center justify-center rounded-full bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-on-surface-variant)] shadow-xs outline-none transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)] hover:text-[var(--md-sys-color-on-surface)] focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)]"
+            aria-label="Settings"
+            title="Settings"
+            style="--wails-draggable: none"
+          >
+            <Settings2 class="size-4" />
+          </button>
+        </SheetTrigger>
+        <SheetContent
+          side="bottom"
+          class="max-h-[85vh] overflow-y-auto rounded-t-[28px] border-t border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container-low)] p-4 shadow-2xl"
+          style="--wails-draggable: none"
+        >
+          <TooltipProvider disable-hoverable-content>
+            <SettingsPanel />
+          </TooltipProvider>
+        </SheetContent>
+      </Sheet>
+    </header>
+
     <!-- Drop zones shown when dragging files -->
     <div
       v-if="!uploadState.isUploading && isDraggingFiles && options.length > 0"
-      class="w-screen h-screen flex flex-col gap-3 p-6"
+      class="flex h-full w-full flex-1 flex-col gap-2.5 py-1"
       style="--wails-draggable: none"
     >
       <div
         data-file-drop-target
         data-drop-zone="regular"
-        class="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-muted-foreground/50 rounded-xl transition-all duration-200 drop-zone"
+        class="drop-zone flex flex-1 flex-col items-center justify-center rounded-[28px] border-2 border-dashed border-[var(--md-sys-color-outline-variant)]/60 bg-[var(--md-sys-color-surface-container)] p-3 text-center transition-all"
       >
-        <h2 class="text-xl font-semibold select-none text-muted-foreground">
+        <div class="mb-1.5 flex size-10 items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
+          <UploadIcon class="size-5" />
+        </div>
+        <h2 class="text-sm font-semibold text-[var(--md-sys-color-on-surface)] select-none">
           Upload Only
         </h2>
-        <p class="text-sm text-muted-foreground/70 mt-2 select-none text-center px-4">
+        <p class="text-[11px] text-[var(--md-sys-color-on-surface-variant)] select-none">
           Upload files without adding to any album
         </p>
       </div>
+
       <div
         data-file-drop-target
         data-drop-zone="album"
-        class="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-muted-foreground/50 rounded-xl transition-all duration-200 drop-zone"
+        class="drop-zone flex flex-1 flex-col items-center justify-center rounded-[28px] border-2 border-dashed border-[var(--md-sys-color-outline-variant)]/60 bg-[var(--md-sys-color-surface-container)] p-3 text-center transition-all"
       >
-        <h2 class="text-xl font-semibold select-none text-muted-foreground">
+        <div class="mb-1.5 flex size-10 items-center justify-center rounded-full bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]">
+          <FolderPlus class="size-5" />
+        </div>
+        <h2 class="text-sm font-semibold text-[var(--md-sys-color-on-surface)] select-none">
           Upload to Album
         </h2>
-        <p class="text-sm text-muted-foreground/70 mt-2 select-none text-center px-4">
-          Upload and add to a specific album (you'll enter the name)
+        <p class="text-[11px] text-[var(--md-sys-color-on-surface-variant)] select-none">
+          Upload and add to a specific album
         </p>
       </div>
+
       <div
         data-file-drop-target
         data-drop-zone="auto-album"
-        class="flex-1 flex flex-col items-center justify-center border-2 border-dashed border-muted-foreground/50 rounded-xl transition-all duration-200 drop-zone"
+        class="drop-zone flex flex-1 flex-col items-center justify-center rounded-[28px] border-2 border-dashed border-[var(--md-sys-color-outline-variant)]/60 bg-[var(--md-sys-color-surface-container)] p-3 text-center transition-all"
       >
-        <h2 class="text-xl font-semibold select-none text-muted-foreground">
+        <div class="mb-1.5 flex size-10 items-center justify-center rounded-full bg-[var(--md-sys-color-tertiary-container)] text-[var(--md-sys-color-on-tertiary-container)]">
+          <Sparkles class="size-5" />
+        </div>
+        <h2 class="text-sm font-semibold text-[var(--md-sys-color-on-surface)] select-none">
           Auto Album
         </h2>
-        <p class="text-sm text-muted-foreground/70 mt-2 select-none text-center px-4">
-          Upload and create albums automatically based on folder names
+        <p class="text-[11px] text-[var(--md-sys-color-on-surface-variant)] select-none">
+          Create albums automatically based on folder names
         </p>
       </div>
     </div>
@@ -344,24 +395,29 @@ onUnmounted(() => {
     <!-- Normal UI (not dragging) -->
     <div
       v-else-if="!uploadState.isUploading"
-      class="w-screen h-screen flex flex-col items-center gap-4 max-w-md px-6 pt-30"
+      class="flex h-full w-full flex-1 flex-col items-center justify-between min-h-0"
       data-file-drop-target
+      data-drop-zone="regular"
+      style="--wails-draggable: drag"
     >
       <template v-if="options.length === 0">
-        <div class="flex max-w-xs flex-col items-center gap-4 text-center">
-          <div class="flex size-11 items-center justify-center rounded-full bg-muted text-muted-foreground">
-            <UserPlus class="size-5" />
+        <div
+          class="m-auto flex max-w-xs flex-col items-center gap-4 text-center"
+          style="--wails-draggable: none"
+        >
+          <div class="flex size-14 items-center justify-center rounded-full bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-on-surface-variant)]">
+            <UserPlus class="size-6" />
           </div>
           <div class="flex flex-col gap-1">
-            <h1 class="text-xl font-semibold select-none">
+            <h1 class="text-lg font-semibold text-[var(--md-sys-color-on-surface)] select-none">
               Connect Google Photos
             </h1>
-            <p class="text-sm text-muted-foreground select-none">
+            <p class="text-xs text-[var(--md-sys-color-on-surface-variant)] select-none">
               Add an account before uploading photos and videos.
             </p>
           </div>
           <Button
-            class="cursor-pointer select-none"
+            class="rounded-full px-6 cursor-pointer select-none bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] hover:bg-[var(--md-sys-color-primary)]/90"
             @click="openAccountSetup"
           >
             Add Google account
@@ -373,39 +429,45 @@ onUnmounted(() => {
         <!-- Show album input screen when files dropped on album zone -->
         <template v-if="showAlbumInput">
           <div
-            class="flex flex-col items-center justify-center gap-6 p-8"
+            class="m-auto flex w-full max-w-xs flex-col items-center justify-center gap-4 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-6 text-center shadow-lg"
             style="--wails-draggable: none"
           >
-            <h1 class="text-xl font-semibold select-none">
-              Upload to Album
-            </h1>
-            <p class="text-muted-foreground select-none">
-              {{ pendingFileCount }} file(s) ready to upload
-            </p>
+            <div class="flex size-12 items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
+              <FolderPlus class="size-6" />
+            </div>
+            <div class="flex flex-col gap-1">
+              <h1 class="text-base font-semibold text-[var(--md-sys-color-on-surface)] select-none">
+                Upload to Album
+              </h1>
+              <p class="text-xs text-[var(--md-sys-color-on-surface-variant)] select-none">
+                {{ pendingFileCount }} file(s) ready to upload
+              </p>
+            </div>
             
-            <div class="flex flex-col gap-2 w-full max-w-xs">
+            <div class="flex w-full flex-col gap-1.5 text-left">
               <Label
                 for="album-input"
-                class="text-muted-foreground text-sm"
+                class="text-xs text-[var(--md-sys-color-on-surface-variant)]"
               >Album name or key</Label>
               <Input
                 id="album-input"
                 v-model="albumNameOrKey"
                 placeholder="Album name or AF1Qip... key"
                 autofocus
+                class="rounded-full bg-[var(--md-sys-color-surface-container-high)] text-xs border-[var(--md-sys-color-outline-variant)]"
               />
             </div>
 
-            <div class="flex gap-4">
+            <div class="flex gap-2.5 mt-2">
               <Button
                 variant="outline"
-                class="cursor-pointer select-none"
+                class="rounded-full px-5 text-xs cursor-pointer select-none"
                 @click="cancelAlbumUpload"
               >
                 Cancel
               </Button>
               <Button
-                class="cursor-pointer select-none"
+                class="rounded-full px-6 text-xs cursor-pointer select-none bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)]"
                 :disabled="!albumNameOrKey.trim()"
                 @click="confirmAlbumUpload"
               >
@@ -417,63 +479,61 @@ onUnmounted(() => {
 
         <!-- Normal UI when not dragging -->
         <template v-else>
-          <h1 class="text-xl font-semibold select-none">
-            Drop files to upload
-          </h1>
-          <GoogleAccountSelect
-            v-model="selectedOption"
-            :options="options"
-            :removing-account="removingAccount"
-            @item-removed="removeCredentials"
-            @add="openAccountSetup"
-          />
           <div
             v-if="tokenBindingEmail"
-            class="w-full max-w-xs border rounded-lg p-3 flex flex-col gap-3"
+            class="w-full shrink-0 rounded-[20px] border border-amber-500/30 bg-amber-500/10 p-3 flex flex-col gap-2 mb-2"
             style="--wails-draggable: none"
           >
-            <p class="text-sm text-muted-foreground">
+            <p class="text-xs text-amber-200">
               This credential needs a token binding key from the rooted Android device it was captured from.
             </p>
-            <Button
-              class="cursor-pointer select-none"
+            <button
+              type="button"
+              class="inline-flex h-8 items-center justify-center rounded-full bg-amber-400 px-3 text-xs font-medium text-amber-950 transition-colors hover:bg-amber-300 disabled:opacity-50 cursor-pointer"
               :disabled="isExtractingTokenBinding"
               @click="addTokenBindingAliasFromADB"
             >
               {{ isExtractingTokenBinding ? 'Reading ADB...' : 'Read from ADB' }}
-            </Button>
+            </button>
           </div>
 
-          <Sheet>
-            <SheetTrigger>
-              <Button
-                variant="outline"
-                class="cursor-pointer select-none"
-              >
-                Settings
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="bottom">
-              <TooltipProvider disable-hoverable-content>
-                <SettingsPanel />
-              </TooltipProvider>
-            </SheetContent>
-          </Sheet>
+          <div
+            class="drop-zone group relative flex flex-1 w-full flex-col items-center justify-center rounded-[32px] border-2 border-dashed border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-low)] p-6 text-center select-none"
+            style="--wails-draggable: drag"
+          >
+            <div class="relative mb-3 flex size-20 items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)]/40 text-[var(--md-sys-color-primary)] shadow-xs transition-transform duration-300 group-hover:scale-105">
+              <CloudUpload class="size-10" />
+            </div>
+            <h1 class="text-base font-semibold text-[var(--md-sys-color-on-surface)] select-none">
+              Drop files to upload
+            </h1>
+            <p class="mt-1 text-xs text-[var(--md-sys-color-on-surface-variant)] select-none max-w-[220px]">
+              Photos, videos, or entire folders
+            </p>
+            <div class="mt-4 flex items-center gap-1.5">
+              <span class="rounded-full bg-[var(--md-sys-color-surface-container-high)] px-3 py-1 text-[11px] font-medium text-[var(--md-sys-color-on-surface-variant)] select-none">
+                Drop folders for auto-albums
+              </span>
+            </div>
+          </div>
 
           <div
             v-if="uploadState.uploadedFiles > 0 || uploadState.results.fail.length > 0"
-            class="flex flex-col items-center gap-2 border rounded-lg p-5 mt-5"
+            class="flex w-full shrink-0 flex-col items-center gap-2 rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-4 mt-2.5"
+            style="--wails-draggable: none"
           >
-            <h2 class="text-l font-semibold select-none ">
+            <h2 class="text-sm font-semibold select-none text-[var(--md-sys-color-on-surface)]">
               Upload Results
             </h2>
-            <Label class="text-muted-foreground">Successful: {{ uploadState.results.success.length }}</Label>
-            <Label class="text-muted-foreground">Failed: {{ uploadState.results.fail.length }}</Label>
-            <Label class="text-muted-foreground">Skipped: {{ uploadState.results.skipped.length }}</Label>
-            <Label class="text-muted-foreground">Warnings: {{ uploadState.results.warnings.length }}</Label>
+            <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-[var(--md-sys-color-on-surface-variant)]">
+              <span>Successful: {{ uploadState.results.success.length }}</span>
+              <span>Failed: {{ uploadState.results.fail.length }}</span>
+              <span>Skipped: {{ uploadState.results.skipped.length }}</span>
+              <span>Warnings: {{ uploadState.results.warnings.length }}</span>
+            </div>
             <Button
               variant="outline"
-              class="cursor-pointer select-none min-w-[125px]"
+              class="rounded-full text-xs h-8 px-4 cursor-pointer select-none mt-1"
               @click="handleCopyClick"
             >
               {{ copyButtonText }}
@@ -482,12 +542,14 @@ onUnmounted(() => {
         </template>
       </template>
     </div>
+
     <div
       v-if="uploadState.isUploading"
       class="w-full h-full"
     >
       <Upload />
     </div>
+
     <GoogleAuthSetup
       v-model:open="isAccountSetupOpen"
       @account-added="refreshCredentials"
