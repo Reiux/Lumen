@@ -72,8 +72,43 @@
   --md-sys-color-outline: oklch(0.56 0.030 245);
   --md-sys-color-outline-variant: oklch(0.30 0.020 245);
 
-  /* M3 Motion & Easing */
-  --md-motion-spring: cubic-bezier(0.34, 1.4, 0.64, 1);
+  /*
+    Material 3 Expressive Spring Motion Tokens
+
+    Spring Math (Damped harmonic oscillator):
+      Spatial springs (movement, scale, shape, position; slight overshoot/bounce):
+        zeta = 0.6 (damping ratio), omega_n = 9.5 (natural frequency)
+        wd = omega_n * sqrt(1 - zeta^2)
+        x(t) = 1 - exp(-zeta * omega_n * t) * (cos(wd * t) + (zeta * omega_n / wd) * sin(wd * t))
+      Effects springs (color, opacity; no overshoot / critically damped):
+        zeta = 1.0 (damping ratio), omega_n = 9.5 (natural frequency)
+        x(t) = 1 - exp(-omega_n * t) * (1 + omega_n * t)
+
+    Generator script:
+      node -e 'function s(z,w,n=25){let p=[],d=w*Math.sqrt(Math.max(0,1-z*z));for(let i=0;i<=n;i++){let t=i/n,v=z<1?1-Math.exp(-z*w*t)*(Math.cos(d*t)+(z*w/d)*Math.sin(d*t)):1-Math.exp(-w*t)*(1+w*t);p.push(i===n?1:Number(v.toFixed(3)));}console.log("linear("+p.join(", ")+")");} s(0.6,9.5); s(1.0,9.5);'
+  */
+  --md-sys-motion-easing-spatial: linear(0, 0.062, 0.208, 0.392, 0.578, 0.744, 0.879, 0.978, 1.044, 1.08, 1.094, 1.092, 1.08, 1.064, 1.046, 1.029, 1.015, 1.005, 0.998, 0.993, 0.991, 0.991, 0.992, 0.993, 0.995, 1);
+  --md-sys-motion-easing-effects: linear(0, 0.056, 0.177, 0.316, 0.449, 0.566, 0.665, 0.744, 0.807, 0.855, 0.893, 0.921, 0.942, 0.958, 0.969, 0.978, 0.984, 0.988, 0.992, 0.994, 0.996, 0.997, 0.998, 0.998, 0.999, 1);
+
+  /* Durations */
+  --md-sys-motion-duration-spatial-fast: 200ms;
+  --md-sys-motion-duration-spatial: 350ms;
+  --md-sys-motion-duration-spatial-slow: 500ms;
+
+  --md-sys-motion-duration-effects-fast: 120ms;
+  --md-sys-motion-duration-effects: 200ms;
+  --md-sys-motion-duration-effects-slow: 300ms;
+
+  /* Composite transitions */
+  --md-sys-motion-spatial-fast: var(--md-sys-motion-duration-spatial-fast) var(--md-sys-motion-easing-spatial);
+  --md-sys-motion-spatial: var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial);
+  --md-sys-motion-spatial-slow: var(--md-sys-motion-duration-spatial-slow) var(--md-sys-motion-easing-spatial);
+
+  --md-sys-motion-effects-fast: var(--md-sys-motion-duration-effects-fast) var(--md-sys-motion-easing-effects);
+  --md-sys-motion-effects: var(--md-sys-motion-duration-effects) var(--md-sys-motion-easing-effects);
+  --md-sys-motion-effects-slow: var(--md-sys-motion-duration-effects-slow) var(--md-sys-motion-easing-effects);
+
+  --md-motion-spring: var(--md-sys-motion-easing-spatial);
   --md-motion-standard: cubic-bezier(0.2, 0, 0, 1);
   --md-motion-standard-accelerate: cubic-bezier(0.3, 0, 1, 1);
   --md-motion-standard-decelerate: cubic-bezier(0, 0, 0.2, 1);
@@ -126,7 +161,6 @@
 @layer base {
   * {
     border-color: var(--md-sys-color-outline-variant);
-    outline-color: var(--md-sys-color-primary);
     box-sizing: border-box;
   }
   html, body, #app {
@@ -140,6 +174,111 @@
     color: var(--md-sys-color-on-surface);
     font-family: 'Roboto Flex Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     font-optical-sizing: auto;
+  }
+
+  /* M3 Focus-visible ring: 3px outline with 2px offset in primary color, animated in */
+  :focus-visible {
+    outline: 3px solid var(--md-sys-color-primary) !important;
+    outline-offset: 2px !important;
+    transition: outline-offset var(--md-sys-motion-effects-fast), outline-color var(--md-sys-motion-effects-fast);
+  }
+
+  :focus:not(:focus-visible) {
+    outline: none !important;
+  }
+
+  /* M3 Disabled state: no hover/press response, 38% content opacity */
+  :disabled,
+  [disabled],
+  [aria-disabled="true"] {
+    opacity: 0.38 !important;
+    cursor: not-allowed !important;
+    pointer-events: none !important;
+    transform: none !important;
+    box-shadow: none !important;
+  }
+
+  :disabled::before,
+  [disabled]::before,
+  [aria-disabled="true"]::before {
+    display: none !important;
+  }
+}
+
+/* M3 State Layers on interactive elements */
+.m3-interactive,
+button,
+[role="button"] {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  transition: transform var(--md-sys-motion-spatial-fast),
+              border-radius var(--md-sys-motion-spatial-fast),
+              background-color var(--md-sys-motion-effects-fast),
+              box-shadow var(--md-sys-motion-effects-fast);
+}
+
+/* State layer overlay: element's on-color at 8% hover, 10% focus, 10% pressed, 16% dragged */
+.m3-interactive::before,
+button:not(.no-state-layer)::before,
+[role="button"]:not(.no-state-layer)::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-color: currentColor;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 0;
+  transition: opacity var(--md-sys-motion-effects-fast);
+}
+
+.m3-interactive:hover:not(:disabled)::before,
+button:not(.no-state-layer):hover:not(:disabled)::before,
+[role="button"]:not(.no-state-layer):hover:not(:disabled)::before {
+  opacity: 0.08;
+}
+
+.m3-interactive:focus-visible:not(:disabled)::before,
+button:not(.no-state-layer):focus-visible:not(:disabled)::before,
+[role="button"]:not(.no-state-layer):focus-visible:not(:disabled)::before {
+  opacity: 0.10;
+}
+
+.m3-interactive:active:not(:disabled)::before,
+button:not(.no-state-layer):active:not(:disabled)::before,
+[role="button"]:not(.no-state-layer):active:not(:disabled)::before {
+  opacity: 0.10;
+}
+
+.m3-interactive.is-dragged::before,
+.m3-interactive[data-dragged="true"]::before {
+  opacity: 0.16;
+}
+
+/* M3 Ripple element: expanding from pointer position, bounded by shape, ~450ms */
+.m3-ripple {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  background-color: currentColor;
+  transform: scale(0);
+  opacity: 0.12;
+  animation: m3-ripple-anim 450ms var(--md-sys-motion-easing-spatial) forwards;
+  z-index: 1;
+}
+
+@keyframes m3-ripple-anim {
+  0% {
+    transform: scale(0);
+    opacity: 0.12;
+  }
+  60% {
+    opacity: 0.12;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 0;
   }
 }
 
