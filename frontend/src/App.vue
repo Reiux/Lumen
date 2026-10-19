@@ -22,6 +22,7 @@ import GoogleAccountSelect from './components/GoogleAccountSelect.vue'
 import GoogleAuthSetup from './components/GoogleAuthSetup.vue'
 import SettingsPanel from './SettingsPanel.vue'
 import Upload from './Upload.vue'
+import UploadResultsCard from './components/UploadResultsCard.vue'
 import Toaster from './components/ui/sonner/Sonner.vue'
 import { uploadManager } from './utils/UploadManager'
 import {
@@ -688,26 +689,15 @@ onUnmounted(() => {
               </div>
             </div>
 
-            <!-- Upload Results Summary if available -->
-            <div
+            <!-- Upload Results Summary -->
+            <UploadResultsCard
               v-if="uploadState.uploadedFiles > 0 || uploadState.results.fail.length > 0"
-              class="flex w-full shrink-0 items-center justify-between rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-4 shadow-sm"
+              :results="uploadState.results"
+              class="shrink-0"
               style="--wails-draggable: none"
-            >
-              <div class="flex items-center gap-6">
-                <span class="text-sm font-semibold text-[var(--md-sys-color-on-surface)]">Upload Results:</span>
-                <span class="text-xs text-[var(--md-sys-color-tertiary)] font-medium">Successful: {{ uploadState.results.success.length }}</span>
-                <span class="text-xs text-[var(--md-sys-color-error)] font-medium">Failed: {{ uploadState.results.fail.length }}</span>
-                <span class="text-xs text-[var(--md-sys-color-on-surface-variant)]">Skipped: {{ uploadState.results.skipped.length }}</span>
-              </div>
-              <Button
-                variant="outline"
-                class="rounded-full text-xs h-9 px-4 cursor-pointer select-none"
-                @click="handleCopyClick"
-              >
-                {{ copyButtonText }}
-              </Button>
-            </div>
+              @copy="handleCopyClick"
+              @clear="() => uploadManager.resetUploadResults()"
+            />
           </div>
         </div>
       </div>
