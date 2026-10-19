@@ -3,6 +3,7 @@ import type { HTMLAttributes } from 'vue'
 import { cn } from '@/lib/utils'
 import { Primitive, type PrimitiveProps } from 'reka-ui'
 import { type ButtonVariants, buttonVariants } from '.'
+import { vRipple } from '@/directives/ripple'
 
 interface Props extends PrimitiveProps {
   variant?: ButtonVariants['variant']
@@ -17,11 +18,12 @@ const props = withDefaults(defineProps<Props>(), {
 
 <template>
   <Primitive
+    v-ripple
     data-slot="button"
     :as="as"
     :as-child="asChild"
     style="--wails-draggable: none"
-    :class="cn(`cursor-pointer`, buttonVariants({ variant, size }), props.class)"
+    :class="cn(`cursor-pointer m3-interactive`, buttonVariants({ variant, size }), props.class)"
   >
     <slot />
   </Primitive>
