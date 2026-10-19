@@ -75,6 +75,20 @@ const albumProgressPercent = computed(() => {
 function warningFiles(paths: string[]): string {
   return paths.map(path => path.split(/[\\/]/).pop()).filter(Boolean).join(', ')
 }
+
+const isCancelling = ref(false)
+
+async function handleCancel() {
+  if (isCancelling.value) return
+  isCancelling.value = true
+  try {
+    await uploadManager.cancelUpload()
+  } finally {
+    setTimeout(() => {
+      isCancelling.value = false
+    }, 600)
+  }
+}
 </script>
 
 <template>
@@ -102,10 +116,14 @@ function warningFiles(paths: string[]): string {
           type="button"
           class="h-10 rounded-full px-6 text-xs font-semibold shadow-xs cursor-pointer select-none bg-[var(--md-sys-color-error-container)] text-[var(--md-sys-color-on-error-container)] hover:bg-[var(--md-sys-color-error-container)]/80 self-start sm:self-auto"
           aria-label="Cancel current upload batch"
-          @click="() => uploadManager.cancelUpload()"
+          :loading="isCancelling"
+          @click="handleCancel"
         >
-          <X class="size-4 mr-1.5" />
-          Cancel Upload
+          <X
+            v-if="!isCancelling"
+            class="size-4 mr-1.5"
+          />
+          <span>{{ isCancelling ? 'Cancelling...' : 'Cancel Upload' }}</span>
         </Button>
       </div>
 

@@ -282,6 +282,60 @@ button:not(.no-state-layer):active:not(:disabled)::before,
   }
 }
 
+/* M3 Shape Morphing for Buttons & Pills */
+.m3-btn-morph,
+button.rounded-full,
+.rounded-full.cursor-pointer,
+.m3-interactive.rounded-full {
+  border-radius: 9999px;
+  transition: transform var(--md-sys-motion-spatial-fast),
+              border-radius var(--md-sys-motion-spatial),
+              background-color var(--md-sys-motion-effects-fast),
+              box-shadow var(--md-sys-motion-effects-fast);
+}
+
+.m3-btn-morph:active:not(:disabled),
+button.rounded-full:active:not(:disabled),
+.rounded-full.cursor-pointer:active:not(:disabled),
+.m3-interactive.rounded-full:active:not(:disabled) {
+  border-radius: 14px !important;
+  transform: scale(0.97) !important;
+}
+
+/* Navigation items shape swap: selected vs unselected morphs between round and squarer */
+.m3-nav-item {
+  border-radius: 12px;
+  transition: border-radius var(--md-sys-motion-spatial),
+              transform var(--md-sys-motion-spatial-fast),
+              background-color var(--md-sys-motion-effects-fast),
+              color var(--md-sys-motion-effects-fast);
+}
+
+.m3-nav-item.is-selected {
+  border-radius: 9999px;
+}
+
+.m3-nav-item:active:not(:disabled) {
+  transform: scale(0.97);
+  border-radius: 16px;
+}
+
+/* Inline spinner with effects spring */
+.m3-spinner-fade {
+  animation: m3-spinner-in var(--md-sys-motion-effects) forwards;
+}
+
+@keyframes m3-spinner-in {
+  from {
+    opacity: 0;
+    transform: scale(0.7);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--md-sys-color-surface-container-highest) transparent;

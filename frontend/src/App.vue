@@ -521,37 +521,37 @@ onUnmounted(() => {
         >
           <button
             type="button"
-            class="flex h-11 w-full cursor-pointer items-center gap-3.5 rounded-full px-4 text-sm font-medium transition-colors"
+            class="m3-nav-item flex h-11 w-full cursor-pointer items-center gap-3.5 px-4 text-sm font-medium transition-all"
             :class="activeTab === 'upload'
-              ? 'bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)] font-semibold shadow-xs'
+              ? 'is-selected bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)] font-semibold shadow-xs'
               : 'text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-on-surface)]'"
             aria-label="Upload view"
             @click="activeTab = 'upload'"
           >
-            <CloudUpload class="size-5" />
+            <CloudUpload class="size-5 shrink-0 transition-transform duration-200" />
             <span>Upload</span>
           </button>
 
           <button
             type="button"
-            class="flex h-11 w-full cursor-pointer items-center gap-3.5 rounded-full px-4 text-sm font-medium transition-colors"
+            class="m3-nav-item flex h-11 w-full cursor-pointer items-center gap-3.5 px-4 text-sm font-medium transition-all"
             :class="activeTab === 'settings'
-              ? 'bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)] font-semibold shadow-xs'
+              ? 'is-selected bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)] font-semibold shadow-xs'
               : 'text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-on-surface)]'"
             aria-label="Settings view"
             @click="activeTab = 'settings'"
           >
-            <Settings2 class="size-5" />
+            <Settings2 class="size-5 shrink-0 transition-transform duration-200" />
             <span>Settings</span>
           </button>
 
           <button
             type="button"
-            class="flex h-11 w-full cursor-pointer items-center gap-3.5 rounded-full px-4 text-sm font-medium text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-on-surface)]"
+            class="m3-nav-item flex h-11 w-full cursor-pointer items-center gap-3.5 px-4 text-sm font-medium text-[var(--md-sys-color-on-surface-variant)] transition-all hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-on-surface)]"
             aria-label="Manage accounts"
             @click="openAccountSetup"
           >
-            <UserPlus class="size-5" />
+            <UserPlus class="size-5 shrink-0 transition-transform duration-200" />
             <span>Accounts</span>
           </button>
         </nav>

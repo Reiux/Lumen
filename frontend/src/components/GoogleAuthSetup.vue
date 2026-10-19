@@ -319,13 +319,10 @@ async function addRawCredential() {
               type="button"
               class="mt-1 h-11 w-full rounded-full text-sm font-semibold shadow-sm cursor-pointer select-none bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] hover:bg-[var(--md-sys-color-primary)]/90 disabled:opacity-40 disabled:cursor-not-allowed"
               :disabled="!oauthToken.trim() || isConnecting"
+              :loading="isConnecting"
               aria-label="Connect Google account"
               @click="connectAccount"
             >
-              <Loader2
-                v-if="isConnecting"
-                class="size-4 mr-2 animate-spin"
-              />
               <span>{{ isConnecting ? 'Connecting...' : 'Connect Account' }}</span>
             </Button>
           </div>
