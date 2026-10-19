@@ -350,6 +350,8 @@ function triggerAvatarUpload() {
   }
 }
 
+let onGlobalKeydown: ((e: KeyboardEvent) => void) | null = null
+
 onMounted(async () => {
   try {
     await Window.SetResizable(true)
@@ -368,6 +370,14 @@ onMounted(async () => {
   document.addEventListener('drop', onDrop)
   window.addEventListener('albumError', albumErrorHandler)
   window.addEventListener('uploadError', uploadErrorHandler)
+
+  onGlobalKeydown = (e: KeyboardEvent) => {
+    if (e.key === 'Escape' && showAlbumInput.value) {
+      e.stopPropagation()
+      cancelAlbumUpload()
+    }
+  }
+  window.addEventListener('keydown', onGlobalKeydown)
 
   Events.On('files-dropped', async (event: { data: { files: string[]; dropZone: string } }) => {
     const { files, dropZone } = event.data
@@ -409,6 +419,9 @@ onUnmounted(() => {
   document.removeEventListener('drop', onDrop)
   window.removeEventListener('albumError', albumErrorHandler)
   window.removeEventListener('uploadError', uploadErrorHandler)
+  if (onGlobalKeydown) {
+    window.removeEventListener('keydown', onGlobalKeydown)
+  }
   if (dragLeaveTimeout) {
     clearTimeout(dragLeaveTimeout)
   }
@@ -718,63 +731,72 @@ onUnmounted(() => {
             class="flex h-full w-full flex-1 flex-col gap-4 min-h-0"
           >
             <!-- Album Name Input State (Modal Dialog with Scrim & Spatial Spring) -->
-            <Transition name="m3-dialog-modal">
-              <div
-                v-if="showAlbumInput"
-                class="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-xs p-4"
-                style="--wails-draggable: none"
-              >
+            <Teleport to="body">
+              <Transition name="m3-dialog-modal">
                 <div
-                  class="m3-dialog-card flex w-full max-w-md flex-col items-center justify-center gap-5 rounded-[32px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container)] p-8 text-center shadow-2xl"
+                  v-if="showAlbumInput"
+                  class="fixed inset-0 z-50 grid place-items-center bg-black/65 backdrop-blur-xs p-4 select-none overflow-y-auto"
+                  style="--wails-draggable: none"
+                  @click.self="cancelAlbumUpload"
                 >
-                  <div class="flex size-16 items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
-                    <FolderPlus class="size-8" />
-                  </div>
-                  <div class="flex flex-col gap-1">
-                    <h2 class="text-xl font-bold text-[var(--md-sys-color-on-surface)] select-none">
-                      Upload to Album
-                    </h2>
-                    <p class="text-xs text-[var(--md-sys-color-on-surface-variant)] select-none">
-                      {{ pendingFileCount }} file(s) selected for upload
-                    </p>
-                  </div>
+                  <div
+                    class="m3-dialog-card relative flex w-full max-w-md flex-col items-center justify-center gap-5 rounded-[32px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container)] p-8 text-center shadow-2xl"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="album-dialog-title"
+                  >
+                    <div class="flex size-16 items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
+                      <FolderPlus class="size-8" />
+                    </div>
+                    <div class="flex flex-col gap-1">
+                      <h2
+                        id="album-dialog-title"
+                        class="text-xl font-bold text-[var(--md-sys-color-on-surface)] select-none"
+                      >
+                        Upload to Album
+                      </h2>
+                      <p class="text-xs text-[var(--md-sys-color-on-surface-variant)] select-none">
+                        {{ pendingFileCount }} file(s) selected for upload
+                      </p>
+                    </div>
 
-                  <div class="flex w-full flex-col gap-2 text-left">
-                    <Label
-                      for="album-input"
-                      class="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)]"
-                    >
-                      Album name or key
-                    </Label>
-                    <Input
-                      id="album-input"
-                      v-model="albumNameOrKey"
-                      placeholder="e.g. Vacation 2026 or AF1Qip... key"
-                      autofocus
-                      class="h-11 rounded-2xl bg-[var(--md-sys-color-surface-container-high)] px-4 text-sm border-[var(--md-sys-color-outline-variant)]"
-                      @keydown.enter="confirmAlbumUpload"
-                    />
-                  </div>
+                    <div class="flex w-full flex-col gap-2 text-left">
+                      <Label
+                        for="album-input"
+                        class="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)]"
+                      >
+                        Album name or key
+                      </Label>
+                      <Input
+                        id="album-input"
+                        v-model="albumNameOrKey"
+                        placeholder="e.g. Vacation 2026 or AF1Qip... key"
+                        autofocus
+                        class="h-11 rounded-2xl bg-[var(--md-sys-color-surface-container-high)] px-4 text-sm border-[var(--md-sys-color-outline-variant)]"
+                        @keydown.enter="confirmAlbumUpload"
+                      />
+                    </div>
 
-                  <div class="flex gap-3 mt-1">
-                    <Button
-                      variant="outline"
-                      class="rounded-full px-6 text-xs h-10 cursor-pointer select-none"
-                      @click="cancelAlbumUpload"
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      class="rounded-full px-7 text-xs h-10 cursor-pointer select-none bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)]"
-                      :disabled="!albumNameOrKey.trim()"
-                      @click="confirmAlbumUpload"
-                    >
-                      Start Upload
-                    </Button>
+                    <div class="flex gap-3 mt-1">
+                      <Button
+                        variant="outline"
+                        class="rounded-full px-6 text-xs h-10 cursor-pointer select-none"
+                        @click="cancelAlbumUpload"
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        class="rounded-full px-7 text-xs h-10 cursor-pointer select-none bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)]"
+                        :disabled="!albumNameOrKey.trim()"
+                        @click="confirmAlbumUpload"
+                      >
+                        Start Upload
+                      </Button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            </Transition>
+              </Transition>
+            </Teleport>
 
             <div
               class="flex h-full w-full flex-1 flex-col gap-4 min-h-0"
@@ -860,12 +882,14 @@ onUnmounted(() => {
       @account-added="refreshCredentials"
     />
 
-    <Toaster
-      position="bottom-center"
-      rich-colors
-      expand
-      :visible-toasts="4"
-    />
+    <Teleport to="body">
+      <Toaster
+        position="bottom-center"
+        rich-colors
+        expand
+        :visible-toasts="4"
+      />
+    </Teleport>
 
     <DevMockBar />
   </main>
