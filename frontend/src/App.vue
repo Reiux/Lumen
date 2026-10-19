@@ -25,6 +25,7 @@ import Upload from './Upload.vue'
 import UploadResultsCard from './components/UploadResultsCard.vue'
 import DevMockBar from './components/DevMockBar.vue'
 import Toaster from './components/ui/sonner/Sonner.vue'
+import AppLaunchSplash from './components/AppLaunchSplash.vue'
 import { uploadManager } from './utils/UploadManager'
 import { mockState } from './utils/mockMode'
 import {
@@ -61,6 +62,19 @@ const tokenBindingEmail = ref('')
 const isExtractingTokenBinding = ref(false)
 const isAccountSetupOpen = ref(false)
 const removingAccount = ref('')
+const isSettling = ref(false)
+const isSplashActive = ref(typeof window !== 'undefined' && !(window as unknown as { __LUMEN_LAUNCHED__?: boolean }).__LUMEN_LAUNCHED__)
+
+function onLaunchSettle() {
+  isSettling.value = true
+  setTimeout(() => {
+    isSettling.value = false
+  }, 1000)
+}
+
+function onLaunchFinish() {
+  isSplashActive.value = false
+}
 
 const displayOptions = computed(() => {
   if (import.meta.env.DEV && mockState.enabled) {
@@ -444,7 +458,11 @@ onUnmounted(() => {
       >
         <!-- App Header / Branding -->
         <div class="flex items-center gap-2.5 px-2 pt-1 pb-2">
-          <div class="flex size-9 items-center justify-center rounded-xl bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] shadow-sm">
+          <div
+            id="sidebar-app-logo"
+            class="flex size-9 items-center justify-center rounded-xl bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] shadow-sm transition-opacity duration-150"
+            :class="isSplashActive ? 'opacity-0' : 'opacity-100'"
+          >
             <SunMedium class="size-5" />
           </div>
           <div class="flex flex-col">
@@ -454,7 +472,11 @@ onUnmounted(() => {
         </div>
 
         <!-- Profile Card -->
-        <div class="relative flex flex-col items-center rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-4 text-center shadow-xs">
+        <div
+          class="relative flex flex-col items-center rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-4 text-center shadow-xs"
+          :class="isSettling && 'm3-launch-settle'"
+          :style="isSettling ? { '--settle-index': 0 } : undefined"
+        >
           <input
             ref="avatarFileInput"
             type="file"
@@ -530,6 +552,8 @@ onUnmounted(() => {
         <!-- Navigation Items -->
         <nav
           class="flex flex-col gap-1.5 pt-1"
+          :class="isSettling && 'm3-launch-settle'"
+          :style="isSettling ? { '--settle-index': 1 } : undefined"
           aria-label="Sidebar Navigation"
         >
           <button
@@ -607,7 +631,8 @@ onUnmounted(() => {
     <!-- Main Content Area -->
     <section
       class="relative flex flex-1 h-full min-w-0 flex-col overflow-y-auto bg-[var(--md-sys-color-surface)] p-6"
-      style="--wails-draggable: drag"
+      :class="isSettling && 'm3-launch-settle'"
+      :style="isSettling ? { '--settle-index': 2, '--wails-draggable': 'drag' } : '--wails-draggable: drag'"
     >
       <Transition
         name="m3-fade-through"
@@ -890,6 +915,11 @@ onUnmounted(() => {
         :visible-toasts="4"
       />
     </Teleport>
+
+    <AppLaunchSplash
+      @settle="onLaunchSettle"
+      @finish="onLaunchFinish"
+    />
 
     <DevMockBar />
   </main>

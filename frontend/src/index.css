@@ -842,6 +842,11 @@ button.rounded-full:active:not(:disabled),
     animation: m3-fade-out-reduced 100ms ease forwards !important;
     transform: none !important;
   }
+
+  .m3-launch-settle {
+    animation: m3-fade-reduced 150ms ease forwards !important;
+    transform: none !important;
+  }
 }
 
 @keyframes m3-ripple-reduced {
@@ -868,5 +873,22 @@ button.rounded-full:active:not(:disabled),
   }
   to {
     opacity: 0;
+  }
+}
+
+/* App Launch Motion */
+.m3-launch-settle {
+  animation: m3-settle-in 350ms var(--md-sys-motion-easing-spatial) backwards;
+  animation-delay: calc(var(--settle-index, 0) * 30ms);
+}
+
+@keyframes m3-settle-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
