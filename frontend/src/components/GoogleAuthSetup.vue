@@ -254,10 +254,12 @@ async function addRawCredential() {
             <!-- Outlined Token Field with Floating Label & Paste Action -->
             <div class="flex flex-col gap-1">
               <div
-                class="relative rounded-2xl border bg-[var(--md-sys-color-surface-container-low)] transition-all focus-within:border-2"
-                :class="tokenError
-                  ? 'border-[var(--md-sys-color-error)] focus-within:border-[var(--md-sys-color-error)]'
-                  : 'border-[var(--md-sys-color-outline)] focus-within:border-[var(--md-sys-color-primary)]'"
+                class="m3-outlined-field relative rounded-2xl border bg-[var(--md-sys-color-surface-container-low)] transition-all focus-within:border-2"
+                :class="[
+                  tokenError
+                    ? 'border-[var(--md-sys-color-error)] focus-within:border-[var(--md-sys-color-error)] m3-field-error'
+                    : 'border-[var(--md-sys-color-outline)] focus-within:border-[var(--md-sys-color-primary)]',
+                ]"
               >
                 <input
                   id="google-oauth-token"
@@ -295,7 +297,7 @@ async function addRawCredential() {
               <!-- Visible validation error -->
               <p
                 v-if="tokenError"
-                class="px-2 text-xs font-medium text-[var(--md-sys-color-error)]"
+                class="m3-error-text px-2 text-xs font-medium text-[var(--md-sys-color-error)]"
               >
                 {{ tokenError }}
               </p>

@@ -10,6 +10,7 @@ import {
 } from '@lucide/vue'
 import { ConfigManager } from '../bindings/app/core'
 import M3Switch from './components/ui/M3Switch.vue'
+import M3Slider from './components/ui/M3Slider.vue'
 import Button from './components/ui/button/Button.vue'
 import {
   Tooltip,
@@ -196,29 +197,27 @@ watch(() => settings.value.uploadThreads, async (newValue) => {
                 {{ settings.uploadThreads }} {{ settings.uploadThreads === 1 ? 'thread' : 'threads' }}
               </span>
             </div>
-            <div class="flex items-center gap-3 pt-2">
+            <div class="flex items-center gap-3">
               <span class="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)]">1</span>
-              <input
-                v-model.number="settings.uploadThreads"
-                type="range"
-                min="1"
-                max="20"
-                class="h-2 w-full cursor-pointer appearance-none rounded-full bg-[var(--md-sys-color-surface-container-highest)] accent-[var(--md-sys-color-primary)] outline-none"
+              <M3Slider
+                v-model="settings.uploadThreads"
+                :min="1"
+                :max="20"
                 aria-label="Upload Threads slider"
-              >
+              />
               <span class="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)]">20</span>
             </div>
           </div>
 
           <!-- Proxy URL with Floating Label -->
           <div class="relative pt-2">
-            <div class="relative">
+            <div class="m3-outlined-field relative rounded-2xl border border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container-low)] transition-all focus-within:border-2 focus-within:border-[var(--md-sys-color-primary)]">
               <input
                 id="proxy-input"
                 v-model="settings.proxy"
                 type="text"
                 placeholder=" "
-                class="peer w-full rounded-2xl border border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container-low)] px-4 pt-5 pb-2 text-sm text-[var(--md-sys-color-on-surface)] outline-none transition-all focus:border-2 focus:border-[var(--md-sys-color-primary)]"
+                class="peer w-full rounded-2xl bg-transparent px-4 pt-5 pb-2 text-sm text-[var(--md-sys-color-on-surface)] outline-none"
               >
               <label
                 for="proxy-input"
