@@ -559,25 +559,40 @@ onUnmounted(() => {
         <!-- No account connected empty state -->
         <div
           v-else-if="options.length === 0"
-          class="flex h-full w-full flex-1 flex-col items-center justify-center text-center p-8"
+          class="flex h-full w-full flex-1 flex-col items-center justify-center text-center p-8 select-none"
           style="--wails-draggable: none"
         >
-          <div class="flex size-20 items-center justify-center rounded-full bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-primary)] mb-4 shadow-sm">
-            <UserPlus class="size-9" />
+          <div class="relative mb-6 flex size-28 items-center justify-center rounded-[36px] border border-[var(--md-sys-color-primary-container)]/60 bg-[var(--md-sys-color-primary-container)]/35 text-[var(--md-sys-color-primary)] shadow-sm transition-transform duration-300 hover:scale-105">
+            <UserPlus class="size-14" />
           </div>
-          <h1 class="text-2xl font-bold text-[var(--md-sys-color-on-surface)] select-none">
+          <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-[var(--md-sys-color-on-surface)] select-none">
             Connect Google Photos
           </h1>
-          <p class="mt-2 text-sm text-[var(--md-sys-color-on-surface-variant)] select-none max-w-sm">
-            Add your Google Photos account to start uploading photos, videos, and Live Photos seamlessly.
+          <p class="mt-3 text-sm leading-relaxed text-[var(--md-sys-color-on-surface-variant)] select-none max-w-md">
+            Sign in with your Google account to enable unlimited uploads, album synchronization, and Apple Live Photos pairing.
           </p>
+          <div class="mt-6 flex flex-wrap items-center justify-center gap-2">
+            <span class="rounded-full bg-[var(--md-sys-color-surface-container-high)] px-3.5 py-1 text-xs font-medium text-[var(--md-sys-color-on-surface-variant)] select-none">
+              Fast multithreaded uploads
+            </span>
+            <span class="rounded-full bg-[var(--md-sys-color-surface-container-high)] px-3.5 py-1 text-xs font-medium text-[var(--md-sys-color-on-surface-variant)] select-none">
+              Auto album organization
+            </span>
+            <span class="rounded-full bg-[var(--md-sys-color-surface-container-high)] px-3.5 py-1 text-xs font-medium text-[var(--md-sys-color-on-surface-variant)] select-none">
+              Original & Saver quality
+            </span>
+          </div>
           <Button
-            class="mt-6 h-11 rounded-full px-8 text-sm font-medium cursor-pointer select-none bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] hover:bg-[var(--md-sys-color-primary)]/90 shadow-sm"
+            class="mt-8 h-12 rounded-full px-8 text-sm font-semibold cursor-pointer select-none bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] hover:bg-[var(--md-sys-color-primary)]/90 shadow-md transition-all hover:scale-[1.02] active:scale-[0.98]"
+            aria-label="Add Google account"
             @click="openAccountSetup"
           >
-            <UserPlus class="size-4 mr-2" />
-            Add Google Account
+            <UserPlus class="size-4 mr-2.5 stroke-[2.5]" />
+            <span>Add Google Account</span>
           </Button>
+          <p class="mt-4 text-[11px] text-[var(--md-sys-color-on-surface-variant)]/60 select-none">
+            Credentials are stored locally in your system configuration.
+          </p>
         </div>
 
         <!-- Normal Drop View (with account connected) -->
