@@ -615,14 +615,18 @@ button.rounded-full:active:not(:disabled),
 
 /* Drop zone styling */
 .drop-zone {
-  transition: transform 220ms var(--md-motion-spring),
-              border-color 200ms ease,
-              background-color 200ms ease,
-              box-shadow 220ms ease;
+  border-radius: 36px;
+  transition: transform var(--md-sys-motion-spatial-fast),
+              border-radius var(--md-sys-motion-spatial),
+              border-color var(--md-sys-motion-effects),
+              background-color var(--md-sys-motion-effects),
+              box-shadow var(--md-sys-motion-effects);
 }
 
+.drop-zone:hover,
 .drop-zone.file-drop-target-active,
 .drop-zone.is-active {
+  border-radius: 44px;
   border-color: var(--md-sys-color-primary) !important;
   background-color: var(--md-sys-color-primary-container) !important;
   transform: scale(1.02);
@@ -634,6 +638,112 @@ button.rounded-full:active:not(:disabled),
 .drop-zone.is-active h2,
 .drop-zone.is-active p {
   color: var(--md-sys-color-on-primary-container) !important;
+}
+
+.drop-zone:hover svg,
+.drop-zone.file-drop-target-active svg,
+.drop-zone.is-active svg {
+  animation: m3-icon-bounce 450ms var(--md-sys-motion-easing-spatial);
+}
+
+@keyframes m3-icon-bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  40% {
+    transform: translateY(-8px) scale(1.1);
+  }
+  70% {
+    transform: translateY(2px) scale(0.96);
+  }
+}
+
+/* Staggered entry for 3 drop cards */
+.m3-drop-card {
+  animation: m3-card-stagger-in var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial) backwards;
+  animation-delay: calc(var(--card-index, 0) * 40ms);
+}
+
+@keyframes m3-card-stagger-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* M3 Pane Fade-Through Transition */
+.m3-fade-through-enter-active {
+  animation: m3-fade-through-in 300ms var(--md-sys-motion-easing-spatial) forwards;
+}
+
+.m3-fade-through-leave-active {
+  animation: m3-fade-through-out 150ms var(--md-sys-motion-easing-effects) forwards;
+}
+
+@keyframes m3-fade-through-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes m3-fade-through-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+/* Staggered thread cards entry */
+.m3-thread-card {
+  animation: m3-thread-enter var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial) backwards;
+  animation-delay: calc(var(--thread-index, 0) * 35ms);
+  transition: border-color var(--md-sys-motion-effects),
+              background-color var(--md-sys-motion-effects);
+}
+
+@keyframes m3-thread-enter {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Results stat cards staggered entry */
+.m3-stat-card-1 {
+  animation: m3-stat-card-in var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial) backwards;
+}
+
+.m3-stat-card-2 {
+  animation: m3-stat-card-in var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial) backwards;
+  animation-delay: 80ms;
+}
+
+@keyframes m3-stat-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 /* Reduced motion preference */

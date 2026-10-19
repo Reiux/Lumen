@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { AlertTriangle, Clock, FolderPlus, X, Zap } from '@lucide/vue'
 import { uploadManager } from './utils/UploadManager'
 import ThreadProgress from './components/ThreadProgress.vue'
@@ -13,6 +13,33 @@ const { state } = uploadManager
 const elapsedSeconds = ref(0)
 let elapsedInterval: ReturnType<typeof setInterval> | null = null
 
+// Smooth count tween for uploaded files
+const displayUploadedFiles = ref(state.uploadedFiles)
+let countAnimationId: number | null = null
+
+watch(() => state.uploadedFiles, (newVal) => {
+  if (countAnimationId) cancelAnimationFrame(countAnimationId)
+  const startVal = displayUploadedFiles.value
+  const diff = newVal - startVal
+  if (diff === 0) return
+  const startTime = performance.now()
+  const duration = 250 // ms
+
+  function step(now: number) {
+    const elapsed = now - startTime
+    const progress = Math.min(elapsed / duration, 1)
+    // ease-out cubic
+    const ease = 1 - Math.pow(1 - progress, 3)
+    displayUploadedFiles.value = Math.round(startVal + diff * ease)
+    if (progress < 1) {
+      countAnimationId = requestAnimationFrame(step)
+    } else {
+      displayUploadedFiles.value = newVal
+    }
+  }
+  countAnimationId = requestAnimationFrame(step)
+})
+
 onMounted(() => {
   elapsedInterval = setInterval(() => {
     if (state.startTime > 0) {
@@ -24,6 +51,9 @@ onMounted(() => {
 onUnmounted(() => {
   if (elapsedInterval) {
     clearInterval(elapsedInterval)
+  }
+  if (countAnimationId) {
+    cancelAnimationFrame(countAnimationId)
   }
 })
 
@@ -100,7 +130,7 @@ async function handleCancel() {
         <div class="flex flex-col">
           <div class="flex items-baseline gap-2">
             <span class="text-4xl sm:text-5xl font-extrabold tracking-tight tabular-nums text-[var(--md-sys-color-on-surface)]">
-              {{ state.uploadedFiles }}
+              {{ displayUploadedFiles }}
             </span>
             <span class="text-2xl sm:text-3xl font-normal text-[var(--md-sys-color-on-surface-variant)]">
               / {{ state.totalFiles }}
@@ -215,9 +245,11 @@ async function handleCancel() {
       <ScrollArea class="flex-1 pr-2">
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 pb-4">
           <ThreadProgress
-            v-for="thread in threadsList"
+            v-for="(thread, index) in threadsList"
             :key="thread.WorkerID"
             :thread="thread"
+            class="m3-thread-card"
+            :style="{ '--thread-index': index }"
           />
         </div>
       </ScrollArea>
