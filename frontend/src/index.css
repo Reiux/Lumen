@@ -490,26 +490,26 @@ button.rounded-full:active:not(:disabled),
 @keyframes m3-dialog-enter {
   from {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(0.9);
+    transform: scale(0.92);
   }
   to {
     opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
+    transform: scale(1);
   }
 }
 
 @keyframes m3-dialog-exit {
   from {
     opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
+    transform: scale(1);
   }
   to {
     opacity: 0;
-    transform: translate(-50%, -50%) scale(0.95);
+    transform: scale(0.95);
   }
 }
 
-/* Modal transition for Vue transitions (Album Prompt) */
+/* Modal transition for Vue transitions (Google Auth & Album Prompt) */
 .m3-dialog-modal-enter-active .m3-dialog-card {
   animation: m3-dialog-card-enter var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial) forwards;
 }
@@ -521,7 +521,7 @@ button.rounded-full:active:not(:disabled),
 @keyframes m3-dialog-card-enter {
   from {
     opacity: 0;
-    transform: scale(0.9);
+    transform: scale(0.92);
   }
   to {
     opacity: 1;
