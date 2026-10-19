@@ -521,38 +521,66 @@ onUnmounted(() => {
         >
           <button
             type="button"
-            class="m3-nav-item flex h-11 w-full cursor-pointer items-center gap-3.5 px-4 text-sm font-medium transition-all"
-            :class="activeTab === 'upload'
-              ? 'is-selected bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)] font-semibold shadow-xs'
-              : 'text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-on-surface)]'"
+            class="m3-nav-item group relative flex h-11 w-full cursor-pointer items-center gap-3.5 px-4 text-sm font-medium transition-all"
+            :class="activeTab === 'upload' ? 'is-selected font-semibold' : 'hover:bg-[var(--md-sys-color-surface-container-high)]/60'"
             aria-label="Upload view"
             @click="activeTab = 'upload'"
           >
-            <CloudUpload class="size-5 shrink-0 transition-transform duration-200" />
-            <span>Upload</span>
+            <span
+              class="m3-nav-indicator absolute inset-0 rounded-full bg-[var(--md-sys-color-secondary-container)] shadow-xs pointer-events-none"
+              :class="activeTab === 'upload' ? 'scale-x-100 opacity-100' : 'scale-x-0 opacity-0'"
+            />
+            <CloudUpload
+              class="relative z-10 size-5 shrink-0 transition-colors duration-200"
+              :class="activeTab === 'upload'
+                ? 'text-[var(--md-sys-color-on-secondary-container)]'
+                : 'text-[var(--md-sys-color-on-surface-variant)] group-hover:text-[var(--md-sys-color-on-surface)]'"
+            />
+            <span
+              class="relative z-10 transition-colors duration-200"
+              :class="activeTab === 'upload'
+                ? 'text-[var(--md-sys-color-on-secondary-container)]'
+                : 'text-[var(--md-sys-color-on-surface-variant)] group-hover:text-[var(--md-sys-color-on-surface)]'"
+            >
+              Upload
+            </span>
           </button>
 
           <button
             type="button"
-            class="m3-nav-item flex h-11 w-full cursor-pointer items-center gap-3.5 px-4 text-sm font-medium transition-all"
-            :class="activeTab === 'settings'
-              ? 'is-selected bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)] font-semibold shadow-xs'
-              : 'text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-on-surface)]'"
+            class="m3-nav-item group relative flex h-11 w-full cursor-pointer items-center gap-3.5 px-4 text-sm font-medium transition-all"
+            :class="activeTab === 'settings' ? 'is-selected font-semibold' : 'hover:bg-[var(--md-sys-color-surface-container-high)]/60'"
             aria-label="Settings view"
             @click="activeTab = 'settings'"
           >
-            <Settings2 class="size-5 shrink-0 transition-transform duration-200" />
-            <span>Settings</span>
+            <span
+              class="m3-nav-indicator absolute inset-0 rounded-full bg-[var(--md-sys-color-secondary-container)] shadow-xs pointer-events-none"
+              :class="activeTab === 'settings' ? 'scale-x-100 opacity-100' : 'scale-x-0 opacity-0'"
+            />
+            <Settings2
+              class="relative z-10 size-5 shrink-0 transition-colors duration-200"
+              :class="activeTab === 'settings'
+                ? 'text-[var(--md-sys-color-on-secondary-container)]'
+                : 'text-[var(--md-sys-color-on-surface-variant)] group-hover:text-[var(--md-sys-color-on-surface)]'"
+            />
+            <span
+              class="relative z-10 transition-colors duration-200"
+              :class="activeTab === 'settings'
+                ? 'text-[var(--md-sys-color-on-secondary-container)]'
+                : 'text-[var(--md-sys-color-on-surface-variant)] group-hover:text-[var(--md-sys-color-on-surface)]'"
+            >
+              Settings
+            </span>
           </button>
 
           <button
             type="button"
-            class="m3-nav-item flex h-11 w-full cursor-pointer items-center gap-3.5 px-4 text-sm font-medium text-[var(--md-sys-color-on-surface-variant)] transition-all hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-on-surface)]"
+            class="m3-nav-item group relative flex h-11 w-full cursor-pointer items-center gap-3.5 px-4 text-sm font-medium text-[var(--md-sys-color-on-surface-variant)] transition-all hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-on-surface)]"
             aria-label="Manage accounts"
             @click="openAccountSetup"
           >
-            <UserPlus class="size-5 shrink-0 transition-transform duration-200" />
-            <span>Accounts</span>
+            <UserPlus class="relative z-10 size-5 shrink-0 transition-transform duration-200" />
+            <span class="relative z-10">Accounts</span>
           </button>
         </nav>
       </div>
@@ -681,60 +709,66 @@ onUnmounted(() => {
           v-else
           class="flex h-full w-full flex-1 flex-col gap-4 min-h-0"
         >
-          <!-- Album Name Input State -->
+          <!-- Album Name Input State (Modal Dialog with Scrim & Spatial Spring) -->
+          <Transition name="m3-dialog-modal">
+            <div
+              v-if="showAlbumInput"
+              class="fixed inset-0 z-50 flex items-center justify-center bg-black/65 backdrop-blur-xs p-4"
+              style="--wails-draggable: none"
+            >
+              <div
+                class="m3-dialog-card flex w-full max-w-md flex-col items-center justify-center gap-5 rounded-[32px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container)] p-8 text-center shadow-2xl"
+              >
+                <div class="flex size-16 items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
+                  <FolderPlus class="size-8" />
+                </div>
+                <div class="flex flex-col gap-1">
+                  <h2 class="text-xl font-bold text-[var(--md-sys-color-on-surface)] select-none">
+                    Upload to Album
+                  </h2>
+                  <p class="text-xs text-[var(--md-sys-color-on-surface-variant)] select-none">
+                    {{ pendingFileCount }} file(s) selected for upload
+                  </p>
+                </div>
+
+                <div class="flex w-full flex-col gap-2 text-left">
+                  <Label
+                    for="album-input"
+                    class="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)]"
+                  >
+                    Album name or key
+                  </Label>
+                  <Input
+                    id="album-input"
+                    v-model="albumNameOrKey"
+                    placeholder="e.g. Vacation 2026 or AF1Qip... key"
+                    autofocus
+                    class="h-11 rounded-2xl bg-[var(--md-sys-color-surface-container-high)] px-4 text-sm border-[var(--md-sys-color-outline-variant)]"
+                    @keydown.enter="confirmAlbumUpload"
+                  />
+                </div>
+
+                <div class="flex gap-3 mt-1">
+                  <Button
+                    variant="outline"
+                    class="rounded-full px-6 text-xs h-10 cursor-pointer select-none"
+                    @click="cancelAlbumUpload"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    class="rounded-full px-7 text-xs h-10 cursor-pointer select-none bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)]"
+                    :disabled="!albumNameOrKey.trim()"
+                    @click="confirmAlbumUpload"
+                  >
+                    Start Upload
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </Transition>
+
           <div
-            v-if="showAlbumInput"
-            class="m-auto flex w-full max-w-md flex-col items-center justify-center gap-5 rounded-[32px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-8 text-center shadow-xl"
-            style="--wails-draggable: none"
-          >
-            <div class="flex size-16 items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
-              <FolderPlus class="size-8" />
-            </div>
-            <div class="flex flex-col gap-1">
-              <h2 class="text-xl font-bold text-[var(--md-sys-color-on-surface)] select-none">
-                Upload to Album
-              </h2>
-              <p class="text-xs text-[var(--md-sys-color-on-surface-variant)] select-none">
-                {{ pendingFileCount }} file(s) selected for upload
-              </p>
-            </div>
-
-            <div class="flex w-full flex-col gap-2 text-left">
-              <Label
-                for="album-input"
-                class="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)]"
-              >
-                Album name or key
-              </Label>
-              <Input
-                id="album-input"
-                v-model="albumNameOrKey"
-                placeholder="e.g. Vacation 2026 or AF1Qip... key"
-                autofocus
-                class="h-11 rounded-2xl bg-[var(--md-sys-color-surface-container-high)] px-4 text-sm border-[var(--md-sys-color-outline-variant)]"
-              />
-            </div>
-
-            <div class="flex gap-3 mt-1">
-              <Button
-                variant="outline"
-                class="rounded-full px-6 text-xs h-10 cursor-pointer select-none"
-                @click="cancelAlbumUpload"
-              >
-                Cancel
-              </Button>
-              <Button
-                class="rounded-full px-7 text-xs h-10 cursor-pointer select-none bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)]"
-                :disabled="!albumNameOrKey.trim()"
-                @click="confirmAlbumUpload"
-              >
-                Start Upload
-              </Button>
-            </div>
-          </div>
-
-          <div
-            v-else
             class="flex h-full w-full flex-1 flex-col gap-4 min-h-0"
           >
             <!-- Token binding alert banner if needed -->

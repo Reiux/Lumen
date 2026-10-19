@@ -392,6 +392,222 @@ button.rounded-full:active:not(:disabled),
   transform: scale(0.96);
 }
 
+/* Navigation rail active indicator pill */
+.m3-nav-indicator {
+  transform-origin: center center;
+  transition: transform var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial),
+              opacity var(--md-sys-motion-duration-effects) var(--md-sys-motion-easing-effects);
+}
+
+.m3-nav-item:active .m3-nav-indicator {
+  transform: scale(0.95) !important;
+  transition-duration: var(--md-sys-motion-duration-spatial-fast) !important;
+}
+
+/* M3 Menus / Dropdowns: open with scale-Y from anchor point plus fade (spatial spring) */
+[data-slot="select-content"][data-state="open"] {
+  transform-origin: var(--reka-popper-transform-origin, top center);
+  animation: m3-menu-open var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial) forwards;
+}
+
+[data-slot="select-content"][data-state="closed"] {
+  animation: m3-menu-close var(--md-sys-motion-duration-effects-fast) var(--md-sys-motion-easing-effects) forwards;
+}
+
+@keyframes m3-menu-open {
+  from {
+    opacity: 0;
+    transform: scaleY(0.7) scaleX(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1) scaleX(1);
+  }
+}
+
+@keyframes m3-menu-close {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+
+/* Staggered items in select menu */
+[data-slot="select-content"] [role="option"] {
+  animation: m3-item-fade-in var(--md-sys-motion-duration-effects) var(--md-sys-motion-easing-effects) backwards;
+}
+[data-slot="select-content"] [role="option"]:nth-child(1) { animation-delay: 20ms; }
+[data-slot="select-content"] [role="option"]:nth-child(2) { animation-delay: 40ms; }
+[data-slot="select-content"] [role="option"]:nth-child(3) { animation-delay: 60ms; }
+[data-slot="select-content"] [role="option"]:nth-child(4) { animation-delay: 80ms; }
+[data-slot="select-content"] [role="option"]:nth-child(5) { animation-delay: 100ms; }
+[data-slot="select-content"] [role="option"]:nth-child(n+6) { animation-delay: 120ms; }
+
+@keyframes m3-item-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* M3 Dialog Scrim & Dialog Content */
+[data-state="open"].m3-dialog-overlay,
+.m3-dialog-modal-enter-active {
+  animation: m3-scrim-in var(--md-sys-motion-duration-effects) var(--md-sys-motion-easing-effects) forwards;
+}
+
+[data-state="closed"].m3-dialog-overlay,
+.m3-dialog-modal-leave-active {
+  animation: m3-scrim-out var(--md-sys-motion-duration-effects-fast) var(--md-sys-motion-easing-effects) forwards;
+}
+
+@keyframes m3-scrim-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes m3-scrim-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+[data-state="open"].m3-dialog-content {
+  animation: m3-dialog-enter var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial) forwards;
+}
+
+[data-state="closed"].m3-dialog-content {
+  animation: m3-dialog-exit var(--md-sys-motion-duration-effects-fast) var(--md-sys-motion-easing-effects) forwards;
+}
+
+@keyframes m3-dialog-enter {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes m3-dialog-exit {
+  from {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.95);
+  }
+}
+
+/* Modal transition for Vue transitions (Album Prompt) */
+.m3-dialog-modal-enter-active .m3-dialog-card {
+  animation: m3-dialog-card-enter var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial) forwards;
+}
+
+.m3-dialog-modal-leave-active .m3-dialog-card {
+  animation: m3-dialog-card-exit var(--md-sys-motion-duration-effects-fast) var(--md-sys-motion-easing-effects) forwards;
+}
+
+@keyframes m3-dialog-card-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes m3-dialog-card-exit {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+
+/* M3 Snackbars / Toasts: slide up with a spring and fade out on dismiss */
+[data-sonner-toast] {
+  transition: transform var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial),
+              opacity var(--md-sys-motion-duration-effects) var(--md-sys-motion-easing-effects) !important;
+  border-radius: 20px !important;
+}
+
+[data-sonner-toast][data-mounted="true"] {
+  animation: m3-toast-slide-up var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial) forwards;
+}
+
+[data-sonner-toast][data-removed="true"] {
+  animation: m3-toast-fade-out var(--md-sys-motion-duration-effects-fast) var(--md-sys-motion-easing-effects) forwards !important;
+}
+
+@keyframes m3-toast-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(24px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes m3-toast-fade-out {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(8px) scale(0.95);
+  }
+}
+
+/* M3 Elevation and Card Interaction */
+.m3-card-interactive {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  transition: transform var(--md-sys-motion-spatial-fast),
+              border-radius var(--md-sys-motion-spatial),
+              background-color var(--md-sys-motion-effects),
+              box-shadow var(--md-sys-motion-effects);
+}
+
+.m3-card-interactive::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background-color: var(--md-sys-color-on-surface);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 0;
+  transition: opacity var(--md-sys-motion-effects-fast);
+}
+
+.m3-card-interactive:hover::before {
+  opacity: 0.04;
+}
+
+.m3-card-interactive:active {
+  transform: scale(0.99) !important;
+}
+
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--md-sys-color-surface-container-highest) transparent;
