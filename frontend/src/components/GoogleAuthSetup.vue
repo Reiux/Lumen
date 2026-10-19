@@ -163,11 +163,11 @@ async function addRawCredential() {
   <DialogRoot v-model:open="isOpen">
     <DialogPortal>
       <!-- Backdrop overlay -->
-      <DialogOverlay class="fixed inset-0 z-50 bg-black/65 backdrop-blur-xs transition-opacity duration-200" />
+      <DialogOverlay class="m3-dialog-overlay fixed inset-0 z-50 bg-black/65 backdrop-blur-xs" />
 
       <!-- Centered M3 Modal Dialog -->
       <DialogContent
-        class="fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-[32px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container)] p-6 shadow-2xl outline-none max-h-[90vh] overflow-y-auto select-none"
+        class="m3-dialog-content fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-[32px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container)] p-6 shadow-2xl outline-none max-h-[90vh] overflow-y-auto select-none"
         style="--wails-draggable: none"
       >
         <!-- Header -->
