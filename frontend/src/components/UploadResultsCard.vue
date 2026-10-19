@@ -31,6 +31,10 @@ const displayFail = ref(props.results.fail.length)
 let animFrames: number[] = []
 
 function animateNumber(target: number, currentRef: Ref<number>, duration = 400) {
+  if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) {
+    currentRef.value = target
+    return
+  }
   const start = currentRef.value
   const diff = target - start
   if (diff === 0) return

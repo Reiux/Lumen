@@ -748,12 +748,125 @@ button.rounded-full:active:not(:disabled),
 
 /* Reduced motion preference */
 @media (prefers-reduced-motion: reduce) {
+  :root {
+    --md-sys-motion-duration-spatial: 100ms;
+    --md-sys-motion-duration-spatial-fast: 80ms;
+    --md-sys-motion-duration-spatial-slow: 120ms;
+    --md-sys-motion-duration-effects: 100ms;
+    --md-sys-motion-duration-effects-fast: 80ms;
+    --md-sys-motion-duration-effects-slow: 120ms;
+    --md-sys-motion-easing-spatial: ease;
+    --md-sys-motion-easing-effects: ease;
+    --md-sys-motion-spatial: 100ms ease;
+    --md-sys-motion-spatial-fast: 80ms ease;
+    --md-sys-motion-spatial-slow: 120ms ease;
+    --md-sys-motion-effects: 100ms ease;
+    --md-sys-motion-effects-fast: 80ms ease;
+    --md-sys-motion-effects-slow: 120ms ease;
+  }
+
+  /* Disable all animation delays and transition delays to eliminate staggers */
   *,
   ::before,
   ::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    transition-delay: 0s !important;
     scroll-behavior: auto !important;
+  }
+
+  /* Disable transforms, scale bounces, and shape morphs */
+  .m3-btn-morph:active,
+  button.rounded-full:active:not(:disabled),
+  .rounded-full.cursor-pointer:active:not(:disabled),
+  .m3-interactive.rounded-full:active:not(:disabled),
+  .m3-card-interactive:active,
+  .drop-zone:hover,
+  .drop-zone.file-drop-target-active,
+  .drop-zone.is-active {
+    transform: none !important;
+  }
+
+  /* Drop zone icon bounce disabled */
+  .drop-zone:hover svg,
+  .drop-zone.file-drop-target-active svg,
+  .drop-zone.is-active svg {
+    animation: none !important;
+    transform: none !important;
+  }
+
+  /* Text field error shake disabled */
+  .m3-field-error {
+    animation: none !important;
+  }
+
+  /* Ripples in reduced-motion: quick subtle opacity fade without scale transform */
+  .m3-ripple {
+    animation: m3-ripple-reduced 100ms ease forwards !important;
+    transform: none !important;
+  }
+
+  /* Fallback keyframes to simple opacity fades (~100ms) */
+  .m3-drop-card,
+  .m3-thread-card,
+  .m3-stat-card-1,
+  .m3-stat-card-2 {
+    animation: m3-fade-reduced 100ms ease forwards !important;
+    transform: none !important;
+  }
+
+  .m3-fade-through-enter-active {
+    animation: m3-fade-reduced 100ms ease forwards !important;
+    transform: none !important;
+  }
+
+  .m3-fade-through-leave-active {
+    animation: m3-fade-out-reduced 100ms ease forwards !important;
+    transform: none !important;
+  }
+
+  .m3-dialog-modal-enter-active,
+  .m3-dialog-modal-leave-active,
+  .m3-dialog-modal-enter-active .m3-dialog-card,
+  .m3-dialog-modal-leave-active .m3-dialog-card {
+    transition: opacity 100ms ease !important;
+    animation: none !important;
+    transform: none !important;
+  }
+
+  [data-sonner-toast][data-mounted="true"] {
+    animation: m3-fade-reduced 100ms ease forwards !important;
+    transform: none !important;
+  }
+
+  [data-sonner-toast][data-removed="true"] {
+    animation: m3-fade-out-reduced 100ms ease forwards !important;
+    transform: none !important;
+  }
+}
+
+@keyframes m3-ripple-reduced {
+  0% {
+    opacity: 0.10;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes m3-fade-reduced {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes m3-fade-out-reduced {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
   }
 }

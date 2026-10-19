@@ -19,6 +19,10 @@ let countAnimationId: number | null = null
 
 watch(() => state.uploadedFiles, (newVal) => {
   if (countAnimationId) cancelAnimationFrame(countAnimationId)
+  if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) {
+    displayUploadedFiles.value = newVal
+    return
+  }
   const startVal = displayUploadedFiles.value
   const diff = newVal - startVal
   if (diff === 0) return
