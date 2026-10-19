@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
   Camera,
   CloudUpload,
@@ -23,8 +23,10 @@ import GoogleAuthSetup from './components/GoogleAuthSetup.vue'
 import SettingsPanel from './SettingsPanel.vue'
 import Upload from './Upload.vue'
 import UploadResultsCard from './components/UploadResultsCard.vue'
+import DevMockBar from './components/DevMockBar.vue'
 import Toaster from './components/ui/sonner/Sonner.vue'
 import { uploadManager } from './utils/UploadManager'
+import { mockState } from './utils/mockMode'
 import {
   displayNameFromEmail,
   getAvatarColor,
@@ -60,6 +62,29 @@ const isExtractingTokenBinding = ref(false)
 const isAccountSetupOpen = ref(false)
 const removingAccount = ref('')
 
+const displayOptions = computed(() => {
+  if (import.meta.env.DEV && mockState.enabled) {
+    return mockState.currentView === 'empty' ? [] : mockState.accounts
+  }
+  return options.value
+})
+
+const displaySelectedOption = computed({
+  get() {
+    if (import.meta.env.DEV && mockState.enabled) {
+      return mockState.currentView === 'empty' ? '' : mockState.account
+    }
+    return selectedOption.value
+  },
+  set(val: string) {
+    if (import.meta.env.DEV && mockState.enabled) {
+      mockState.account = val
+    } else {
+      selectedOption.value = val
+    }
+  },
+})
+
 // Avatar state
 const customAvatar = ref<string | null>(null)
 const avatarFileInput = ref<HTMLInputElement | null>(null)
@@ -84,6 +109,27 @@ watch(selectedOption, async (newValue) => {
     customAvatar.value = null
   }
 })
+
+watch(displaySelectedOption, (newValue) => {
+  if (newValue) {
+    updateCustomAvatar(newValue)
+  } else {
+    customAvatar.value = null
+  }
+})
+
+watch(
+  () => mockState.currentView,
+  (view) => {
+    if (!import.meta.env.DEV || !mockState.enabled) return
+    if (view === 'album') {
+      showAlbumInput.value = true
+      pendingFileCount.value = 3
+    } else {
+      showAlbumInput.value = false
+    }
+  }
+)
 
 async function updateTokenBindingPrompt(email: string) {
   tokenBindingEmail.value = accountNeedsTokenBinding.value[email] ? email : ''
@@ -118,6 +164,11 @@ async function refreshCredentials() {
 
 async function addTokenBindingAliasFromADB() {
   if (!tokenBindingEmail.value) return
+  if (import.meta.env.DEV && mockState.enabled) {
+    toast.success('Token binding key added.')
+    tokenBindingEmail.value = ''
+    return
+  }
 
   isExtractingTokenBinding.value = true
   try {
@@ -136,6 +187,15 @@ async function addTokenBindingAliasFromADB() {
 }
 
 async function removeCredentials(email: string) {
+  if (import.meta.env.DEV && mockState.enabled) {
+    mockState.accounts = mockState.accounts.filter((a) => a !== email)
+    if (mockState.account === email) {
+      mockState.account = mockState.accounts[0] || ''
+    }
+    toast.success('Credentials removed.')
+    return true
+  }
+
   removingAccount.value = email
   try {
     await ConfigManager.RemoveCredentials(email)
@@ -215,6 +275,16 @@ const onDrop = () => {
 
 // Album upload confirmation
 const confirmAlbumUpload = async () => {
+  if (import.meta.env.DEV && mockState.enabled) {
+    showAlbumInput.value = false
+    pendingFiles.value = []
+    pendingFileCount.value = 0
+    albumNameOrKey.value = ''
+    mockState.currentView = 'uploading'
+    uploadManager.state.isUploading = true
+    return
+  }
+
   await ConfigManager.SetAlbumName(albumNameOrKey.value)
   await ConfigManager.SetAlbumAutoMode(false)
   Events.Emit('startUpload', { files: pendingFiles.value })
@@ -259,11 +329,11 @@ const uploadErrorHandler = (e: Event) => {
 async function onAvatarFileSelected(event: Event) {
   const target = event.target as HTMLInputElement
   const file = target.files?.[0]
-  if (!file || !selectedOption.value) return
+  if (!file || !displaySelectedOption.value) return
 
   try {
     const resizedDataUrl = await processImageFile(file)
-    saveCustomAvatar(selectedOption.value, resizedDataUrl)
+    saveCustomAvatar(displaySelectedOption.value, resizedDataUrl)
     customAvatar.value = resizedDataUrl
     toast.success('Profile photo updated.')
   } catch (err) {
@@ -275,7 +345,7 @@ async function onAvatarFileSelected(event: Event) {
 }
 
 function triggerAvatarUpload() {
-  if (selectedOption.value && avatarFileInput.value) {
+  if (displaySelectedOption.value && avatarFileInput.value) {
     avatarFileInput.value.click()
   }
 }
@@ -301,6 +371,17 @@ onMounted(async () => {
 
   Events.On('files-dropped', async (event: { data: { files: string[]; dropZone: string } }) => {
     const { files, dropZone } = event.data
+
+    if (import.meta.env.DEV && mockState.enabled) {
+      if (dropZone === 'album') {
+        pendingFiles.value = files
+        pendingFileCount.value = files.length
+        showAlbumInput.value = true
+      } else {
+        mockState.currentView = 'uploading'
+      }
+      return
+    }
 
     if (dropZone === 'album') {
       pendingFiles.value = files
@@ -373,10 +454,10 @@ onUnmounted(() => {
           <div
             class="group relative mb-2.5 flex size-16 cursor-pointer items-center justify-center overflow-hidden rounded-full shadow-inner transition-transform hover:scale-105"
             :style="{
-              backgroundColor: customAvatar ? 'transparent' : getAvatarColor(selectedOption).bg,
-              color: getAvatarColor(selectedOption).text,
+              backgroundColor: customAvatar ? 'transparent' : getAvatarColor(displaySelectedOption).bg,
+              color: getAvatarColor(displaySelectedOption).text,
             }"
-            :title="selectedOption ? 'Click to change profile photo' : 'No account'"
+            :title="displaySelectedOption ? 'Click to change profile photo' : 'No account'"
             role="button"
             tabindex="0"
             aria-label="Change profile photo"
@@ -393,11 +474,11 @@ onUnmounted(() => {
               v-else
               class="text-xl font-bold tracking-tight"
             >
-              {{ getEmailInitial(selectedOption) }}
+              {{ getEmailInitial(displaySelectedOption) }}
             </span>
 
             <div
-              v-if="selectedOption"
+              v-if="displaySelectedOption"
               class="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 backdrop-blur-[2px] transition-opacity group-hover:opacity-100"
             >
               <Camera class="size-5 text-white" />
@@ -405,18 +486,18 @@ onUnmounted(() => {
           </div>
 
           <h3 class="max-w-[210px] truncate text-sm font-semibold text-[var(--md-sys-color-on-surface)]">
-            {{ selectedOption ? displayNameFromEmail(selectedOption) : 'No Account' }}
+            {{ displaySelectedOption ? displayNameFromEmail(displaySelectedOption) : 'No Account' }}
           </h3>
           <p class="max-w-[210px] truncate text-xs text-[var(--md-sys-color-on-surface-variant)]">
-            {{ selectedOption || 'Connect an account to upload' }}
+            {{ displaySelectedOption || 'Connect an account to upload' }}
           </p>
 
           <!-- Account switcher chip -->
           <div class="mt-3 w-full flex justify-center">
             <GoogleAccountSelect
-              v-if="options.length > 0"
-              v-model="selectedOption"
-              :options="options"
+              v-if="displayOptions.length > 0"
+              v-model="displaySelectedOption"
+              :options="displayOptions"
               :removing-account="removingAccount"
               @item-removed="removeCredentials"
               @add="openAccountSetup"
@@ -503,7 +584,7 @@ onUnmounted(() => {
 
         <!-- Dragging files: M3 Expressive responsive drop zones -->
         <div
-          v-else-if="isDraggingFiles && options.length > 0"
+          v-else-if="isDraggingFiles && displayOptions.length > 0"
           class="grid h-full w-full flex-1 grid-cols-1 md:grid-cols-3 gap-4"
           style="--wails-draggable: none"
         >
@@ -558,7 +639,7 @@ onUnmounted(() => {
 
         <!-- No account connected empty state -->
         <div
-          v-else-if="options.length === 0"
+          v-else-if="displayOptions.length === 0"
           class="flex h-full w-full flex-1 flex-col items-center justify-center text-center p-8 select-none"
           style="--wails-draggable: none"
         >
@@ -741,5 +822,7 @@ onUnmounted(() => {
       expand
       :visible-toasts="4"
     />
+
+    <DevMockBar />
   </main>
 </template>
