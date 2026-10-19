@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
+import type { Ref } from 'vue'
 import {
   AlertCircle,
   Check,
@@ -12,7 +13,7 @@ import {
 import type { UploadResults } from '../utils/uploadResults'
 import Button from './ui/button/Button.vue'
 
-defineProps<{
+const props = defineProps<{
   results: UploadResults
 }>()
 
@@ -23,6 +24,52 @@ const emit = defineEmits<{
 
 const showFailedList = ref(false)
 const copied = ref(false)
+
+const displaySuccess = ref(props.results.success.length)
+const displayFail = ref(props.results.fail.length)
+
+let animFrames: number[] = []
+
+function animateNumber(target: number, currentRef: Ref<number>, duration = 400) {
+  const start = currentRef.value
+  const diff = target - start
+  if (diff === 0) return
+  const startTime = performance.now()
+  function step(now: number) {
+    const elapsed = now - startTime
+    const progress = Math.min(elapsed / duration, 1)
+    const ease = 1 - Math.pow(1 - progress, 3)
+    currentRef.value = Math.round(start + diff * ease)
+    if (progress < 1) {
+      const id = requestAnimationFrame(step)
+      animFrames.push(id)
+    } else {
+      currentRef.value = target
+    }
+  }
+  const id = requestAnimationFrame(step)
+  animFrames.push(id)
+}
+
+onMounted(() => {
+  displaySuccess.value = 0
+  displayFail.value = 0
+  animateNumber(props.results.success.length, displaySuccess)
+  animateNumber(props.results.fail.length, displayFail)
+})
+
+onUnmounted(() => {
+  animFrames.forEach(id => cancelAnimationFrame(id))
+  animFrames = []
+})
+
+watch(() => props.results.success.length, (newVal) => {
+  animateNumber(newVal, displaySuccess)
+})
+
+watch(() => props.results.fail.length, (newVal) => {
+  animateNumber(newVal, displayFail)
+})
 
 function onCopyClick() {
   emit('copy')
@@ -48,21 +95,23 @@ function onCopyClick() {
 
       <!-- Action buttons -->
       <div class="flex items-center gap-2">
-        <!-- Tonal Copy as JSON Button with Icon -->
+        <!-- Tonal Copy as JSON Button with Icon morph -->
         <Button
           type="button"
-          class="h-9 rounded-full px-4 text-xs font-semibold shadow-xs cursor-pointer select-none bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container-highest)] border border-[var(--md-sys-color-outline-variant)]/40"
+          class="h-9 rounded-full px-4 text-xs font-semibold shadow-xs cursor-pointer select-none bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container-highest)] border border-[var(--md-sys-color-outline-variant)]/40 relative"
           aria-label="Copy results as JSON"
           @click="onCopyClick"
         >
-          <Check
-            v-if="copied"
-            class="size-3.5 mr-1.5 text-[var(--md-sys-color-tertiary)]"
-          />
-          <Copy
-            v-else
-            class="size-3.5 mr-1.5"
-          />
+          <div class="relative size-3.5 mr-1.5 shrink-0 flex items-center justify-center">
+            <Copy
+              class="size-3.5 absolute transition-all duration-200 ease-[var(--md-sys-motion-easing-spatial)]"
+              :class="copied ? 'scale-0 rotate-90 opacity-0' : 'scale-100 rotate-0 opacity-100'"
+            />
+            <Check
+              class="size-3.5 absolute text-[var(--md-sys-color-tertiary)] transition-all duration-200 ease-[var(--md-sys-motion-easing-spatial)]"
+              :class="copied ? 'scale-110 rotate-0 opacity-100' : 'scale-0 -rotate-90 opacity-0'"
+            />
+          </div>
           <span>{{ copied ? 'Copied JSON!' : 'Copy as JSON' }}</span>
         </Button>
 
@@ -83,13 +132,13 @@ function onCopyClick() {
     <!-- Two Stat Cards Side by Side -->
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <!-- Successful in Tertiary Container -->
-      <div class="flex items-center gap-4 rounded-[24px] border border-[var(--md-sys-color-tertiary)]/30 bg-[var(--md-sys-color-tertiary-container)] p-5 text-[var(--md-sys-color-on-tertiary-container)] shadow-xs">
+      <div class="m3-stat-card-1 flex items-center gap-4 rounded-[24px] border border-[var(--md-sys-color-tertiary)]/30 bg-[var(--md-sys-color-tertiary-container)] p-5 text-[var(--md-sys-color-on-tertiary-container)] shadow-xs">
         <div class="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--md-sys-color-on-tertiary-container)]/15">
           <CheckCircle2 class="size-6 text-[var(--md-sys-color-on-tertiary-container)]" />
         </div>
         <div class="flex flex-col min-w-0">
           <span class="text-3xl font-extrabold tabular-nums tracking-tight">
-            {{ results.success.length }}
+            {{ displaySuccess }}
           </span>
           <span class="text-xs font-semibold opacity-90 truncate">
             Successful Uploads
@@ -98,13 +147,13 @@ function onCopyClick() {
       </div>
 
       <!-- Failed in Error Container -->
-      <div class="flex items-center gap-4 rounded-[24px] border border-[var(--md-sys-color-error)]/30 bg-[var(--md-sys-color-error-container)] p-5 text-[var(--md-sys-color-on-error-container)] shadow-xs">
+      <div class="m3-stat-card-2 flex items-center gap-4 rounded-[24px] border border-[var(--md-sys-color-error)]/30 bg-[var(--md-sys-color-error-container)] p-5 text-[var(--md-sys-color-on-error-container)] shadow-xs">
         <div class="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--md-sys-color-on-error-container)]/15">
           <XCircle class="size-6 text-[var(--md-sys-color-on-error-container)]" />
         </div>
         <div class="flex flex-col min-w-0">
           <span class="text-3xl font-extrabold tabular-nums tracking-tight">
-            {{ results.fail.length }}
+            {{ displayFail }}
           </span>
           <span class="text-xs font-semibold opacity-90 truncate">
             Failed Uploads
@@ -139,22 +188,26 @@ function onCopyClick() {
           <span>View Failed Items ({{ results.fail.length }})</span>
         </div>
         <ChevronDown
-          class="size-4 transition-transform duration-200"
+          class="size-4 transition-transform duration-300 ease-[var(--md-sys-motion-easing-spatial)]"
           :class="showFailedList && 'rotate-180'"
         />
       </button>
 
       <div
-        v-if="showFailedList"
-        class="max-h-60 overflow-y-auto p-4 pt-0 space-y-2 border-t border-[var(--md-sys-color-outline-variant)]/20"
+        class="grid transition-[grid-template-rows] duration-300 ease-[var(--md-sys-motion-easing-spatial)]"
+        :style="{ gridTemplateRows: showFailedList ? '1fr' : '0fr' }"
       >
-        <div
-          v-for="(failItem, idx) in results.fail"
-          :key="idx"
-          class="flex items-start gap-2.5 rounded-xl bg-[var(--md-sys-color-surface-container-highest)]/50 p-2.5 text-xs text-[var(--md-sys-color-on-surface)]"
-        >
-          <XCircle class="size-4 shrink-0 text-[var(--md-sys-color-error)] mt-0.5" />
-          <span class="break-all font-mono text-[11px] leading-relaxed">{{ failItem }}</span>
+        <div class="min-h-0 overflow-hidden">
+          <div class="max-h-60 overflow-y-auto p-4 pt-0 space-y-2 border-t border-[var(--md-sys-color-outline-variant)]/20">
+            <div
+              v-for="(failItem, idx) in results.fail"
+              :key="idx"
+              class="flex items-start gap-2.5 rounded-xl bg-[var(--md-sys-color-surface-container-highest)]/50 p-2.5 text-xs text-[var(--md-sys-color-on-surface)]"
+            >
+              <XCircle class="size-4 shrink-0 text-[var(--md-sys-color-error)] mt-0.5" />
+              <span class="break-all font-mono text-[11px] leading-relaxed">{{ failItem }}</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>
