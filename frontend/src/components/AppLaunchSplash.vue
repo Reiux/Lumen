@@ -192,6 +192,13 @@ watch(launchReplayTrigger, () => {
 })
 
 onMounted(() => {
+  // Skip launch if ?nolaunch=1 switch is set
+  if (typeof document !== 'undefined' && document.documentElement.hasAttribute('data-nolaunch')) {
+    isVisible.value = false
+    emit('finish')
+    return
+  }
+
   // Check if already launched in this page session (e.g. Vite HMR update)
   const win = window as unknown as { __LUMEN_LAUNCHED__?: boolean }
   if (win.__LUMEN_LAUNCHED__) {
