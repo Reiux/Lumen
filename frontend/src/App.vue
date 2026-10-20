@@ -716,7 +716,7 @@ onUnmounted(() => {
             <div
               data-file-drop-target
               data-drop-zone="regular"
-              class="drop-zone m3-drop-card flex flex-col items-center justify-center rounded-[32px] border-2 border-dashed border-[var(--md-sys-color-outline-variant)]/60 bg-[var(--md-sys-color-surface-container)] p-6 text-center transition-[background-color,border-color,transform,box-shadow] duration-200 cursor-pointer"
+              class="drop-zone m3-drop-card flex flex-col items-center justify-center rounded-[32px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] p-6 text-center cursor-pointer shadow-xs"
               :style="{ '--card-index': 0 }"
             >
               <div class="mb-3 flex size-14 items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)] shadow-sm">
@@ -733,7 +733,7 @@ onUnmounted(() => {
             <div
               data-file-drop-target
               data-drop-zone="album"
-              class="drop-zone m3-drop-card flex flex-col items-center justify-center rounded-[32px] border-2 border-dashed border-[var(--md-sys-color-outline-variant)]/60 bg-[var(--md-sys-color-surface-container)] p-6 text-center transition-[background-color,border-color,transform,box-shadow] duration-200 cursor-pointer"
+              class="drop-zone m3-drop-card flex flex-col items-center justify-center rounded-[32px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] p-6 text-center cursor-pointer shadow-xs"
               :style="{ '--card-index': 1 }"
             >
               <div class="mb-3 flex size-14 items-center justify-center rounded-full bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)] shadow-sm">
@@ -750,7 +750,7 @@ onUnmounted(() => {
             <div
               data-file-drop-target
               data-drop-zone="auto-album"
-              class="drop-zone m3-drop-card flex flex-col items-center justify-center rounded-[32px] border-2 border-dashed border-[var(--md-sys-color-outline-variant)]/60 bg-[var(--md-sys-color-surface-container)] p-6 text-center transition-[background-color,border-color,transform,box-shadow] duration-200 cursor-pointer"
+              class="drop-zone m3-drop-card flex flex-col items-center justify-center rounded-[32px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] p-6 text-center cursor-pointer shadow-xs"
               :style="{ '--card-index': 2 }"
             >
               <div class="mb-3 flex size-14 items-center justify-center rounded-full bg-[var(--md-sys-color-tertiary-container)] text-[var(--md-sys-color-on-tertiary-container)] shadow-sm">
@@ -832,7 +832,7 @@ onUnmounted(() => {
             <div
               data-file-drop-target
               data-drop-zone="regular"
-              class="drop-zone group relative flex flex-1 w-full flex-col items-center justify-center rounded-[36px] border-2 border-dashed border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container-low)] p-10 text-center select-none shadow-xs"
+              class="drop-zone group relative flex flex-1 w-full min-h-[260px] flex-col items-center justify-center rounded-[32px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] p-8 md:p-10 text-center select-none shadow-xs"
               style="--wails-draggable: none"
             >
               <div class="relative mb-5 flex size-28 items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)]/40 text-[var(--md-sys-color-primary)] shadow-xs transition-transform duration-300 group-hover:scale-105">

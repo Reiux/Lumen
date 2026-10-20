@@ -653,7 +653,8 @@ button.rounded-full:active:not(:disabled),
 
 /* Drop zone styling */
 .drop-zone {
-  border-radius: 36px;
+  border-radius: 32px;
+  background-clip: padding-box;
   transition: transform var(--md-sys-motion-spatial-fast),
               border-radius var(--md-sys-motion-spatial),
               border-color var(--md-sys-motion-effects),
@@ -664,11 +665,11 @@ button.rounded-full:active:not(:disabled),
 .drop-zone:hover,
 .drop-zone.file-drop-target-active,
 .drop-zone.is-active {
-  border-radius: 44px;
+  border-radius: 48px;
   border-color: var(--md-sys-color-primary) !important;
   background-color: var(--md-sys-color-primary-container) !important;
-  transform: scale(1.02);
-  box-shadow: 0 0 24px -2px oklch(0.78 0.14 245 / 35%);
+  transform: scale(1.015);
+  box-shadow: 0 8px 32px -4px oklch(0.78 0.14 245 / 22%);
 }
 
 .drop-zone.file-drop-target-active h2,
