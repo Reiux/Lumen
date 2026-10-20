@@ -36,41 +36,41 @@
 }
 
 :root {
-  /* Material 3 Expressive Dark Tokens (Seed: Luminous Blue oklch(0.65 0.18 250)) */
-  --md-sys-color-primary: oklch(0.78 0.14 245);
-  --md-sys-color-on-primary: oklch(0.18 0.08 245);
-  --md-sys-color-primary-container: oklch(0.32 0.11 245);
-  --md-sys-color-on-primary-container: oklch(0.92 0.06 245);
+  /* Material 3 Expressive Dark Tokens (Saturated Seed: Electric Blue oklch(0.70 0.22 250)) */
+  --md-sys-color-primary: oklch(0.82 0.19 248);
+  --md-sys-color-on-primary: oklch(0.16 0.09 248);
+  --md-sys-color-primary-container: oklch(0.35 0.15 248);
+  --md-sys-color-on-primary-container: oklch(0.95 0.08 248);
 
-  --md-sys-color-secondary: oklch(0.76 0.06 230);
-  --md-sys-color-on-secondary: oklch(0.20 0.04 230);
-  --md-sys-color-secondary-container: oklch(0.28 0.05 230);
-  --md-sys-color-on-secondary-container: oklch(0.88 0.04 230);
+  --md-sys-color-secondary: oklch(0.80 0.10 220);
+  --md-sys-color-on-secondary: oklch(0.18 0.05 220);
+  --md-sys-color-secondary-container: oklch(0.32 0.08 220);
+  --md-sys-color-on-secondary-container: oklch(0.92 0.05 220);
 
-  --md-sys-color-tertiary: oklch(0.82 0.13 160);
-  --md-sys-color-on-tertiary: oklch(0.18 0.06 160);
-  --md-sys-color-tertiary-container: oklch(0.30 0.08 160);
-  --md-sys-color-on-tertiary-container: oklch(0.92 0.06 160);
+  --md-sys-color-tertiary: oklch(0.84 0.16 155);
+  --md-sys-color-on-tertiary: oklch(0.16 0.07 155);
+  --md-sys-color-tertiary-container: oklch(0.32 0.11 155);
+  --md-sys-color-on-tertiary-container: oklch(0.94 0.07 155);
 
-  --md-sys-color-error: oklch(0.74 0.19 25);
-  --md-sys-color-on-error: oklch(0.18 0.08 25);
-  --md-sys-color-error-container: oklch(0.34 0.12 25);
-  --md-sys-color-on-error-container: oklch(0.92 0.06 25);
+  --md-sys-color-error: oklch(0.76 0.21 25);
+  --md-sys-color-on-error: oklch(0.16 0.09 25);
+  --md-sys-color-error-container: oklch(0.35 0.14 25);
+  --md-sys-color-on-error-container: oklch(0.94 0.07 25);
 
-  /* Surface roles */
-  --md-sys-color-surface: oklch(0.15 0.015 245);
-  --md-sys-color-surface-dim: oklch(0.12 0.014 245);
-  --md-sys-color-surface-bright: oklch(0.24 0.020 245);
-  --md-sys-color-surface-container-lowest: oklch(0.10 0.012 245);
-  --md-sys-color-surface-container-low: oklch(0.18 0.018 245);
-  --md-sys-color-surface-container: oklch(0.22 0.020 245);
-  --md-sys-color-surface-container-high: oklch(0.26 0.022 245);
-  --md-sys-color-surface-container-highest: oklch(0.30 0.025 245);
+  /* Surface roles: distinctly differentiated tonal levels with subtle chroma */
+  --md-sys-color-surface: oklch(0.13 0.022 248);
+  --md-sys-color-surface-dim: oklch(0.10 0.018 248);
+  --md-sys-color-surface-bright: oklch(0.38 0.038 248);
+  --md-sys-color-surface-container-lowest: oklch(0.09 0.018 248);
+  --md-sys-color-surface-container-low: oklch(0.17 0.026 248);
+  --md-sys-color-surface-container: oklch(0.21 0.028 248);
+  --md-sys-color-surface-container-high: oklch(0.27 0.032 248);
+  --md-sys-color-surface-container-highest: oklch(0.34 0.036 248);
 
-  --md-sys-color-on-surface: oklch(0.94 0.010 245);
-  --md-sys-color-on-surface-variant: oklch(0.74 0.025 245);
-  --md-sys-color-outline: oklch(0.56 0.030 245);
-  --md-sys-color-outline-variant: oklch(0.30 0.020 245);
+  --md-sys-color-on-surface: oklch(0.95 0.012 248);
+  --md-sys-color-on-surface-variant: oklch(0.76 0.028 248);
+  --md-sys-color-outline: oklch(0.58 0.045 248);
+  --md-sys-color-outline-variant: oklch(0.34 0.030 248);
 
   /*
     Material 3 Expressive Spring Motion Tokens
