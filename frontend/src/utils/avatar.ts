@@ -1,10 +1,43 @@
+import { ref } from 'vue'
+
+export const nameUpdateCounter = ref(0)
+
 export function getEmailInitial(email: string): string {
   if (!email) return '?'
   return email.trim().charAt(0).toUpperCase()
 }
 
+export function getCustomDisplayName(email: string): string | null {
+  void nameUpdateCounter.value
+  if (!email) return null
+  try {
+    return localStorage.getItem(`lumen_name_${email.toLowerCase()}`) || null
+  } catch {
+    return null
+  }
+}
+
+export function saveCustomDisplayName(email: string, name: string): boolean {
+  if (!email) return false
+  try {
+    const trimmed = name.trim()
+    if (trimmed) {
+      localStorage.setItem(`lumen_name_${email.toLowerCase()}`, trimmed)
+    } else {
+      localStorage.removeItem(`lumen_name_${email.toLowerCase()}`)
+    }
+    nameUpdateCounter.value++
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function displayNameFromEmail(email: string): string {
+  void nameUpdateCounter.value
   if (!email) return 'Guest'
+  const custom = getCustomDisplayName(email)
+  if (custom) return custom
   const namePart = email.split('@')[0]
   if (!namePart) return email
   return namePart

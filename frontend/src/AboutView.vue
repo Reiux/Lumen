@@ -27,7 +27,7 @@ async function openRepo() {
     >
       <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
         <div class="flex items-center gap-5">
-          <div class="flex size-20 shrink-0 items-center justify-center rounded-[28px] bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] shadow-md">
+          <div class="flex size-20 shrink-0 items-center justify-center rounded-[28px] bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] shadow-md transition-all duration-300 hover:scale-105">
             <M3Icon
               name="light_mode"
               :size="40"
@@ -39,7 +39,7 @@ async function openRepo() {
                 Lumen
               </h1>
               <span class="rounded-full bg-[var(--md-sys-color-primary-container)] px-3 py-0.5 text-xs font-semibold text-[var(--md-sys-color-on-primary-container)]">
-                v0.11.0-m3e
+                v0.11.0-m3e.1
               </span>
             </div>
             <p class="text-sm text-[var(--md-sys-color-on-surface-variant)] leading-relaxed">

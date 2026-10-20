@@ -51,6 +51,50 @@
 }
 
 :root {
+  /* Material 3 Expressive 10-step Corner Scale */
+  --md-sys-shape-corner-none: 0px;
+  --md-sys-shape-corner-extra-small: 4px;
+  --md-sys-shape-corner-small: 8px;
+  --md-sys-shape-corner-medium: 12px;
+  --md-sys-shape-corner-large: 16px;
+  --md-sys-shape-corner-large-increased: 20px;
+  --md-sys-shape-corner-extra-large: 28px;
+  --md-sys-shape-corner-extra-large-increased: 32px;
+  --md-sys-shape-corner-extra-extra-large: 48px;
+  --md-sys-shape-corner-full: 9999px;
+
+  /* Material 3 Expressive Spring Tokens (damping ratio & stiffness) */
+  --md-sys-motion-spring-fast-spatial-damping: 0.6;
+  --md-sys-motion-spring-fast-spatial-stiffness: 800;
+  --md-sys-motion-spring-default-spatial-damping: 0.8;
+  --md-sys-motion-spring-default-spatial-stiffness: 380;
+  --md-sys-motion-spring-slow-spatial-damping: 0.8;
+  --md-sys-motion-spring-slow-spatial-stiffness: 200;
+
+  --md-sys-motion-spring-fast-effects-damping: 1.0;
+  --md-sys-motion-spring-fast-effects-stiffness: 3800;
+  --md-sys-motion-spring-default-effects-damping: 1.0;
+  --md-sys-motion-spring-default-effects-stiffness: 1600;
+  --md-sys-motion-spring-slow-effects-damping: 1.0;
+  --md-sys-motion-spring-slow-effects-stiffness: 800;
+
+  /* Spring cubic-bezier fallbacks & durations */
+  --md-sys-motion-easing-fast-spatial: cubic-bezier(0.42, 1.67, 0.21, 0.90);
+  --md-sys-motion-easing-default-spatial: cubic-bezier(0.38, 1.21, 0.22, 1.00);
+  --md-sys-motion-easing-slow-spatial: cubic-bezier(0.39, 1.29, 0.35, 0.98);
+
+  --md-sys-motion-easing-fast-effects: cubic-bezier(0.31, 0.94, 0.34, 1.00);
+  --md-sys-motion-easing-default-effects: cubic-bezier(0.34, 0.80, 0.34, 1.00);
+  --md-sys-motion-easing-slow-effects: cubic-bezier(0.34, 0.88, 0.34, 1.00);
+
+  --md-sys-motion-duration-fast-spatial: 350ms;
+  --md-sys-motion-duration-default-spatial: 500ms;
+  --md-sys-motion-duration-slow-spatial: 650ms;
+
+  --md-sys-motion-duration-fast-effects: 150ms;
+  --md-sys-motion-duration-default-effects: 200ms;
+  --md-sys-motion-duration-slow-effects: 300ms;
+
   /* Material 3 Expressive Dark Tokens (Saturated Seed: Electric Blue oklch(0.70 0.22 250)) */
   --md-sys-color-primary: oklch(0.82 0.19 248);
   --md-sys-color-on-primary: oklch(0.16 0.09 248);
@@ -622,6 +666,18 @@ button:not(.no-state-layer):active:not(:disabled)::before,
 }
 
 /* M3 Shape Morphing for Standalone Expressive Buttons */
+.m3-btn-destructive,
+.m3e-btn-danger {
+  --md-sys-color-primary: var(--md-sys-color-error);
+  --md-sys-color-on-primary: var(--md-sys-color-on-error);
+  --md-sys-color-secondary-container: var(--md-sys-color-error-container);
+  --md-sys-color-on-secondary-container: var(--md-sys-color-on-error-container);
+  --md-sys-color-outline-variant: var(--md-sys-color-error);
+  --md-sys-color-on-surface-variant: var(--md-sys-color-error);
+  --md-button-content-color: var(--md-sys-color-error);
+  color: var(--md-sys-color-error);
+}
+
 .m3-btn-morph:not(.m3-btn-group-start):not(.m3-btn-group-end):not(.m3-switch):not([role="switch"]):not([role="checkbox"]) {
   border-radius: 9999px;
   transition: transform var(--md-sys-motion-spatial-fast),

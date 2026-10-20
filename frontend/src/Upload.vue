@@ -150,9 +150,10 @@ async function handleCancel() {
           </span>
         </div>
 
-        <!-- M3E Tonal Outlined Cancel Button -->
+        <!-- M3E Tonal Outlined Cancel Button (Red / Destructive) -->
         <M3Button
           variant="tonal"
+          destructive
           size="s"
           icon="close"
           :loading="isCancelling"

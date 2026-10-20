@@ -2,6 +2,8 @@
 interface Props {
   variant?: 'filled' | 'elevated' | 'tonal' | 'outlined' | 'text'
   size?: 'xs' | 's' | 'm' | 'l' | 'xl'
+  color?: 'primary' | 'error'
+  destructive?: boolean
   icon?: string
   trailingIcon?: string
   disabled?: boolean
@@ -13,6 +15,8 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), {
   variant: 'filled',
   size: 's',
+  color: 'primary',
+  destructive: false,
   icon: undefined,
   trailingIcon: undefined,
   disabled: false,
@@ -45,7 +49,10 @@ function onClick(e: MouseEvent) {
     :type="type"
     :aria-label="ariaLabel"
     class="m3e-button select-none cursor-pointer"
-    :class="loading && 'is-loading'"
+    :class="[
+      loading && 'is-loading',
+      (destructive || color === 'error') && 'm3-btn-destructive',
+    ]"
     @click="onClick"
   >
     <slot />
@@ -60,5 +67,15 @@ function onClick(e: MouseEvent) {
 .m3e-button.is-loading {
   pointer-events: none;
   opacity: 0.85;
+}
+.m3e-button.m3-btn-destructive {
+  --md-sys-color-primary: var(--md-sys-color-error);
+  --md-sys-color-on-primary: var(--md-sys-color-on-error);
+  --md-sys-color-secondary-container: var(--md-sys-color-error-container);
+  --md-sys-color-on-secondary-container: var(--md-sys-color-on-error-container);
+  --md-sys-color-outline-variant: var(--md-sys-color-error);
+  --md-sys-color-on-surface-variant: var(--md-sys-color-error);
+  --md-button-content-color: var(--md-sys-color-error);
+  color: var(--md-sys-color-error);
 }
 </style>

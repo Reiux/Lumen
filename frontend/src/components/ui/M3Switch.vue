@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
+import { ref, watch, onMounted, computed } from 'vue'
 
 interface Props {
   modelValue: boolean
@@ -7,6 +7,8 @@ interface Props {
   variant?: 'default' | 'danger'
   id?: string
   ariaLabel?: string
+  showIcon?: boolean
+  icon?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -14,6 +16,8 @@ const props = withDefaults(defineProps<Props>(), {
   variant: 'default',
   id: undefined,
   ariaLabel: undefined,
+  showIcon: true,
+  icon: undefined,
 })
 
 const emit = defineEmits<{
@@ -22,6 +26,12 @@ const emit = defineEmits<{
 }>()
 
 const switchRef = ref<HTMLElement | null>(null)
+
+const activeIcon = computed(() => {
+  if (props.icon) return props.icon
+  if (props.showIcon) return 'check'
+  return undefined
+})
 
 function onChange(e: Event) {
   if (props.disabled) return
@@ -53,6 +63,7 @@ onMounted(() => {
     ref="switchRef"
     :checked="modelValue || undefined"
     :disabled="disabled || undefined"
+    :icon="activeIcon"
     :aria-label="ariaLabel"
     class="m3e-switch cursor-pointer select-none"
     :class="variant === 'danger' && 'm3e-switch-danger'"
