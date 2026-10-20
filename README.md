@@ -1,6 +1,6 @@
 # Lumen
 
-Unofficial desktop client for Google Photos with a Material 3 Expressive interface.
+Unofficial desktop client for Google Photos with a Material 3 Expressive interface. Lumen is a redesign fork of [gotohp](https://github.com/xob0t/gotohp) with tonal color roles, large rounded shapes, and smooth motion. Upload and auth logic are preserved from upstream.
 
 ![Lumen Demo](readme_assets/app_demo.gif)
 
