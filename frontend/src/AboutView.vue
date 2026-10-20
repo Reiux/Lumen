@@ -21,7 +21,10 @@ async function openRepo() {
     style="--wails-draggable: none"
   >
     <!-- Hero Banner Card -->
-    <div class="relative overflow-hidden rounded-[32px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-8 md:p-10 shadow-xs">
+    <div
+      class="m3-drop-card m3-card-interactive relative overflow-hidden rounded-[32px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-8 md:p-10 shadow-xs"
+      :style="{ '--card-index': 0 }"
+    >
       <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
         <div class="flex items-center gap-5">
           <div class="flex size-20 shrink-0 items-center justify-center rounded-[28px] bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] shadow-md">
@@ -97,7 +100,10 @@ async function openRepo() {
       </h2>
 
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div class="flex items-start gap-3.5 rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-low)] p-5">
+        <div
+          class="m3-drop-card m3-card-interactive flex items-start gap-3.5 rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-low)] p-5"
+          :style="{ '--card-index': 1 }"
+        >
           <div class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
             <M3Icon
               name="speed"
@@ -114,7 +120,10 @@ async function openRepo() {
           </div>
         </div>
 
-        <div class="flex items-start gap-3.5 rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-low)] p-5">
+        <div
+          class="m3-drop-card m3-card-interactive flex items-start gap-3.5 rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-low)] p-5"
+          :style="{ '--card-index': 2 }"
+        >
           <div class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]">
             <M3Icon
               name="motion_photos_on"
@@ -131,7 +140,10 @@ async function openRepo() {
           </div>
         </div>
 
-        <div class="flex items-start gap-3.5 rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-low)] p-5">
+        <div
+          class="m3-drop-card m3-card-interactive flex items-start gap-3.5 rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-low)] p-5"
+          :style="{ '--card-index': 3 }"
+        >
           <div class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[var(--md-sys-color-tertiary-container)] text-[var(--md-sys-color-on-tertiary-container)]">
             <M3Icon
               name="folder_special"
@@ -148,7 +160,10 @@ async function openRepo() {
           </div>
         </div>
 
-        <div class="flex items-start gap-3.5 rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-low)] p-5">
+        <div
+          class="m3-drop-card m3-card-interactive flex items-start gap-3.5 rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-low)] p-5"
+          :style="{ '--card-index': 4 }"
+        >
           <div class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-on-surface)]">
             <M3Icon
               name="visibility"
@@ -165,7 +180,10 @@ async function openRepo() {
           </div>
         </div>
 
-        <div class="flex items-start gap-3.5 rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-low)] p-5">
+        <div
+          class="m3-drop-card m3-card-interactive flex items-start gap-3.5 rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-low)] p-5"
+          :style="{ '--card-index': 5 }"
+        >
           <div class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-on-surface)]">
             <M3Icon
               name="fingerprint"
@@ -182,7 +200,10 @@ async function openRepo() {
           </div>
         </div>
 
-        <div class="flex items-start gap-3.5 rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-low)] p-5">
+        <div
+          class="m3-drop-card m3-card-interactive flex items-start gap-3.5 rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-low)] p-5"
+          :style="{ '--card-index': 6 }"
+        >
           <div class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-on-surface)]">
             <M3Icon
               name="tune"
@@ -202,7 +223,10 @@ async function openRepo() {
     </div>
 
     <!-- Acknowledgements & Legal Disclaimer -->
-    <div class="rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-low)] p-6 flex flex-col gap-3">
+    <div
+      class="m3-drop-card rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-low)] p-6 flex flex-col gap-3"
+      :style="{ '--card-index': 7 }"
+    >
       <h3 class="text-xs font-bold uppercase tracking-wider text-[var(--md-sys-color-primary)]">
         Credits & Disclaimer
       </h3>
