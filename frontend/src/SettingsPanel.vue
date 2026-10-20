@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import {
+  AlertCircle,
   AlertTriangle,
   Bell,
   Database,
@@ -16,6 +17,7 @@ import {
   Trash2,
 } from '@lucide/vue'
 import { ConfigManager } from '../bindings/app/core'
+import type { WatchedFolderConfig } from '../bindings/app/core/models'
 import M3Switch from './components/ui/M3Switch.vue'
 import M3Slider from './components/ui/M3Slider.vue'
 import Button from './components/ui/button/Button.vue'
@@ -24,6 +26,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+
+const emit = defineEmits<{
+  (e: 'uploadFolder', path: string): void
+}>()
 
 interface Settings {
   proxy: string
@@ -72,6 +78,9 @@ const showDeleteConfirm = ref(false)
 const hashCacheCount = ref(0)
 const isClearingCache = ref(false)
 const isAddingFolder = ref(false)
+const watchedConfigs = ref<WatchedFolderConfig[]>([])
+const inotifyError = ref('')
+const pendingBacklog = ref<{ folder: string; count: number; account: string } | null>(null)
 
 const speedLimitDisplay = computed(() => {
   const kbps = settings.value.uploadSpeedLimitKBps
@@ -105,18 +114,55 @@ async function addWatchedFolder() {
   try {
     isAddingFolder.value = true
     const selected = await ConfigManager.PickWatchedFolder()
-    if (selected && selected.trim()) {
-      await ConfigManager.AddWatchedFolder(selected.trim())
-      settings.value.watchedFolders = await ConfigManager.GetWatchedFolders()
+    if (!selected || !selected.trim()) return
+    const folder = selected.trim()
+    const accounts = await ConfigManager.GetAccounts()
+    const activeAccount = accounts.selected || ''
+    const backlog = await ConfigManager.CountFolderBacklog(folder)
+    if (backlog > 0) {
+      pendingBacklog.value = {
+        folder,
+        count: backlog,
+        account: activeAccount,
+      }
+    } else {
+      await ConfigManager.AddWatchedFolderWithAccount(folder, activeAccount)
+      watchedConfigs.value = (await ConfigManager.GetWatchedFolderConfigs()) || []
+      settings.value.watchedFolders = (await ConfigManager.GetWatchedFolders()) || []
+      inotifyError.value = (await ConfigManager.GetInotifyError()) || ''
     }
+  } catch (err: unknown) {
+    console.error('Failed to add watched folder:', err)
   } finally {
     isAddingFolder.value = false
   }
 }
 
+async function confirmBacklog(uploadBacklog: boolean) {
+  if (!pendingBacklog.value) return
+  const { folder, account } = pendingBacklog.value
+  try {
+    await ConfigManager.AddWatchedFolderWithAccount(folder, account)
+    watchedConfigs.value = (await ConfigManager.GetWatchedFolderConfigs()) || []
+    settings.value.watchedFolders = (await ConfigManager.GetWatchedFolders()) || []
+    inotifyError.value = (await ConfigManager.GetInotifyError()) || ''
+    if (uploadBacklog) {
+      emit('uploadFolder', folder)
+    }
+  } finally {
+    pendingBacklog.value = null
+  }
+}
+
+function cancelBacklog() {
+  pendingBacklog.value = null
+}
+
 async function removeWatchedFolder(folderPath: string) {
   await ConfigManager.RemoveWatchedFolder(folderPath)
-  settings.value.watchedFolders = await ConfigManager.GetWatchedFolders()
+  watchedConfigs.value = (await ConfigManager.GetWatchedFolderConfigs()) || []
+  settings.value.watchedFolders = (await ConfigManager.GetWatchedFolders()) || []
+  inotifyError.value = (await ConfigManager.GetInotifyError()) || ''
 }
 
 async function clearHashCache() {
@@ -153,6 +199,8 @@ onMounted(async () => {
       watchedFolders: config.watchedFolders || [],
     }
     hashCacheCount.value = await ConfigManager.GetHashCacheCount()
+    watchedConfigs.value = (await ConfigManager.GetWatchedFolderConfigs()) || []
+    inotifyError.value = (await ConfigManager.GetInotifyError()) || ''
   } finally {
     await nextTick()
     isHydrating.value = false
@@ -440,9 +488,30 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
             v-if="settings.watchFoldersEnabled"
             class="flex flex-col gap-3 rounded-2xl bg-[var(--md-sys-color-surface-container-high)]/60 p-3.5 border border-[var(--md-sys-color-outline-variant)]/30 mt-1"
           >
+            <!-- Inotify Limit Alert -->
+            <div
+              v-if="inotifyError"
+              class="flex items-start gap-2.5 rounded-2xl bg-[var(--md-sys-color-error-container)] p-3 text-xs text-[var(--md-sys-color-on-error-container)] border border-[var(--md-sys-color-error)]/30"
+            >
+              <AlertCircle class="size-4 shrink-0 mt-0.5 text-[var(--md-sys-color-error)]" />
+              <div class="flex flex-col gap-0.5">
+                <span class="font-semibold">System inotify watch limit reached</span>
+                <span class="leading-relaxed">{{ inotifyError }}. Some subdirectories cannot be watched. Increase fs.inotify.max_user_watches or remove folders.</span>
+              </div>
+            </div>
+
+            <!-- Delete From Host Safety Notice -->
+            <div
+              v-if="settings.deleteFromHost"
+              class="flex items-center gap-2 rounded-xl bg-[var(--md-sys-color-surface-container-highest)]/80 px-3 py-2 text-[11px] text-[var(--md-sys-color-on-surface-variant)] border border-[var(--md-sys-color-outline-variant)]/30"
+            >
+              <Info class="size-3.5 shrink-0 text-[var(--md-sys-color-primary)]" />
+              <span>Watched folders always keep local files. "Delete from host" is disabled for background uploads.</span>
+            </div>
+
             <div class="flex items-center justify-between">
               <span class="text-xs font-semibold text-[var(--md-sys-color-on-surface)]">
-                Monitored Directories ({{ settings.watchedFolders.length }})
+                Monitored Directories ({{ watchedConfigs.length || settings.watchedFolders.length }})
               </span>
               <Button
                 variant="outline"
@@ -457,7 +526,7 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
             </div>
 
             <div
-              v-if="settings.watchedFolders.length === 0"
+              v-if="(watchedConfigs.length || settings.watchedFolders.length) === 0"
               class="flex flex-col items-center justify-center py-4 text-center text-xs text-[var(--md-sys-color-on-surface-variant)]"
             >
               <Folder class="size-6 text-[var(--md-sys-color-on-surface-variant)]/40 mb-1" />
@@ -466,27 +535,34 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
 
             <div
               v-else
-              class="flex flex-col gap-1.5 max-h-40 overflow-y-auto"
+              class="flex flex-col gap-1.5 max-h-48 overflow-y-auto"
             >
               <div
-                v-for="folder in settings.watchedFolders"
-                :key="folder"
-                class="flex items-center justify-between gap-2 rounded-xl bg-[var(--md-sys-color-surface-container-highest)]/60 px-3 py-1.5 text-xs border border-[var(--md-sys-color-outline-variant)]/20"
+                v-for="item in (watchedConfigs.length ? watchedConfigs : settings.watchedFolders.map(f => ({ path: f, accountEmail: '' })))"
+                :key="item.path"
+                class="flex items-center justify-between gap-2 rounded-xl bg-[var(--md-sys-color-surface-container-highest)]/60 px-3 py-2 text-xs border border-[var(--md-sys-color-outline-variant)]/20"
               >
-                <div class="flex items-center gap-2 truncate flex-1 min-w-0">
-                  <Folder class="size-3.5 shrink-0 text-[var(--md-sys-color-primary)]" />
-                  <span
-                    class="truncate font-mono text-[11px] text-[var(--md-sys-color-on-surface)]"
-                    :title="folder"
-                  >
-                    {{ folder }}
-                  </span>
+                <div class="flex flex-col truncate flex-1 min-w-0">
+                  <div class="flex items-center gap-2 truncate">
+                    <Folder class="size-3.5 shrink-0 text-[var(--md-sys-color-primary)]" />
+                    <span
+                      class="truncate font-mono text-[11px] text-[var(--md-sys-color-on-surface)]"
+                      :title="item.path"
+                    >
+                      {{ item.path }}
+                    </span>
+                  </div>
+                  <div class="flex items-center gap-1.5 mt-0.5 pl-5.5 text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
+                    <span class="rounded-full bg-[var(--md-sys-color-surface-container-high)] px-2 py-0.5 border border-[var(--md-sys-color-outline-variant)]/40 font-medium">
+                      {{ item.accountEmail ? `Account: ${item.accountEmail}` : 'Active Account' }}
+                    </span>
+                  </div>
                 </div>
                 <button
                   type="button"
-                  class="rounded-full p-1 text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-error)] transition-colors cursor-pointer"
+                  class="rounded-full p-1.5 text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-error)] transition-colors cursor-pointer shrink-0"
                   title="Remove folder"
-                  @click="removeWatchedFolder(folder)"
+                  @click="removeWatchedFolder(item.path)"
                 >
                   <Trash2 class="size-3.5" />
                 </button>
@@ -816,4 +892,55 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
       </div>
     </div>
   </div>
+
+  <!-- Backlog Confirmation Modal -->
+  <Teleport to="body">
+    <Transition name="m3-dialog-modal">
+      <div
+        v-if="pendingBacklog"
+        class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 select-none overflow-y-auto"
+        @click.self="cancelBacklog"
+      >
+        <div class="flex flex-col gap-4 w-full max-w-md rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl border border-[var(--md-sys-color-outline-variant)]/40">
+          <div class="flex items-center gap-3 text-[var(--md-sys-color-primary)]">
+            <Folder class="size-6" />
+            <h3 class="text-lg font-bold text-[var(--md-sys-color-on-surface)]">
+              Upload Existing Backlog?
+            </h3>
+          </div>
+          <p class="text-xs text-[var(--md-sys-color-on-surface-variant)] leading-relaxed">
+            Found <strong class="text-[var(--md-sys-color-on-surface)] font-semibold">{{ pendingBacklog.count }}</strong> existing photo and video files in:
+          </p>
+          <div class="rounded-xl bg-[var(--md-sys-color-surface-container)] p-3 text-[11px] font-mono break-all border border-[var(--md-sys-color-outline-variant)]/30 text-[var(--md-sys-color-on-surface)]">
+            {{ pendingBacklog.folder }}
+          </div>
+          <p class="text-xs text-[var(--md-sys-color-on-surface-variant)] leading-relaxed">
+            Would you like to upload existing files now, or only monitor this folder for newly added files in the future?
+          </p>
+          <div class="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2">
+            <Button
+              variant="outline"
+              class="rounded-full px-4 text-xs h-9 cursor-pointer w-full sm:w-auto"
+              @click="cancelBacklog"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="outline"
+              class="rounded-full px-4 text-xs h-9 cursor-pointer w-full sm:w-auto"
+              @click="confirmBacklog(false)"
+            >
+              Watch Only
+            </Button>
+            <Button
+              class="rounded-full px-4 text-xs h-9 cursor-pointer bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] w-full sm:w-auto"
+              @click="confirmBacklog(true)"
+            >
+              Upload Backlog & Watch
+            </Button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
 </template>

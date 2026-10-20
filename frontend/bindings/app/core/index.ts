@@ -17,5 +17,6 @@ export {
     PreflightWarning,
     StartUploadEvent,
     ThreadStatus,
-    UploadBatchStart
+    UploadBatchStart,
+    WatchedFolderConfig
 } from "./models.js";

@@ -364,6 +364,12 @@ const cancelAlbumUpload = () => {
   albumNameOrKey.value = ''
 }
 
+async function onUploadFolderFromSettings(folderPath: string) {
+  activeTab.value = 'upload'
+  uploadManager.resetUploadResults()
+  await Events.Emit('startUpload', { files: [folderPath] })
+}
+
 const albumErrorHandler = (e: Event) => {
   const event = e as CustomEvent<{ AlbumName: string; Error: string }>
   const { AlbumName, Error } = event.detail
@@ -871,7 +877,7 @@ onUnmounted(() => {
           style="--wails-draggable: none"
         >
           <TooltipProvider disable-hoverable-content>
-            <SettingsPanel />
+            <SettingsPanel @upload-folder="onUploadFolderFromSettings" />
           </TooltipProvider>
         </div>
       </Transition>

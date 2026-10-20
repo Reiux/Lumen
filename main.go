@@ -138,6 +138,19 @@ func runGUI() {
 		pendingWatchFiles []string
 	)
 
+	dispatchWatchedBatch := func(batch []string) {
+		opts := configManager.SessionUploadOptions()
+		opts.DeleteFromHost = false // Watcher NEVER deletes local files
+		if len(batch) > 0 {
+			targetAccount := configManager.GetAccountForPath(batch[0])
+			if targetAccount != "" {
+				opts.AccountEmail = targetAccount
+				opts.Api.Account = targetAccount
+			}
+		}
+		uploadManager.Upload(batch, opts)
+	}
+
 	onWatchedFiles := func(files []string) {
 		watchMu.Lock()
 		defer watchMu.Unlock()
@@ -146,7 +159,7 @@ func runGUI() {
 			return
 		}
 		wailsApp.Logger.Info("Watched folder detected new files", "count", len(files))
-		uploadManager.Upload(files, configManager.SessionUploadOptions())
+		dispatchWatchedBatch(files)
 	}
 
 	_ = core.InitFolderWatcher(onWatchedFiles)
@@ -161,7 +174,7 @@ func runGUI() {
 			go func() {
 				time.Sleep(500 * time.Millisecond)
 				wailsApp.Logger.Info("Processing queued watched files", "fileCount", len(nextBatch))
-				uploadManager.Upload(nextBatch, configManager.SessionUploadOptions())
+				dispatchWatchedBatch(nextBatch)
 			}()
 			return
 		}

@@ -17,7 +17,7 @@ type FolderWatcher struct {
 	watcher    *fsnotify.Watcher
 	mu         sync.Mutex
 	folders    map[string]bool
-	pending    map[string]time.Time
+	pending    map[string]*fileStatCandidate
 	timer      *time.Timer
 	debounce   time.Duration
 	stopCh     chan struct{}
@@ -25,10 +25,62 @@ type FolderWatcher struct {
 	onNewFiles func([]string)
 }
 
+type fileStatCandidate struct {
+	lastSeen time.Time
+	size     int64
+	mtime    int64
+	checks   int
+}
+
 var (
 	globalFolderWatcher   *FolderWatcher
 	globalFolderWatcherMu sync.Mutex
+
+	lastInotifyError   string
+	lastInotifyErrorMu sync.RWMutex
 )
+
+// SetLastInotifyError records the most recent inotify limit error.
+func SetLastInotifyError(err error) {
+	lastInotifyErrorMu.Lock()
+	defer lastInotifyErrorMu.Unlock()
+	if err != nil {
+		lastInotifyError = err.Error()
+	} else {
+		lastInotifyError = ""
+	}
+}
+
+// GetLastInotifyError returns any recorded inotify limit error message.
+func GetLastInotifyError() string {
+	lastInotifyErrorMu.RLock()
+	defer lastInotifyErrorMu.RUnlock()
+	return lastInotifyError
+}
+
+func isInotifyLimit(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "no space left on device") ||
+		strings.Contains(s, "too many open files") ||
+		strings.Contains(s, "inotify") ||
+		strings.Contains(s, "limit")
+}
+
+func isIgnoredTempFile(path string) bool {
+	base := filepath.Base(path)
+	if strings.HasPrefix(base, ".") || strings.HasPrefix(base, "~$") {
+		return true
+	}
+	ext := strings.ToLower(filepath.Ext(path))
+	switch ext {
+	case ".tmp", ".part", ".crdownload", ".partial", ".download", ".temp":
+		return true
+	}
+	return false
+}
 
 // InitFolderWatcher initializes the singleton folder watcher with the given callback.
 func InitFolderWatcher(onNewFiles func([]string)) error {
@@ -82,7 +134,7 @@ func NewFolderWatcher(debounce time.Duration, onNewFiles func([]string)) (*Folde
 	fw := &FolderWatcher{
 		watcher:    fsWatcher,
 		folders:    make(map[string]bool),
-		pending:    make(map[string]time.Time),
+		pending:    make(map[string]*fileStatCandidate),
 		debounce:   debounce,
 		stopCh:     make(chan struct{}),
 		onNewFiles: onNewFiles,
@@ -145,7 +197,13 @@ func (fw *FolderWatcher) AddFolder(dirPath string) error {
 			if strings.HasPrefix(base, ".") && path != dirPath {
 				return filepath.SkipDir
 			}
-			return fw.watcher.Add(path)
+			if err := fw.watcher.Add(path); err != nil {
+				if isInotifyLimit(err) {
+					SetLastInotifyError(err)
+				}
+				return err
+			}
+			return nil
 		}
 		return nil
 	})
@@ -209,6 +267,9 @@ func (fw *FolderWatcher) loop() {
 				return
 			}
 			log.Printf("folder watcher error: %v", err)
+			if isInotifyLimit(err) {
+				SetLastInotifyError(err)
+			}
 		case event, ok := <-fw.watcher.Events:
 			if !ok {
 				return
@@ -224,8 +285,7 @@ func (fw *FolderWatcher) handleEvent(event fsnotify.Event) {
 	}
 
 	path := event.Name
-	base := filepath.Base(path)
-	if strings.HasPrefix(base, ".") {
+	if isIgnoredTempFile(path) {
 		return
 	}
 
@@ -236,7 +296,9 @@ func (fw *FolderWatcher) handleEvent(event fsnotify.Event) {
 
 	if info.IsDir() {
 		// New subdirectory created inside watched folder; add it to watcher
-		_ = fw.watcher.Add(path)
+		if err := fw.watcher.Add(path); err != nil && isInotifyLimit(err) {
+			SetLastInotifyError(err)
+		}
 		return
 	}
 
@@ -247,7 +309,18 @@ func (fw *FolderWatcher) handleEvent(event fsnotify.Event) {
 	fw.mu.Lock()
 	defer fw.mu.Unlock()
 
-	fw.pending[path] = time.Now()
+	if candidate, exists := fw.pending[path]; exists {
+		candidate.lastSeen = time.Now()
+		// If modified again, reset stability check count
+		candidate.checks = 0
+	} else {
+		fw.pending[path] = &fileStatCandidate{
+			lastSeen: time.Now(),
+			size:     -1,
+			mtime:    0,
+			checks:   0,
+		}
+	}
 
 	if fw.timer != nil {
 		fw.timer.Stop()
@@ -262,36 +335,74 @@ func (fw *FolderWatcher) flushPending() {
 		return
 	}
 
-	candidates := make([]string, 0, len(fw.pending))
-	for p := range fw.pending {
-		candidates = append(candidates, p)
+	type checkItem struct {
+		path      string
+		candidate *fileStatCandidate
 	}
-	fw.pending = make(map[string]time.Time)
-	callback := fw.onNewFiles
+	var items []checkItem
+	for p, c := range fw.pending {
+		items = append(items, checkItem{path: p, candidate: c})
+	}
 	fw.mu.Unlock()
 
 	var readyFiles []string
-	for _, p := range candidates {
+
+	for _, item := range items {
+		p := item.path
+		c := item.candidate
+
+		if isIgnoredTempFile(p) {
+			fw.mu.Lock()
+			delete(fw.pending, p)
+			fw.mu.Unlock()
+			continue
+		}
+
 		info, err := os.Stat(p)
 		if err != nil || info.IsDir() || info.Size() == 0 {
 			continue
 		}
+
 		// Verify file can be read and is not still being exclusively locked/copied
 		f, err := os.Open(p)
 		if err != nil {
-			// If locked, re-queue for next flush
-			fw.mu.Lock()
-			fw.pending[p] = time.Now()
-			if fw.timer != nil {
-				fw.timer.Stop()
-			}
-			fw.timer = time.AfterFunc(fw.debounce, fw.flushPending)
-			fw.mu.Unlock()
+			c.checks = 0
 			continue
 		}
 		_ = f.Close()
-		readyFiles = append(readyFiles, p)
+
+		currSize := info.Size()
+		currMtime := info.ModTime().UnixNano()
+
+		// If size and mtime are identical to the previous check, increment stability check count
+		if c.size == currSize && c.mtime == currMtime {
+			c.checks++
+		} else {
+			c.size = currSize
+			c.mtime = currMtime
+			c.checks = 1
+		}
+
+		// Require at least 2 consecutive stable checks separated by debounce interval
+		if c.checks >= 2 {
+			readyFiles = append(readyFiles, p)
+		}
 	}
+
+	fw.mu.Lock()
+	// Remove ready files from pending
+	for _, rf := range readyFiles {
+		delete(fw.pending, rf)
+	}
+	// Re-arm timer if there are still pending files stabilizing
+	if len(fw.pending) > 0 {
+		if fw.timer != nil {
+			fw.timer.Stop()
+		}
+		fw.timer = time.AfterFunc(fw.debounce, fw.flushPending)
+	}
+	callback := fw.onNewFiles
+	fw.mu.Unlock()
 
 	if len(readyFiles) > 0 && callback != nil {
 		callback(readyFiles)

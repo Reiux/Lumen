@@ -42,3 +42,49 @@ func TestFolderWatcher(t *testing.T) {
 
 	watcher.Stop()
 }
+
+func TestFolderWatcherIgnoresTempFiles(t *testing.T) {
+	for _, name := range []string{
+		"upload.tmp",
+		"video.crdownload",
+		"photo.part",
+		".hidden.jpg",
+		"~$document.jpg",
+	} {
+		if !isIgnoredTempFile(name) {
+			t.Errorf("expected %s to be treated as ignored temp file", name)
+		}
+	}
+
+	for _, name := range []string{
+		"photo.jpg",
+		"video.mp4",
+		"IMG_1234.HEIC",
+	} {
+		if isIgnoredTempFile(name) {
+			t.Errorf("expected %s to NOT be treated as ignored temp file", name)
+		}
+	}
+}
+
+func TestIsInotifyLimit(t *testing.T) {
+	if isInotifyLimit(os.ErrNotExist) {
+		t.Fatal("expected ErrNotExist to not be inotify limit")
+	}
+	customErr := &testError{msg: "no space left on device"}
+	if !isInotifyLimit(customErr) {
+		t.Errorf("expected 'no space left on device' to be detected as inotify limit")
+	}
+	inotifyLimitErr := &testError{msg: "system limit for number of file watchers reached"}
+	if !isInotifyLimit(inotifyLimitErr) {
+		t.Errorf("expected limit message to be detected as inotify limit")
+	}
+}
+
+type testError struct {
+	msg string
+}
+
+func (e *testError) Error() string {
+	return e.msg
+}
