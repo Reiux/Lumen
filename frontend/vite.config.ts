@@ -25,7 +25,17 @@ function devFlickerFlagsPlugin(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [vue(), tailwindcss(), devFlickerFlagsPlugin()],
+  plugins: [
+    vue({
+      template: {
+        compilerOptions: {
+          isCustomElement: (tag) => tag.startsWith('md-'),
+        },
+      },
+    }),
+    tailwindcss(),
+    devFlickerFlagsPlugin(),
+  ],
   server: {
     host: '127.0.0.1',
   },

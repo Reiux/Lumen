@@ -1,17 +1,13 @@
 <script setup lang="ts">
-import Button from './button/Button.vue'
-import M3Icon from './M3Icon.vue'
+interface Props {
+  disabled?: boolean
+  loading?: boolean
+}
 
-withDefaults(
-  defineProps<{
-    disabled?: boolean
-    loading?: boolean
-  }>(),
-  {
-    disabled: false,
-    loading: false,
-  }
-)
+withDefaults(defineProps<Props>(), {
+  disabled: false,
+  loading: false,
+})
 
 const emit = defineEmits<{
   (e: 'pick-files'): void
@@ -20,63 +16,54 @@ const emit = defineEmits<{
 </script>
 
 <template>
-  <div
-    class="m3-extended-fab-group m3-button-group rounded-full select-none"
-    role="group"
-    aria-label="Upload picker actions"
-  >
-    <!-- Choose Files Primary Action -->
-    <Button
-      type="button"
-      class="m3-btn-group-start h-12 md:h-14 px-5 text-xs md:text-sm font-bold tracking-wide cursor-pointer select-none bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)] hover:bg-[var(--md-sys-color-primary)] hover:text-[var(--md-sys-color-on-primary)] border border-[var(--md-sys-color-primary)]/30 active:scale-[0.98] outline-none"
-      :disabled="disabled || loading"
-      aria-label="Choose files to upload"
-      @click="emit('pick-files')"
+  <div class="m3e-fab-container select-none">
+    <md-button-group
+      variant="connected"
+      aria-label="Upload picker actions"
+      class="m3e-fab-group"
     >
-      <M3Icon
-        name="add_photo_alternate"
-        :filled="true"
-        :size="20"
-        class="mr-2"
-      />
-      <span>Choose Files</span>
-    </Button>
+      <!-- Primary: Choose Files -->
+      <md-button
+        variant="filled"
+        size="m"
+        icon="add_photo_alternate"
+        :disabled="disabled || loading || undefined"
+        aria-label="Choose files to upload"
+        @click="emit('pick-files')"
+      >
+        Choose Files
+      </md-button>
 
-    <!-- Choose Folder Secondary Action -->
-    <Button
-      type="button"
-      class="m3-btn-group-end h-12 md:h-14 px-4 text-xs md:text-sm font-semibold tracking-wide cursor-pointer select-none bg-[var(--md-sys-color-primary-container)]/80 text-[var(--md-sys-color-on-primary-container)] hover:bg-[var(--md-sys-color-primary)] hover:text-[var(--md-sys-color-on-primary)] border border-[var(--md-sys-color-primary)]/30 active:scale-[0.98] outline-none"
-      :disabled="disabled || loading"
-      aria-label="Choose folder to upload"
-      @click="emit('pick-folder')"
-    >
-      <M3Icon
-        name="create_new_folder"
-        :filled="true"
-        :size="20"
-        class="mr-1.5"
-      />
-      <span>Folder</span>
-    </Button>
+      <!-- Secondary: Choose Folder -->
+      <md-button
+        variant="tonal"
+        size="m"
+        icon="create_new_folder"
+        :disabled="disabled || loading || undefined"
+        aria-label="Choose folder to upload"
+        @click="emit('pick-folder')"
+      >
+        Folder
+      </md-button>
+    </md-button-group>
   </div>
 </template>
 
 <style scoped>
-.m3-extended-fab-group {
-  position: relative;
-  isolation: isolate;
+.m3e-fab-container {
+  display: inline-flex;
+  align-items: center;
   filter: drop-shadow(0 8px 18px oklch(0.70 0.22 250 / 25%));
-  transition: transform var(--md-sys-motion-spatial-fast);
+  transition: transform var(--md-sys-motion-duration-spatial-fast) var(--md-sys-motion-easing-spatial);
   will-change: transform;
 }
-
-.m3-extended-fab-group:hover {
+.m3e-fab-container:hover {
   transform: translateY(-2px);
 }
-
 @media (prefers-reduced-motion: reduce) {
-  .m3-extended-fab-group {
+  .m3e-fab-container {
     transition: none !important;
+    transform: none !important;
   }
 }
 </style>

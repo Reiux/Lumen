@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { uploadManager } from './utils/UploadManager'
 import ThreadProgress from './components/ThreadProgress.vue'
 import M3WavyProgress from './components/ui/M3WavyProgress.vue'
-import Button from './components/ui/button/Button.vue'
+import M3Button from './components/ui/M3Button.vue'
 import M3Icon from './components/ui/M3Icon.vue'
 import M3LoadingIndicator from './components/ui/M3LoadingIndicator.vue'
 import { ScrollArea } from './components/ui/scroll-area'
@@ -150,22 +150,18 @@ async function handleCancel() {
           </span>
         </div>
 
-        <!-- Pill-shaped Tonal Error Cancel Button -->
-        <Button
-          type="button"
-          class="h-10 rounded-full px-6 text-xs font-semibold shadow-xs cursor-pointer select-none bg-[var(--md-sys-color-error-container)] text-[var(--md-sys-color-on-error-container)] hover:bg-[var(--md-sys-color-error-container)]/80 self-start sm:self-auto"
-          aria-label="Cancel current upload batch"
+        <!-- M3E Tonal Outlined Cancel Button -->
+        <M3Button
+          variant="tonal"
+          size="s"
+          icon="close"
           :loading="isCancelling"
+          aria-label="Cancel current upload batch"
+          class="self-start sm:self-auto"
           @click="handleCancel"
         >
-          <M3Icon
-            v-if="!isCancelling"
-            name="close"
-            :size="16"
-            class="mr-1.5"
-          />
           <span>{{ isCancelling ? 'Cancelling...' : 'Cancel Upload' }}</span>
-        </Button>
+        </M3Button>
       </div>
 
       <!-- Wavy Linear Progress Indicator -->

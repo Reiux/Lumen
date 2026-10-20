@@ -4,7 +4,7 @@ import { ConfigManager } from '../bindings/app/core'
 import type { WatchedFolderConfig } from '../bindings/app/core/models'
 import M3Switch from './components/ui/M3Switch.vue'
 import M3Slider from './components/ui/M3Slider.vue'
-import Button from './components/ui/button/Button.vue'
+import M3Button from './components/ui/M3Button.vue'
 import M3Icon from './components/ui/M3Icon.vue'
 import M3LoadingIndicator from './components/ui/M3LoadingIndicator.vue'
 import {
@@ -551,10 +551,9 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
               <span class="text-xs font-semibold text-[var(--md-sys-color-on-surface)]">
                 Monitored Directories ({{ watchedConfigs.length || settings.watchedFolders.length }})
               </span>
-              <Button
-                variant="outline"
-                size="sm"
-                class="h-7 text-xs rounded-full px-3 gap-1.5 cursor-pointer select-none"
+              <M3Button
+                variant="outlined"
+                size="xs"
                 :disabled="isAddingFolder"
                 @click="addWatchedFolder"
               >
@@ -569,7 +568,7 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                   :size="14"
                 />
                 <span>{{ isAddingFolder ? 'Selecting...' : 'Add Folder' }}</span>
-              </Button>
+              </M3Button>
             </div>
 
             <div
@@ -728,10 +727,9 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                 {{ hashCacheCount.toLocaleString() }} {{ hashCacheCount === 1 ? 'file' : 'files' }} cached
               </span>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              class="h-7 text-xs rounded-full px-3 gap-1.5 cursor-pointer select-none"
+            <M3Button
+              variant="outlined"
+              size="xs"
               :disabled="isClearingCache || hashCacheCount === 0"
               @click="clearHashCache"
             >
@@ -741,7 +739,7 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                 color="var(--md-sys-color-primary)"
               />
               <span>{{ isClearingCache ? 'Clearing...' : 'Clear Cache' }}</span>
-            </Button>
+            </M3Button>
           </div>
         </div>
 
@@ -960,19 +958,21 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
               </div>
             </div>
             <div class="flex justify-end gap-2.5 pt-1">
-              <Button
-                variant="outline"
-                class="h-8 rounded-full px-4 text-xs cursor-pointer select-none"
+              <M3Button
+                variant="outlined"
+                size="s"
                 @click="cancelDeleteFromHost"
               >
                 Cancel
-              </Button>
-              <Button
-                class="h-8 rounded-full px-4 text-xs font-semibold cursor-pointer select-none bg-[var(--md-sys-color-error)] text-[var(--md-sys-color-on-error)] hover:bg-[var(--md-sys-color-error)]/90"
+              </M3Button>
+              <M3Button
+                variant="filled"
+                size="s"
+                class="m3e-btn-danger"
                 @click="confirmDeleteFromHost"
               >
                 Yes, Enable Deletion
-              </Button>
+              </M3Button>
             </div>
           </div>
         </div>
@@ -1009,26 +1009,30 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
             Would you like to upload existing files now, or only monitor this folder for newly added files in the future?
           </p>
           <div class="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2">
-            <Button
-              variant="outline"
-              class="rounded-full px-4 text-xs h-9 cursor-pointer w-full sm:w-auto"
+            <M3Button
+              variant="outlined"
+              size="s"
+              class="w-full sm:w-auto"
               @click="cancelBacklog"
             >
               Cancel
-            </Button>
-            <Button
-              variant="outline"
-              class="rounded-full px-4 text-xs h-9 cursor-pointer w-full sm:w-auto"
+            </M3Button>
+            <M3Button
+              variant="tonal"
+              size="s"
+              class="w-full sm:w-auto"
               @click="confirmBacklog(false)"
             >
               Watch Only
-            </Button>
-            <Button
-              class="rounded-full px-4 text-xs h-9 cursor-pointer bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] w-full sm:w-auto"
+            </M3Button>
+            <M3Button
+              variant="filled"
+              size="s"
+              class="w-full sm:w-auto"
               @click="confirmBacklog(true)"
             >
               Upload Backlog & Watch
-            </Button>
+            </M3Button>
           </div>
         </div>
       </div>

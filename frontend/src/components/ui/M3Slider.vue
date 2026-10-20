@@ -1,189 +1,85 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 
 interface Props {
   modelValue: number
   min?: number
   max?: number
   step?: number
+  stops?: boolean
+  labeled?: boolean
+  disabled?: boolean
+  id?: string
   ariaLabel?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  min: 1,
-  max: 20,
+  min: 0,
+  max: 100,
   step: 1,
-  ariaLabel: 'Slider',
+  stops: false,
+  labeled: true,
+  disabled: false,
+  id: undefined,
+  ariaLabel: undefined,
 })
 
 const emit = defineEmits<{
-  (e: 'update:modelValue', val: number): void
+  (e: 'update:modelValue', value: number): void
+  (e: 'change', value: number): void
 }>()
 
-const isDragging = ref(false)
-const isHovered = ref(false)
-const trackRef = ref<HTMLDivElement | null>(null)
+const sliderRef = ref<HTMLElement | null>(null)
 
-const percent = computed(() => {
-  const range = props.max - props.min
-  if (range <= 0) return 0
-  const clamped = Math.min(props.max, Math.max(props.min, props.modelValue))
-  return ((clamped - props.min) / range) * 100
-})
-
-function updateFromPointer(clientX: number) {
-  if (!trackRef.value) return
-  const rect = trackRef.value.getBoundingClientRect()
-  const rawX = clientX - rect.left
-  const ratio = Math.min(1, Math.max(0, rawX / rect.width))
-  const rawVal = props.min + ratio * (props.max - props.min)
-  const steppedVal = Math.round(rawVal / props.step) * props.step
-  const clamped = Math.min(props.max, Math.max(props.min, steppedVal))
-  emit('update:modelValue', clamped)
+function onInput(e: Event) {
+  const customEvent = e as CustomEvent<{ value: number }>
+  const val = customEvent.detail?.value ?? Number((e.target as unknown as { value: number })?.value)
+  emit('update:modelValue', val)
 }
 
-function onPointerDown(e: PointerEvent) {
-  // Only primary mouse button
-  if (e.button !== 0) return
-  isDragging.value = true
-  ;(e.currentTarget as HTMLElement).setPointerCapture(e.pointerId)
-  updateFromPointer(e.clientX)
+function onChange(e: Event) {
+  const customEvent = e as CustomEvent<{ value: number }>
+  const val = customEvent.detail?.value ?? Number((e.target as unknown as { value: number })?.value)
+  emit('update:modelValue', val)
+  emit('change', val)
 }
 
-function onPointerMove(e: PointerEvent) {
-  if (!isDragging.value) return
-  updateFromPointer(e.clientX)
-}
-
-function onPointerUp(e: PointerEvent) {
-  if (isDragging.value) {
-    isDragging.value = false
-    try {
-      ;(e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId)
-    } catch {
-      // ignore
+watch(
+  () => props.modelValue,
+  (val) => {
+    if (sliderRef.value) {
+      ;(sliderRef.value as unknown as { value: number }).value = val
     }
   }
-}
+)
 
-function onKeyDown(e: KeyboardEvent) {
-  let delta = 0
-  if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
-    delta = props.step
-  } else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
-    delta = -props.step
-  } else if (e.key === 'PageUp') {
-    delta = props.step * 4
-  } else if (e.key === 'PageDown') {
-    delta = -props.step * 4
-  } else if (e.key === 'Home') {
-    emit('update:modelValue', props.min)
-    return
-  } else if (e.key === 'End') {
-    emit('update:modelValue', props.max)
-    return
+onMounted(() => {
+  if (sliderRef.value) {
+    ;(sliderRef.value as unknown as { value: number }).value = props.modelValue
   }
-  if (delta !== 0) {
-    e.preventDefault()
-    const next = Math.min(props.max, Math.max(props.min, props.modelValue + delta))
-    emit('update:modelValue', next)
-  }
-}
+})
 </script>
 
 <template>
-  <div
-    class="relative flex w-full flex-col justify-center select-none pt-6 pb-2"
-    style="--wails-draggable: none"
-  >
-    <!-- Value Label Bubble: follows thumb, pops up with spring -->
-    <div
-      class="pointer-events-none absolute -top-1"
-      :style="{
-        left: `${percent}%`,
-        transform: 'translateX(-50%)',
-        transitionProperty: isDragging ? 'none' : 'left',
-        transitionDuration: 'var(--md-sys-motion-duration-spatial)',
-        transitionTimingFunction: 'var(--md-sys-motion-easing-spatial)',
-      }"
-    >
-      <div
-        class="flex items-center justify-center rounded-full bg-[var(--md-sys-color-primary)] px-2.5 py-0.5 text-[11px] font-bold text-[var(--md-sys-color-on-primary)] shadow-md transition-[transform,opacity]"
-        :class="[
-          isDragging || isHovered
-            ? 'scale-100 opacity-100 translate-y-0'
-            : 'scale-50 opacity-0 translate-y-2',
-        ]"
-        :style="{
-          transitionTimingFunction: 'var(--md-sys-motion-easing-spatial)',
-          transitionDuration: 'var(--md-sys-motion-duration-spatial-fast)',
-        }"
-      >
-        {{ modelValue }}
-      </div>
-    </div>
-
-    <!-- Interactive Track Area -->
-    <div
-      ref="trackRef"
-      role="slider"
-      tabindex="0"
-      :aria-valuemin="min"
-      :aria-valuemax="max"
-      :aria-valuenow="modelValue"
-      :aria-label="ariaLabel"
-      class="group relative flex h-10 w-full cursor-pointer items-center outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)] rounded-full"
-      @pointerdown="onPointerDown"
-      @pointermove="onPointerMove"
-      @pointerup="onPointerUp"
-      @pointercancel="onPointerUp"
-      @mouseenter="isHovered = true"
-      @mouseleave="isHovered = false"
-      @keydown="onKeyDown"
-    >
-      <!-- Background / Inactive Track (Right side) -->
-      <div
-        class="absolute right-0 h-2 rounded-r-full bg-[var(--md-sys-color-surface-container-highest)] transition-[left]"
-        :style="{
-          left: `calc(${percent}% + ${isDragging ? '6px' : '4px'})`,
-          transitionDuration: isDragging ? '0ms' : 'var(--md-sys-motion-duration-spatial-fast)',
-          transitionTimingFunction: 'var(--md-sys-motion-easing-spatial)',
-        }"
-      />
-
-      <!-- Active Track (Left side) -->
-      <div
-        class="absolute left-0 h-2 rounded-l-full bg-[var(--md-sys-color-primary)] transition-[width]"
-        :style="{
-          width: `calc(${percent}% - ${isDragging ? '6px' : '4px'})`,
-          transitionDuration: isDragging ? '0ms' : 'var(--md-sys-motion-duration-spatial-fast)',
-          transitionTimingFunction: 'var(--md-sys-motion-easing-spatial)',
-        }"
-      />
-
-      <!-- Handle Thumb: narrows on press (thin pill handle like M3E) -->
-      <div
-        class="pointer-events-none absolute top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center"
-        :style="{
-          left: `${percent}%`,
-          transitionProperty: isDragging ? 'none' : 'left',
-          transitionDuration: 'var(--md-sys-motion-duration-spatial)',
-          transitionTimingFunction: 'var(--md-sys-motion-easing-spatial)',
-        }"
-      >
-        <div
-          class="rounded-full shadow-md transition-[width,height,transform,background-color]"
-          :class="[
-            isDragging
-              ? 'w-1 h-8 bg-[var(--md-sys-color-on-primary)] ring-4 ring-[var(--md-sys-color-primary)]/40'
-              : 'w-2.5 h-6 bg-[var(--md-sys-color-primary)] group-hover:scale-110',
-          ]"
-          :style="{
-            transitionDuration: 'var(--md-sys-motion-duration-spatial-fast)',
-            transitionTimingFunction: 'var(--md-sys-motion-easing-spatial)',
-          }"
-        />
-      </div>
-    </div>
-  </div>
+  <md-slider
+    :id="id"
+    ref="sliderRef"
+    :value="modelValue"
+    :min="min"
+    :max="max"
+    :step="step"
+    :stops="stops || undefined"
+    :labeled="labeled || undefined"
+    :disabled="disabled || undefined"
+    :aria-label="ariaLabel"
+    class="m3e-slider w-full cursor-pointer select-none"
+    @input="onInput"
+    @change="onChange"
+  />
 </template>
+
+<style scoped>
+.m3e-slider {
+  display: block;
+}
+</style>

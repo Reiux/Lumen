@@ -4,7 +4,7 @@ import { useColorMode } from '@vueuse/core'
 import { toast } from 'vue-sonner'
 import { Events } from '@wailsio/runtime'
 import { ConfigManager } from '../bindings/app/core'
-import Button from './components/ui/button/Button.vue'
+import M3Button from './components/ui/M3Button.vue'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -881,18 +881,16 @@ onUnmounted(() => {
                 Original & Saver quality
               </span>
             </div>
-            <Button
-              class="mt-8 h-12 rounded-full px-8 text-sm font-semibold cursor-pointer select-none bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] hover:bg-[var(--md-sys-color-primary)]/90 shadow-md transition-[background-color,transform] duration-200 hover:scale-[1.02] active:scale-[0.98]"
+            <M3Button
+              variant="filled"
+              size="l"
+              icon="person_add"
+              class="mt-8"
               aria-label="Add Google account"
               @click="openAccountSetup"
             >
-              <M3Icon
-                name="person_add"
-                :size="18"
-                class="mr-2"
-              />
               <span>Add Google Account</span>
-            </Button>
+            </M3Button>
             <p class="mt-4 text-[11px] text-[var(--md-sys-color-on-surface-variant)]/60 select-none">
               Credentials are stored locally in your system configuration.
             </p>
@@ -1091,20 +1089,21 @@ onUnmounted(() => {
             </div>
 
             <div class="flex gap-3 mt-1">
-              <Button
-                variant="outline"
-                class="rounded-full px-6 text-xs h-10 cursor-pointer select-none"
+              <M3Button
+                variant="outlined"
+                size="s"
                 @click="cancelAlbumUpload"
               >
                 Cancel
-              </Button>
-              <Button
-                class="rounded-full px-7 text-xs h-10 cursor-pointer select-none bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)]"
+              </M3Button>
+              <M3Button
+                variant="filled"
+                size="s"
                 :disabled="!albumNameOrKey.trim()"
                 @click="confirmAlbumUpload"
               >
                 Start Upload
-              </Button>
+              </M3Button>
             </div>
           </div>
         </div>

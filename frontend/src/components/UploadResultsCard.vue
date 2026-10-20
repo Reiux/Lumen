@@ -2,7 +2,7 @@
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import type { Ref } from 'vue'
 import type { UploadResults } from '../utils/uploadResults'
-import Button from './ui/button/Button.vue'
+import M3Button from './ui/M3Button.vue'
 import M3Icon from './ui/M3Icon.vue'
 
 const props = defineProps<{
@@ -96,51 +96,33 @@ function onCopyClick() {
       </div>
 
       <!-- Connected Action Button Group (M3 Expressive) -->
-      <div
-        class="m3-button-group rounded-full shadow-xs shrink-0 self-start sm:self-auto"
-        role="group"
+      <md-button-group
+        variant="connected"
         aria-label="Upload results actions"
+        class="shrink-0 self-start sm:self-auto"
       >
-        <!-- Tonal Copy as JSON Button with Icon morph -->
-        <Button
-          type="button"
-          class="m3-btn-group-start h-9 px-4 text-xs font-semibold cursor-pointer select-none bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container-highest)] border border-[var(--md-sys-color-outline-variant)]/50"
+        <!-- Tonal Copy as JSON Button -->
+        <M3Button
+          variant="tonal"
+          size="s"
+          :icon="copied ? 'check' : 'content_copy'"
           aria-label="Copy results as JSON"
           @click="onCopyClick"
         >
-          <div class="relative size-3.5 mr-1.5 shrink-0 flex items-center justify-center">
-            <M3Icon
-              name="content_copy"
-              :size="14"
-              class="absolute transition-[transform,opacity] duration-200 ease-[var(--md-sys-motion-easing-spatial)]"
-              :class="copied ? 'scale-0 rotate-90 opacity-0' : 'scale-100 rotate-0 opacity-100'"
-            />
-            <M3Icon
-              name="check"
-              :size="14"
-              class="absolute text-[var(--md-sys-color-tertiary)] transition-[transform,opacity] duration-200 ease-[var(--md-sys-motion-easing-spatial)]"
-              :class="copied ? 'scale-110 rotate-0 opacity-100' : 'scale-0 -rotate-90 opacity-0'"
-            />
-          </div>
           <span>{{ copied ? 'Copied JSON!' : 'Copy as JSON' }}</span>
-        </Button>
+        </M3Button>
 
         <!-- Clear / New Upload button -->
-        <Button
-          variant="outline"
-          type="button"
-          class="m3-btn-group-end h-9 px-4 text-xs font-semibold cursor-pointer select-none border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container)] hover:bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-on-surface)]"
+        <M3Button
+          variant="outlined"
+          size="s"
+          icon="replay"
           aria-label="Dismiss results and start new upload"
           @click="emit('clear')"
         >
-          <M3Icon
-            name="replay"
-            :size="14"
-            class="mr-1.5"
-          />
           <span>New Upload</span>
-        </Button>
-      </div>
+        </M3Button>
+      </md-button-group>
     </div>
 
     <!-- Two Stat Cards Side by Side (Tonal Containers) -->
@@ -237,19 +219,16 @@ function onCopyClick() {
         </button>
 
         <!-- Batch Retry Button -->
-        <Button
-          size="sm"
-          class="h-7 rounded-full px-3 text-[11px] font-semibold bg-[var(--md-sys-color-error)] text-[var(--md-sys-color-on-error)] hover:bg-[var(--md-sys-color-error)]/90 cursor-pointer shadow-xs shrink-0"
+        <M3Button
+          variant="filled"
+          size="xs"
+          icon="replay"
+          class="shrink-0"
           aria-label="Retry all failed uploads"
           @click="emit('retryAll')"
         >
-          <M3Icon
-            name="replay"
-            :size="13"
-            class="mr-1"
-          />
           <span>Retry All</span>
-        </Button>
+        </M3Button>
       </div>
 
       <div
@@ -287,18 +266,13 @@ function onCopyClick() {
               </div>
 
               <!-- Actionable Per-Item Retry Button -->
-              <button
-                type="button"
-                class="inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-primary-container)] hover:text-[var(--md-sys-color-on-primary-container)] transition-colors"
+              <md-icon-button
+                icon="replay"
+                size="xs"
                 title="Retry this file"
                 :aria-label="`Retry upload for ${typeof failItem === 'string' ? failItem : failItem.path}`"
                 @click="emit('retryItem', typeof failItem === 'string' ? failItem : failItem.path)"
-              >
-                <M3Icon
-                  name="replay"
-                  :size="16"
-                />
-              </button>
+              />
             </div>
           </div>
         </div>
