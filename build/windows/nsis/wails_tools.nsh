@@ -11,10 +11,10 @@
     !define INFO_COMPANYNAME "xob0t"
 !endif
 !ifndef INFO_PRODUCTNAME
-    !define INFO_PRODUCTNAME "gotohp"
+    !define INFO_PRODUCTNAME "Lumen"
 !endif
 !ifndef INFO_PRODUCTVERSION
-    !define INFO_PRODUCTVERSION "0.11.0"
+    !define INFO_PRODUCTVERSION "0.9.0"
 !endif
 !ifndef INFO_COPYRIGHT
     !define INFO_COPYRIGHT "© now, My Company"

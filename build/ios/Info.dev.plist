@@ -3,7 +3,7 @@
 <plist version="1.0">
 	<dict>
 		<key>CFBundleDisplayName</key>
-		<string>gotohp (Dev)</string>
+		<string>Lumen (Dev)</string>
 		<key>CFBundleExecutable</key>
 		<string>gotohp</string>
 		<key>CFBundleGetInfoString</key>
@@ -11,13 +11,13 @@
 		<key>CFBundleIdentifier</key>
 		<string>com.xob0t.gotohp.dev</string>
 		<key>CFBundleName</key>
-		<string>gotohp (Dev)</string>
+		<string>Lumen (Dev)</string>
 		<key>CFBundlePackageType</key>
 		<string>APPL</string>
 		<key>CFBundleShortVersionString</key>
-		<string>0.11.0-dev</string>
+		<string>0.9.0-dev</string>
 		<key>CFBundleVersion</key>
-		<string>0.11.0</string>
+		<string>0.9.0</string>
 		<key>LSRequiresIPhoneOS</key>
 		<true/>
 		<key>MinimumOSVersion</key>
