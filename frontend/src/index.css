@@ -852,6 +852,16 @@ button.rounded-full:active:not(:disabled),
     animation: m3-fade-reduced 150ms ease forwards !important;
     transform: none !important;
   }
+
+  .m3-select-content[data-state="open"] {
+    animation: m3-fade-reduced 80ms ease forwards !important;
+    transform: none !important;
+  }
+
+  .m3-select-content[data-state="closed"] {
+    animation: m3-fade-out-reduced 80ms ease forwards !important;
+    transform: none !important;
+  }
 }
 
 @keyframes m3-ripple-reduced {
@@ -935,4 +945,48 @@ html[data-input="keyboard"] .m3-menu-item[data-highlighted]::before,
 html[data-input="keyboard"] [data-slot="select-content"] [role="option"]:focus-visible::before,
 html[data-input="keyboard"] [data-slot="select-content"] [role="option"][data-highlighted]::before {
   opacity: 0.10 !important;
+}
+
+/* M3 Select / Account Menu Popover Animation & Surface */
+.m3-select-content {
+  isolation: isolate !important;
+  background-color: var(--md-sys-color-surface-container-high) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  z-index: 60 !important;
+  transform-origin: var(--reka-popper-transform-origin, top left) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45) !important;
+}
+
+.m3-select-content[data-state="open"] {
+  animation: m3-menu-open 220ms var(--md-sys-motion-easing-spatial) forwards !important;
+}
+
+.m3-select-content[data-state="closed"] {
+  animation: m3-menu-close 120ms var(--md-sys-motion-easing-effects) forwards !important;
+}
+
+@keyframes m3-menu-open {
+  0% {
+    opacity: 0;
+    transform: scale(0.94) translateY(-4px);
+  }
+  36% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes m3-menu-close {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.96);
+  }
 }
