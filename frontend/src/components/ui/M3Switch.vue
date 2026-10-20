@@ -37,7 +37,7 @@ function toggle() {
     :aria-checked="modelValue"
     :aria-label="ariaLabel"
     :disabled="disabled"
-    class="group m3-switch relative inline-flex h-8 w-[52px] shrink-0 cursor-pointer items-center rounded-full border-2 p-0.5 outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)] disabled:cursor-not-allowed disabled:opacity-40 select-none"
+    class="group m3-switch no-state-layer relative inline-flex h-8 w-[52px] shrink-0 cursor-pointer items-center rounded-full border-2 p-0.5 outline-none disabled:cursor-not-allowed disabled:opacity-40 select-none"
     :class="[
       modelValue
         ? (variant === 'danger'
@@ -69,8 +69,17 @@ function toggle() {
 
 <style scoped>
 .m3-switch {
+  border-radius: 9999px !important;
+  overflow: hidden;
+  -webkit-tap-highlight-color: transparent !important;
+  outline: none !important;
   transition: background-color var(--md-sys-motion-effects),
               border-color var(--md-sys-motion-effects);
+}
+
+.m3-switch:active {
+  border-radius: 9999px !important;
+  transform: none !important;
 }
 
 .m3-switch-thumb {

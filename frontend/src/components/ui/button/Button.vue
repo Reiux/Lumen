@@ -28,7 +28,8 @@ const props = withDefaults(defineProps<Props>(), {
     :disabled="loading || ($attrs.disabled as boolean)"
     style="--wails-draggable: none"
     :class="cn(
-      `cursor-pointer m3-interactive m3-btn-morph select-none`,
+      `cursor-pointer m3-interactive select-none`,
+      !String(props.class || '').includes('m3-btn-group') && 'm3-btn-morph',
       buttonVariants({ variant, size }),
       loading && 'is-loading opacity-80 pointer-events-none',
       props.class

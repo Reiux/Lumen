@@ -335,6 +335,13 @@
     font-variation-settings: 'FILL' 1, 'wght' 400, 'GRAD' 0, 'opsz' 24;
   }
 
+  /* Eliminate WebKit/Blink tap highlight rectangle across all elements */
+  *,
+  *::before,
+  *::after {
+    -webkit-tap-highlight-color: transparent !important;
+  }
+
   /* Show focus ring only for keyboard input */
   html[data-input="keyboard"] :focus-visible {
     outline: 3px solid var(--md-sys-color-primary) !important;
@@ -342,9 +349,20 @@
     transition: outline-offset var(--md-sys-motion-effects-fast), outline-color var(--md-sys-motion-effects-fast);
   }
 
+  /* Suppress outlines and focus rings for pointer interactions, switches, and active clicks */
   :focus:not(:focus-visible),
+  button:focus:not(:focus-visible),
+  [role="button"]:focus:not(:focus-visible),
+  [role="switch"]:focus:not(:focus-visible),
+  button:active,
+  [role="button"]:active,
+  [role="switch"]:active,
   html[data-input="pointer"] :focus,
-  html[data-input="pointer"] :focus-visible {
+  html[data-input="pointer"] :focus-visible,
+  html[data-input="pointer"] button:focus,
+  html[data-input="pointer"] button:focus-visible,
+  html[data-input="pointer"] [role="switch"]:focus,
+  html[data-input="pointer"] [role="switch"]:focus-visible {
     outline: none !important;
     --tw-ring-shadow: 0 0 #0000 !important;
     --tw-ring-offset-shadow: 0 0 #0000 !important;
@@ -508,6 +526,7 @@ button:not(.no-state-layer):active:not(:disabled)::before,
   align-items: center;
   position: relative;
   isolation: isolate;
+  border-radius: 9999px;
 }
 
 .m3-button-group > button:first-child,
@@ -517,6 +536,7 @@ button:not(.no-state-layer):active:not(:disabled)::before,
   border-top-right-radius: 4px !important;
   border-bottom-right-radius: 4px !important;
   position: relative;
+  overflow: hidden;
   transition: border-radius var(--md-sys-motion-spatial-fast),
               transform var(--md-sys-motion-spatial-fast),
               background-color var(--md-sys-motion-effects-fast),
@@ -527,6 +547,8 @@ button:not(.no-state-layer):active:not(:disabled)::before,
 .m3-button-group > button:first-child:focus-visible,
 .m3-button-group .m3-btn-group-start:hover,
 .m3-button-group .m3-btn-group-start:focus-visible {
+  border-top-left-radius: 9999px !important;
+  border-bottom-left-radius: 9999px !important;
   border-top-right-radius: 18px !important;
   border-bottom-right-radius: 18px !important;
   z-index: 2;
@@ -535,6 +557,8 @@ button:not(.no-state-layer):active:not(:disabled)::before,
 
 .m3-button-group > button:first-child:active,
 .m3-button-group .m3-btn-group-start:active {
+  border-top-left-radius: 9999px !important;
+  border-bottom-left-radius: 9999px !important;
   border-top-right-radius: 12px !important;
   border-bottom-right-radius: 12px !important;
   transform: scale(0.98);
@@ -548,6 +572,7 @@ button:not(.no-state-layer):active:not(:disabled)::before,
   border-bottom-left-radius: 4px !important;
   margin-left: -1px;
   position: relative;
+  overflow: hidden;
   transition: border-radius var(--md-sys-motion-spatial-fast),
               transform var(--md-sys-motion-spatial-fast),
               background-color var(--md-sys-motion-effects-fast),
@@ -558,6 +583,8 @@ button:not(.no-state-layer):active:not(:disabled)::before,
 .m3-button-group > button:last-child:focus-visible,
 .m3-button-group .m3-btn-group-end:hover,
 .m3-button-group .m3-btn-group-end:focus-visible {
+  border-top-right-radius: 9999px !important;
+  border-bottom-right-radius: 9999px !important;
   border-top-left-radius: 18px !important;
   border-bottom-left-radius: 18px !important;
   z-index: 2;
@@ -566,6 +593,8 @@ button:not(.no-state-layer):active:not(:disabled)::before,
 
 .m3-button-group > button:last-child:active,
 .m3-button-group .m3-btn-group-end:active {
+  border-top-right-radius: 9999px !important;
+  border-bottom-right-radius: 9999px !important;
   border-top-left-radius: 12px !important;
   border-bottom-left-radius: 12px !important;
   transform: scale(0.98);
@@ -580,11 +609,8 @@ button:not(.no-state-layer):active:not(:disabled)::before,
   }
 }
 
-/* M3 Shape Morphing for Buttons & Pills */
-.m3-btn-morph,
-button.rounded-full,
-.rounded-full.cursor-pointer,
-.m3-interactive.rounded-full {
+/* M3 Shape Morphing for Standalone Expressive Buttons */
+.m3-btn-morph:not(.m3-btn-group-start):not(.m3-btn-group-end):not(.m3-switch):not([role="switch"]):not([role="checkbox"]) {
   border-radius: 9999px;
   transition: transform var(--md-sys-motion-spatial-fast),
               border-radius var(--md-sys-motion-spatial),
@@ -592,12 +618,9 @@ button.rounded-full,
               box-shadow var(--md-sys-motion-effects-fast);
 }
 
-.m3-btn-morph:active:not(:disabled),
-button.rounded-full:active:not(:disabled),
-.rounded-full.cursor-pointer:active:not(:disabled),
-.m3-interactive.rounded-full:active:not(:disabled) {
-  border-radius: 14px !important;
-  transform: scale(0.97) !important;
+.m3-btn-morph:not(.m3-btn-group-start):not(.m3-btn-group-end):not(.m3-switch):not([role="switch"]):not([role="checkbox"]):active:not(:disabled) {
+  border-radius: 18px;
+  transform: scale(0.97);
 }
 
 /* Navigation items shape swap: selected vs unselected morphs between round and squarer */
@@ -1201,9 +1224,6 @@ button.rounded-full:active:not(:disabled),
 
   /* Disable transforms, scale bounces, and shape morphs */
   .m3-btn-morph:active,
-  button.rounded-full:active:not(:disabled),
-  .rounded-full.cursor-pointer:active:not(:disabled),
-  .m3-interactive.rounded-full:active:not(:disabled),
   .m3-card-interactive:active,
   .drop-zone:hover,
   .drop-zone.file-drop-target-active,

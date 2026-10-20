@@ -97,7 +97,7 @@ function onCopyClick() {
 
       <!-- Connected Action Button Group (M3 Expressive) -->
       <div
-        class="m3-button-group shadow-xs shrink-0 self-start sm:self-auto"
+        class="m3-button-group rounded-full shadow-xs shrink-0 self-start sm:self-auto"
         role="group"
         aria-label="Upload results actions"
       >
