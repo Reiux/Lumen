@@ -276,6 +276,23 @@ func (g *ConfigManager) GetExcludePattern() string {
 	return AppConfig.Preferences.ExcludePattern
 }
 
+var (
+	TrayAvailableMu sync.RWMutex
+	TrayAvailable   = true
+)
+
+func SetTrayAvailable(v bool) {
+	TrayAvailableMu.Lock()
+	defer TrayAvailableMu.Unlock()
+	TrayAvailable = v
+}
+
+func (g *ConfigManager) IsTrayAvailable() bool {
+	TrayAvailableMu.RLock()
+	defer TrayAvailableMu.RUnlock()
+	return TrayAvailable
+}
+
 func (g *ConfigManager) SetMinimizeToTray(v bool) {
 	updateAppConfig(func(config *Config) {
 		config.Preferences.MinimizeToTray = v

@@ -78,6 +78,7 @@ const showDeleteConfirm = ref(false)
 const hashCacheCount = ref(0)
 const isClearingCache = ref(false)
 const isAddingFolder = ref(false)
+const isTrayAvailable = ref(true)
 const watchedConfigs = ref<WatchedFolderConfig[]>([])
 const inotifyError = ref('')
 const pendingBacklog = ref<{ folder: string; count: number; account: string } | null>(null)
@@ -201,6 +202,10 @@ onMounted(async () => {
     hashCacheCount.value = await ConfigManager.GetHashCacheCount()
     watchedConfigs.value = (await ConfigManager.GetWatchedFolderConfigs()) || []
     inotifyError.value = (await ConfigManager.GetInotifyError()) || ''
+    isTrayAvailable.value = await ConfigManager.IsTrayAvailable()
+    if (!isTrayAvailable.value) {
+      settings.value.minimizeToTray = false
+    }
   } finally {
     await nextTick()
     isHydrating.value = false
@@ -331,17 +336,19 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
             <div class="flex flex-col">
               <label
                 for="tray-minimize-switch"
-                class="text-sm font-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
+                class="text-sm font-medium text-[var(--md-sys-color-on-surface)]"
+                :class="{ 'opacity-50 cursor-not-allowed': !isTrayAvailable, 'cursor-pointer': isTrayAvailable }"
               >
                 Minimize to Tray on Close
               </label>
               <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5">
-                Keep Lumen running in the system tray when closing the window.
+                {{ isTrayAvailable ? 'Keep Lumen running in the system tray when closing the window.' : 'System tray host not detected on this desktop.' }}
               </span>
             </div>
             <M3Switch
               id="tray-minimize-switch"
               v-model="settings.minimizeToTray"
+              :disabled="!isTrayAvailable"
               aria-label="Minimize to tray toggle"
             />
           </div>
