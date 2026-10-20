@@ -17,11 +17,11 @@ export const vRipple: Directive<RippleElement> = {
       const rect = el.getBoundingClientRect()
       if (rect.width === 0 || rect.height === 0) return
 
-      // Ensure positioning context & bounding
-      if (getComputedStyle(el).position === 'static') {
+      // Ensure positioning context & overflow clipping without forcing synchronous layout reflow
+      if (!el.style.position && (!el.classList || !el.classList.contains('m3-interactive'))) {
         el.style.position = 'relative'
       }
-      if (getComputedStyle(el).overflow !== 'hidden') {
+      if (!el.style.overflow && (!el.classList || !el.classList.contains('m3-interactive'))) {
         el.style.overflow = 'hidden'
       }
 

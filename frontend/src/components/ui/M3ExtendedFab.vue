@@ -65,13 +65,13 @@ const emit = defineEmits<{
 .m3-extended-fab-group {
   position: relative;
   isolation: isolate;
-  filter: drop-shadow(0 8px 16px oklch(0.70 0.22 250 / 22%));
-  transition: transform var(--md-sys-motion-spatial-fast),
-              filter var(--md-sys-motion-effects);
+  filter: drop-shadow(0 8px 18px oklch(0.70 0.22 250 / 25%));
+  transition: transform var(--md-sys-motion-spatial-fast);
+  will-change: transform;
 }
 
 .m3-extended-fab-group:hover {
-  filter: drop-shadow(0 12px 24px oklch(0.70 0.22 250 / 32%));
+  transform: translateY(-2px);
 }
 
 @media (prefers-reduced-motion: reduce) {

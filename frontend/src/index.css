@@ -88,17 +88,18 @@
     Generator script:
       node -e 'function s(z,w,n=25){let p=[],d=w*Math.sqrt(Math.max(0,1-z*z));for(let i=0;i<=n;i++){let t=i/n,v=z<1?1-Math.exp(-z*w*t)*(Math.cos(d*t)+(z*w/d)*Math.sin(d*t)):1-Math.exp(-w*t)*(1+w*t);p.push(i===n?1:Number(v.toFixed(3)));}console.log("linear("+p.join(", ")+")");} s(0.6,9.5); s(1.0,9.5);'
   */
-  --md-sys-motion-easing-spatial: linear(0, 0.062, 0.208, 0.392, 0.578, 0.744, 0.879, 0.978, 1.044, 1.08, 1.094, 1.092, 1.08, 1.064, 1.046, 1.029, 1.015, 1.005, 0.998, 0.993, 0.991, 0.991, 0.992, 0.993, 0.995, 1);
-  --md-sys-motion-easing-effects: linear(0, 0.056, 0.177, 0.316, 0.449, 0.566, 0.665, 0.744, 0.807, 0.855, 0.893, 0.921, 0.942, 0.958, 0.969, 0.978, 0.984, 0.988, 0.992, 0.994, 0.996, 0.997, 0.998, 0.998, 0.999, 1);
+  /* Hardware-accelerated GPU bezier curves (replaces 26-step linear math for 60fps compositor execution) */
+  --md-sys-motion-easing-spatial: cubic-bezier(0.05, 0.7, 0.1, 1.0);
+  --md-sys-motion-easing-effects: cubic-bezier(0.2, 0, 0, 1);
 
-  /* Durations */
-  --md-sys-motion-duration-spatial-fast: 200ms;
-  --md-sys-motion-duration-spatial: 350ms;
-  --md-sys-motion-duration-spatial-slow: 500ms;
+  /* Snappy desktop durations */
+  --md-sys-motion-duration-spatial-fast: 120ms;
+  --md-sys-motion-duration-spatial: 200ms;
+  --md-sys-motion-duration-spatial-slow: 280ms;
 
-  --md-sys-motion-duration-effects-fast: 120ms;
-  --md-sys-motion-duration-effects: 200ms;
-  --md-sys-motion-duration-effects-slow: 300ms;
+  --md-sys-motion-duration-effects-fast: 80ms;
+  --md-sys-motion-duration-effects: 140ms;
+  --md-sys-motion-duration-effects-slow: 200ms;
 
   /* Composite transitions */
   --md-sys-motion-spatial-fast: var(--md-sys-motion-duration-spatial-fast) var(--md-sys-motion-easing-spatial);
@@ -325,8 +326,8 @@
     font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
     user-select: none;
     vertical-align: middle;
-    transition: font-variation-settings var(--md-sys-motion-effects-fast),
-                color var(--md-sys-motion-effects-fast);
+    transition: color var(--md-sys-motion-effects-fast),
+                opacity var(--md-sys-motion-effects-fast);
   }
 
   .m-icon.filled,
@@ -387,7 +388,7 @@
   }
 }
 
-/* M3 State Layers on interactive elements */
+/* M3 State Layers on interactive elements: GPU-composited transform and color */
 .m3-interactive,
 button,
 [role="button"] {
@@ -395,9 +396,8 @@ button,
   overflow: hidden;
   isolation: isolate;
   transition: transform var(--md-sys-motion-spatial-fast),
-              border-radius var(--md-sys-motion-spatial-fast),
               background-color var(--md-sys-motion-effects-fast),
-              box-shadow var(--md-sys-motion-effects-fast);
+              opacity var(--md-sys-motion-effects-fast);
 }
 
 /* State layer overlay: element's on-color at 8% hover, 10% focus, 10% pressed, 16% dragged */
@@ -539,8 +539,7 @@ button:not(.no-state-layer):active:not(:disabled)::before,
   overflow: hidden;
   transition: border-radius var(--md-sys-motion-spatial-fast),
               transform var(--md-sys-motion-spatial-fast),
-              background-color var(--md-sys-motion-effects-fast),
-              box-shadow var(--md-sys-motion-effects-fast) !important;
+              background-color var(--md-sys-motion-effects-fast) !important;
 }
 
 .m3-button-group > button:first-child:hover,
@@ -575,8 +574,7 @@ button:not(.no-state-layer):active:not(:disabled)::before,
   overflow: hidden;
   transition: border-radius var(--md-sys-motion-spatial-fast),
               transform var(--md-sys-motion-spatial-fast),
-              background-color var(--md-sys-motion-effects-fast),
-              box-shadow var(--md-sys-motion-effects-fast) !important;
+              background-color var(--md-sys-motion-effects-fast) !important;
 }
 
 .m3-button-group > button:last-child:hover,
@@ -722,8 +720,9 @@ button:not(.no-state-layer):active:not(:disabled)::before,
 /* Navigation rail active indicator pill */
 .m3-nav-indicator {
   transform-origin: center center;
-  transition: transform var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial),
-              opacity var(--md-sys-motion-duration-effects) var(--md-sys-motion-easing-effects);
+  transition: transform var(--md-sys-motion-duration-spatial-fast) var(--md-sys-motion-easing-spatial),
+              opacity var(--md-sys-motion-duration-effects-fast) var(--md-sys-motion-easing-effects);
+  will-change: transform, opacity;
 }
 
 .m3-nav-item:active .m3-nav-indicator {
@@ -1107,38 +1106,34 @@ button:not(.no-state-layer):active:not(:disabled)::before,
   }
 }
 
-/* M3 Pane Fade-Through Transition */
+/* M3 Pane Fade-Through Transition: fast opacity + subtle 4px vertical glide, no full-pane scaling */
 .m3-fade-through-enter-active {
-  animation: m3-fade-through-in 220ms cubic-bezier(0.2, 0, 0, 1);
-  transform-origin: center center;
+  animation: m3-fade-through-in 140ms cubic-bezier(0.2, 0, 0, 1);
   will-change: opacity, transform;
 }
 
 .m3-fade-through-leave-active {
-  animation: m3-fade-through-out 140ms cubic-bezier(0.4, 0, 1, 1);
-  transform-origin: center center;
-  will-change: opacity, transform;
+  animation: m3-fade-through-out 80ms cubic-bezier(0.4, 0, 1, 1);
+  will-change: opacity;
 }
 
 @keyframes m3-fade-through-in {
   from {
     opacity: 0;
-    transform: scale(0.98);
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
-    transform: scale(1);
+    transform: translateY(0);
   }
 }
 
 @keyframes m3-fade-through-out {
   from {
     opacity: 1;
-    transform: scale(1);
   }
   to {
     opacity: 0;
-    transform: scale(0.98);
   }
 }
 
