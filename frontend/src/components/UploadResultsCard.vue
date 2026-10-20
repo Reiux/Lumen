@@ -108,11 +108,11 @@ function onCopyClick() {
         >
           <div class="relative size-3.5 mr-1.5 shrink-0 flex items-center justify-center">
             <Copy
-              class="size-3.5 absolute transition-all duration-200 ease-[var(--md-sys-motion-easing-spatial)]"
+              class="size-3.5 absolute transition-[transform,opacity] duration-200 ease-[var(--md-sys-motion-easing-spatial)]"
               :class="copied ? 'scale-0 rotate-90 opacity-0' : 'scale-100 rotate-0 opacity-100'"
             />
             <Check
-              class="size-3.5 absolute text-[var(--md-sys-color-tertiary)] transition-all duration-200 ease-[var(--md-sys-motion-easing-spatial)]"
+              class="size-3.5 absolute text-[var(--md-sys-color-tertiary)] transition-[transform,opacity] duration-200 ease-[var(--md-sys-motion-easing-spatial)]"
               :class="copied ? 'scale-110 rotate-0 opacity-100' : 'scale-0 -rotate-90 opacity-0'"
             />
           </div>

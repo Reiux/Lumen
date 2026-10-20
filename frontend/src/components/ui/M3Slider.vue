@@ -98,17 +98,17 @@ function onKeyDown(e: KeyboardEvent) {
   >
     <!-- Value Label Bubble: follows thumb, pops up with spring -->
     <div
-      class="pointer-events-none absolute -top-1 transition-all"
+      class="pointer-events-none absolute -top-1"
       :style="{
         left: `${percent}%`,
         transform: 'translateX(-50%)',
-        transitionProperty: isDragging ? 'opacity, transform' : 'all',
+        transitionProperty: isDragging ? 'none' : 'left',
         transitionDuration: 'var(--md-sys-motion-duration-spatial)',
         transitionTimingFunction: 'var(--md-sys-motion-easing-spatial)',
       }"
     >
       <div
-        class="flex items-center justify-center rounded-full bg-[var(--md-sys-color-primary)] px-2.5 py-0.5 text-[11px] font-bold text-[var(--md-sys-color-on-primary)] shadow-md transition-all"
+        class="flex items-center justify-center rounded-full bg-[var(--md-sys-color-primary)] px-2.5 py-0.5 text-[11px] font-bold text-[var(--md-sys-color-on-primary)] shadow-md transition-[transform,opacity]"
         :class="[
           isDragging || isHovered
             ? 'scale-100 opacity-100 translate-y-0'
@@ -143,36 +143,36 @@ function onKeyDown(e: KeyboardEvent) {
     >
       <!-- Background / Inactive Track (Right side) -->
       <div
-        class="absolute right-0 h-2 rounded-r-full bg-[var(--md-sys-color-surface-container-highest)] transition-all"
+        class="absolute right-0 h-2 rounded-r-full bg-[var(--md-sys-color-surface-container-highest)] transition-[left]"
         :style="{
           left: `calc(${percent}% + ${isDragging ? '6px' : '4px'})`,
-          transitionDuration: 'var(--md-sys-motion-duration-spatial-fast)',
+          transitionDuration: isDragging ? '0ms' : 'var(--md-sys-motion-duration-spatial-fast)',
           transitionTimingFunction: 'var(--md-sys-motion-easing-spatial)',
         }"
       />
 
       <!-- Active Track (Left side) -->
       <div
-        class="absolute left-0 h-2 rounded-l-full bg-[var(--md-sys-color-primary)] transition-all"
+        class="absolute left-0 h-2 rounded-l-full bg-[var(--md-sys-color-primary)] transition-[width]"
         :style="{
           width: `calc(${percent}% - ${isDragging ? '6px' : '4px'})`,
-          transitionDuration: 'var(--md-sys-motion-duration-spatial-fast)',
+          transitionDuration: isDragging ? '0ms' : 'var(--md-sys-motion-duration-spatial-fast)',
           transitionTimingFunction: 'var(--md-sys-motion-easing-spatial)',
         }"
       />
 
       <!-- Handle Thumb: narrows on press (thin pill handle like M3E) -->
       <div
-        class="pointer-events-none absolute top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center transition-all"
+        class="pointer-events-none absolute top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center"
         :style="{
           left: `${percent}%`,
-          transitionProperty: isDragging ? 'width, height' : 'all',
+          transitionProperty: isDragging ? 'none' : 'left',
           transitionDuration: 'var(--md-sys-motion-duration-spatial)',
           transitionTimingFunction: 'var(--md-sys-motion-easing-spatial)',
         }"
       >
         <div
-          class="rounded-full shadow-md transition-all"
+          class="rounded-full shadow-md transition-[width,height,transform,background-color]"
           :class="[
             isDragging
               ? 'w-1 h-8 bg-[var(--md-sys-color-on-primary)] ring-4 ring-[var(--md-sys-color-primary)]/40'

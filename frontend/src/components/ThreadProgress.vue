@@ -127,7 +127,7 @@ const statusMessage = computed(() => props.thread.Message.replace(/^Error:\s*/, 
     >
       <div class="relative h-1.5 w-full overflow-hidden rounded-full bg-[var(--md-sys-color-surface-container-highest)]">
         <div
-          class="h-full rounded-full bg-[var(--md-sys-color-primary)] transition-all duration-200"
+          class="h-full rounded-full bg-[var(--md-sys-color-primary)] transition-[width] duration-200"
           :style="{ width: `${uploadPercent}%` }"
         />
       </div>
