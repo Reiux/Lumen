@@ -2,17 +2,9 @@
 import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Browser, Clipboard } from '@wailsio/runtime'
 import { toast } from 'vue-sonner'
-import {
-  AlertTriangle,
-  ChevronDown,
-  ClipboardPaste,
-  ExternalLink,
-  KeyRound,
-  Loader2,
-  X,
-} from '@lucide/vue'
 import { ConfigManager } from '../../bindings/app/core'
 import Button from './ui/button/Button.vue'
+import M3Icon from './ui/M3Icon.vue'
 
 const embeddedSetupURL = 'https://accounts.google.com/EmbeddedSetup'
 
@@ -206,7 +198,11 @@ async function addRawCredential() {
           <div class="sticky top-0 z-20 flex shrink-0 items-center justify-between border-b border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container)] px-6 py-4">
             <div class="flex items-center gap-3">
               <div class="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
-                <KeyRound class="size-5" />
+                <M3Icon
+                  name="key"
+                  :filled="true"
+                  :size="20"
+                />
               </div>
               <div class="flex flex-col">
                 <h2
@@ -227,7 +223,10 @@ async function addRawCredential() {
               aria-label="Close dialog"
               @click="isOpen = false"
             >
-              <X class="size-4" />
+              <M3Icon
+                name="close"
+                :size="16"
+              />
             </button>
           </div>
 
@@ -273,7 +272,11 @@ async function addRawCredential() {
                 aria-label="Open Google sign-in page in default browser"
                 @click="openEmbeddedSetup"
               >
-                <ExternalLink class="size-4 mr-2 text-[var(--md-sys-color-primary)]" />
+                <M3Icon
+                  name="open_in_new"
+                  :size="16"
+                  class="mr-2 text-[var(--md-sys-color-primary)]"
+                />
                 <span>Open Google Sign-in</span>
               </Button>
             </div>
@@ -328,7 +331,10 @@ async function addRawCredential() {
                     title="Paste from clipboard"
                     @click="pasteToken"
                   >
-                    <ClipboardPaste class="size-5" />
+                    <M3Icon
+                      name="content_paste"
+                      :size="20"
+                    />
                   </button>
                 </div>
 
@@ -347,7 +353,12 @@ async function addRawCredential() {
                 class="flex items-start gap-2.5 rounded-2xl border border-[var(--md-sys-color-error)]/50 bg-[var(--md-sys-color-error-container)] p-3.5 text-xs text-[var(--md-sys-color-on-error-container)] shadow-xs"
                 role="alert"
               >
-                <AlertTriangle class="size-4 shrink-0 mt-0.5 text-[var(--md-sys-color-error)]" />
+                <M3Icon
+                  name="warning"
+                  :filled="true"
+                  :size="16"
+                  class="shrink-0 mt-0.5 text-[var(--md-sys-color-error)]"
+                />
                 <div class="flex flex-col min-w-0">
                   <span class="font-bold">Connection Failed</span>
                   <span class="text-[11px] leading-relaxed opacity-95">{{ connectionError }}</span>
@@ -365,8 +376,10 @@ async function addRawCredential() {
                 @click="showAdvanced = !showAdvanced"
               >
                 <span>Paste a captured credential instead</span>
-                <ChevronDown
-                  class="size-4 transition-transform duration-200"
+                <M3Icon
+                  name="expand_more"
+                  :size="18"
+                  class="transition-transform duration-200"
                   :class="showAdvanced && 'rotate-180'"
                 />
               </button>
@@ -409,7 +422,10 @@ async function addRawCredential() {
                     title="Paste from clipboard"
                     @click="pasteRawCredential"
                   >
-                    <ClipboardPaste class="size-5" />
+                    <M3Icon
+                      name="content_paste"
+                      :size="20"
+                    />
                   </button>
                 </div>
 
@@ -429,9 +445,11 @@ async function addRawCredential() {
                   aria-label="Add captured credential"
                   @click="addRawCredential"
                 >
-                  <Loader2
+                  <M3Icon
                     v-if="isAddingRawCredential"
-                    class="size-3.5 mr-2 animate-spin"
+                    name="progress_activity"
+                    :size="14"
+                    class="mr-2 animate-spin"
                   />
                   <span>{{ isAddingRawCredential ? 'Adding...' : 'Add Credential' }}</span>
                 </Button>

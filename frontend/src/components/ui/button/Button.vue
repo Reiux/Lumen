@@ -4,7 +4,7 @@ import { cn } from '@/lib/utils'
 import { Primitive, type PrimitiveProps } from 'reka-ui'
 import { type ButtonVariants, buttonVariants } from '.'
 import { vRipple } from '@/directives/ripple'
-import { Loader2 } from '@lucide/vue'
+import M3Icon from '../M3Icon.vue'
 
 interface Props extends PrimitiveProps {
   variant?: ButtonVariants['variant']
@@ -34,9 +34,11 @@ const props = withDefaults(defineProps<Props>(), {
       props.class
     )"
   >
-    <Loader2
+    <M3Icon
       v-if="loading"
-      class="size-4 shrink-0 animate-spin m3-spinner-fade mr-1.5"
+      name="progress_activity"
+      :size="16"
+      class="shrink-0 animate-spin mr-1.5"
     />
     <slot />
   </Primitive>

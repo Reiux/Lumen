@@ -1,17 +1,9 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import type { Ref } from 'vue'
-import {
-  AlertCircle,
-  Check,
-  CheckCircle2,
-  ChevronDown,
-  Copy,
-  RotateCcw,
-  XCircle,
-} from '@lucide/vue'
 import type { UploadResults } from '../utils/uploadResults'
 import Button from './ui/button/Button.vue'
+import M3Icon from './ui/M3Icon.vue'
 
 const props = defineProps<{
   results: UploadResults
@@ -111,12 +103,16 @@ function onCopyClick() {
           @click="onCopyClick"
         >
           <div class="relative size-3.5 mr-1.5 shrink-0 flex items-center justify-center">
-            <Copy
-              class="size-3.5 absolute transition-[transform,opacity] duration-200 ease-[var(--md-sys-motion-easing-spatial)]"
+            <M3Icon
+              name="content_copy"
+              :size="14"
+              class="absolute transition-[transform,opacity] duration-200 ease-[var(--md-sys-motion-easing-spatial)]"
               :class="copied ? 'scale-0 rotate-90 opacity-0' : 'scale-100 rotate-0 opacity-100'"
             />
-            <Check
-              class="size-3.5 absolute text-[var(--md-sys-color-tertiary)] transition-[transform,opacity] duration-200 ease-[var(--md-sys-motion-easing-spatial)]"
+            <M3Icon
+              name="check"
+              :size="14"
+              class="absolute text-[var(--md-sys-color-tertiary)] transition-[transform,opacity] duration-200 ease-[var(--md-sys-motion-easing-spatial)]"
               :class="copied ? 'scale-110 rotate-0 opacity-100' : 'scale-0 -rotate-90 opacity-0'"
             />
           </div>
@@ -131,7 +127,11 @@ function onCopyClick() {
           aria-label="Dismiss results and start new upload"
           @click="emit('clear')"
         >
-          <RotateCcw class="size-3.5 mr-1.5" />
+          <M3Icon
+            name="replay"
+            :size="14"
+            class="mr-1.5"
+          />
           <span>New Upload</span>
         </Button>
       </div>
@@ -142,7 +142,12 @@ function onCopyClick() {
       <!-- Successful in Tertiary Container -->
       <div class="m3-stat-card-1 flex items-center gap-4 rounded-[24px] border border-[var(--md-sys-color-tertiary)]/30 bg-[var(--md-sys-color-tertiary-container)] p-5 text-[var(--md-sys-color-on-tertiary-container)] shadow-xs">
         <div class="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--md-sys-color-on-tertiary-container)]/15">
-          <CheckCircle2 class="size-6 text-[var(--md-sys-color-on-tertiary-container)]" />
+          <M3Icon
+            name="check_circle"
+            :filled="true"
+            :size="24"
+            class="text-[var(--md-sys-color-on-tertiary-container)]"
+          />
         </div>
         <div class="flex flex-col min-w-0">
           <span class="text-3xl font-extrabold tabular-nums tracking-tight">
@@ -157,7 +162,12 @@ function onCopyClick() {
       <!-- Failed in Error Container -->
       <div class="m3-stat-card-2 flex items-center gap-4 rounded-[24px] border border-[var(--md-sys-color-error)]/30 bg-[var(--md-sys-color-error-container)] p-5 text-[var(--md-sys-color-on-error-container)] shadow-xs">
         <div class="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--md-sys-color-on-error-container)]/15">
-          <XCircle class="size-6 text-[var(--md-sys-color-on-error-container)]" />
+          <M3Icon
+            name="cancel"
+            :filled="true"
+            :size="24"
+            class="text-[var(--md-sys-color-on-error-container)]"
+          />
         </div>
         <div class="flex flex-col min-w-0">
           <span class="text-3xl font-extrabold tabular-nums tracking-tight">
@@ -192,11 +202,17 @@ function onCopyClick() {
         @click="showFailedList = !showFailedList"
       >
         <div class="flex items-center gap-2">
-          <AlertCircle class="size-4" />
+          <M3Icon
+            name="warning"
+            :filled="true"
+            :size="16"
+          />
           <span>View Failed Items ({{ results.fail.length }})</span>
         </div>
-        <ChevronDown
-          class="size-4 transition-transform duration-300 ease-[var(--md-sys-motion-easing-spatial)]"
+        <M3Icon
+          name="expand_more"
+          :size="18"
+          class="transition-transform duration-300 ease-[var(--md-sys-motion-easing-spatial)]"
           :class="showFailedList && 'rotate-180'"
         />
       </button>
@@ -212,7 +228,12 @@ function onCopyClick() {
               :key="idx"
               class="flex items-start gap-2.5 rounded-xl bg-[var(--md-sys-color-surface-container-highest)]/50 p-2.5 text-xs text-[var(--md-sys-color-on-surface)]"
             >
-              <XCircle class="size-4 shrink-0 text-[var(--md-sys-color-error)] mt-0.5" />
+              <M3Icon
+                name="cancel"
+                :filled="true"
+                :size="16"
+                class="shrink-0 text-[var(--md-sys-color-error)] mt-0.5"
+              />
               <span class="break-all font-mono text-[11px] leading-relaxed">{{ failItem }}</span>
             </div>
           </div>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Check, ChevronDown, Plus, User, X } from '@lucide/vue'
+import M3Icon from './ui/M3Icon.vue'
 import {
   SelectItem as SelectItemPrimitive,
   SelectItemIndicator,
@@ -83,15 +83,20 @@ const selectedInitial = computed(() => {
         v-else
         class="flex size-6 shrink-0 items-center justify-center rounded-full bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-on-surface-variant)]"
       >
-        <User class="size-3.5" />
+        <M3Icon
+          name="person"
+          :size="14"
+        />
       </div>
 
       <span class="truncate text-xs font-medium">
         {{ selectedValue || 'Select account' }}
       </span>
 
-      <ChevronDown
-        class="size-3.5 shrink-0 text-[var(--md-sys-color-on-surface-variant)] transition-transform"
+      <M3Icon
+        name="expand_more"
+        :size="16"
+        class="shrink-0 text-[var(--md-sys-color-on-surface-variant)] transition-transform"
         :style="{
           transitionDuration: 'var(--md-sys-motion-duration-spatial)',
           transitionTimingFunction: 'var(--md-sys-motion-easing-spatial)',
@@ -124,7 +129,10 @@ const selectedInitial = computed(() => {
               <span class="block truncate text-xs font-medium">{{ option }}</span>
             </SelectItemText>
             <SelectItemIndicator class="shrink-0 text-[var(--md-sys-color-primary)] mx-0.5">
-              <Check class="size-4" />
+              <M3Icon
+                name="check"
+                :size="16"
+              />
             </SelectItemIndicator>
           </SelectItemPrimitive>
           <button
@@ -136,7 +144,10 @@ const selectedInitial = computed(() => {
             @pointerdown.stop.prevent
             @click.stop.prevent="emit('item-removed', option)"
           >
-            <X class="size-4" />
+            <M3Icon
+              name="close"
+              :size="16"
+            />
           </button>
         </div>
       </SelectGroup>
@@ -150,7 +161,11 @@ const selectedInitial = computed(() => {
         @pointerdown.stop.prevent
         @click.stop.prevent="isOpen = false; emit('add')"
       >
-        <Plus class="size-4 shrink-0" />
+        <M3Icon
+          name="add"
+          :size="16"
+          class="shrink-0"
+        />
         <span>Add account</span>
       </button>
     </SelectContent>

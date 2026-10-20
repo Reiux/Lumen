@@ -2,7 +2,7 @@
 import type { HTMLAttributes } from 'vue'
 import { cn } from '@/lib/utils'
 import { reactiveOmit } from '@vueuse/core'
-import { ChevronDown } from '@lucide/vue'
+import M3Icon from '../M3Icon.vue'
 import { SelectIcon, SelectTrigger, type SelectTriggerProps, useForwardProps } from 'reka-ui'
 
 const props = withDefaults(
@@ -26,7 +26,11 @@ const forwardedProps = useForwardProps(delegatedProps)
   >
     <slot />
     <SelectIcon as-child>
-      <ChevronDown class="size-4 opacity-50" />
+      <M3Icon
+        name="expand_more"
+        :size="16"
+        class="opacity-50"
+      />
     </SelectIcon>
   </SelectTrigger>
 </template>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { cn } from '@/lib/utils'
-import { ChevronUp } from '@lucide/vue'
+import M3Icon from '../M3Icon.vue'
 import { SelectScrollUpButton, type SelectScrollUpButtonProps, useForwardProps } from 'reka-ui'
 import { computed, type HTMLAttributes } from 'vue'
 
@@ -22,7 +22,10 @@ const forwardedProps = useForwardProps(delegatedProps)
     :class="cn('flex cursor-default items-center justify-center py-1', props.class)"
   >
     <slot>
-      <ChevronUp class="size-4" />
+      <M3Icon
+        name="expand_less"
+        :size="16"
+      />
     </slot>
   </SelectScrollUpButton>
 </template>

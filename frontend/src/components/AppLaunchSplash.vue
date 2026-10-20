@@ -25,8 +25,8 @@ export function getLaunchMultiplier(): number {
 
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watch } from 'vue'
-import { SunMedium } from '@lucide/vue'
 import { Window } from '@wailsio/runtime'
+import M3Icon from './ui/M3Icon.vue'
 import { launchReplayTrigger } from '../utils/launchState'
 
 const props = withDefaults(defineProps<{
@@ -241,7 +241,10 @@ onUnmounted(() => {
           willChange: isVisible ? 'transform, opacity' : 'auto',
         }"
       >
-        <SunMedium class="size-14" />
+        <M3Icon
+          name="light_mode"
+          :size="56"
+        />
       </div>
     </div>
   </Teleport>

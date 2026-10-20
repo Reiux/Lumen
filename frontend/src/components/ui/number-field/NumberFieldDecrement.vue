@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { NumberFieldDecrementProps } from 'reka-ui'
 import { cn } from '@/lib/utils'
-import { Minus } from '@lucide/vue'
+import M3Icon from '../M3Icon.vue'
 import { NumberFieldDecrement, useForwardProps } from 'reka-ui'
 import { computed, type HTMLAttributes } from 'vue'
 
@@ -23,7 +23,10 @@ const forwarded = useForwardProps(delegatedProps)
     :class="cn('absolute top-1/2 -translate-y-1/2 left-0 p-3 disabled:cursor-not-allowed disabled:opacity-20', props.class)"
   >
     <slot>
-      <Minus class="h-4 w-4" />
+      <M3Icon
+        name="remove"
+        :size="16"
+      />
     </slot>
   </NumberFieldDecrement>
 </template>

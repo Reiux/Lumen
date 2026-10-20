@@ -1,17 +1,5 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import {
-  Camera,
-  CloudUpload,
-  Folder,
-  FolderPlus,
-  Settings2,
-  Sparkles,
-  SunMedium,
-  Upload as UploadIcon,
-  UserPlus,
-  X,
-} from '@lucide/vue'
 import { useColorMode } from '@vueuse/core'
 import { toast } from 'vue-sonner'
 import { Events } from '@wailsio/runtime'
@@ -28,6 +16,7 @@ import UploadResultsCard from './components/UploadResultsCard.vue'
 import DevMockBar from './components/DevMockBar.vue'
 import Toaster from './components/ui/sonner/Sonner.vue'
 import AppLaunchSplash from './components/AppLaunchSplash.vue'
+import M3Icon from './components/ui/M3Icon.vue'
 import { launchReplayTrigger } from './utils/launchState'
 import { uploadManager } from './utils/UploadManager'
 import { mockState } from './utils/mockMode'
@@ -515,7 +504,10 @@ onUnmounted(() => {
             class="flex size-9 items-center justify-center rounded-xl bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] shadow-sm transition-opacity duration-150"
             :class="isSplashActive ? 'opacity-0' : 'opacity-100'"
           >
-            <SunMedium class="size-5" />
+            <M3Icon
+              name="light_mode"
+              :size="20"
+            />
           </div>
           <div class="flex flex-col">
             <span class="text-base font-bold tracking-tight text-[var(--md-sys-color-on-surface)]">Lumen</span>
@@ -568,7 +560,12 @@ onUnmounted(() => {
               v-if="displaySelectedOption"
               class="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 transition-opacity group-hover:opacity-100"
             >
-              <Camera class="size-5 text-white" />
+              <M3Icon
+                name="photo_camera"
+                :filled="true"
+                :size="20"
+                class="text-white"
+              />
             </div>
           </div>
 
@@ -595,7 +592,10 @@ onUnmounted(() => {
               class="inline-flex h-8 items-center gap-1.5 rounded-full bg-[var(--md-sys-color-primary)] px-3.5 text-xs font-medium text-[var(--md-sys-color-on-primary)] shadow-xs hover:bg-[var(--md-sys-color-primary)]/90 cursor-pointer"
               @click="openAccountSetup"
             >
-              <UserPlus class="size-3.5" />
+              <M3Icon
+                name="person_add"
+                :size="14"
+              />
               Connect Account
             </button>
           </div>
@@ -619,7 +619,10 @@ onUnmounted(() => {
               class="m3-nav-indicator absolute inset-0 rounded-full bg-[var(--md-sys-color-secondary-container)] shadow-xs pointer-events-none"
               :class="activeTab === 'upload' ? 'scale-x-100 opacity-100' : 'scale-x-0 opacity-0'"
             />
-            <CloudUpload
+            <M3Icon
+              name="cloud_upload"
+              :filled="activeTab === 'upload'"
+              :size="20"
               class="relative z-10 size-5 shrink-0 transition-colors duration-200"
               :class="activeTab === 'upload'
                 ? 'text-[var(--md-sys-color-on-secondary-container)]'
@@ -646,7 +649,10 @@ onUnmounted(() => {
               class="m3-nav-indicator absolute inset-0 rounded-full bg-[var(--md-sys-color-secondary-container)] shadow-xs pointer-events-none"
               :class="activeTab === 'settings' ? 'scale-x-100 opacity-100' : 'scale-x-0 opacity-0'"
             />
-            <Settings2
+            <M3Icon
+              name="settings"
+              :filled="activeTab === 'settings'"
+              :size="20"
               class="relative z-10 size-5 shrink-0 transition-colors duration-200"
               :class="activeTab === 'settings'
                 ? 'text-[var(--md-sys-color-on-secondary-container)]'
@@ -668,7 +674,11 @@ onUnmounted(() => {
             aria-label="Manage accounts"
             @click="openAccountSetup"
           >
-            <UserPlus class="relative z-10 size-5 shrink-0 transition-transform duration-200" />
+            <M3Icon
+              name="person_add"
+              :size="20"
+              class="relative z-10 size-5 shrink-0 transition-transform duration-200"
+            />
             <span class="relative z-10">Accounts</span>
           </button>
         </nav>
@@ -720,7 +730,10 @@ onUnmounted(() => {
               :style="{ '--card-index': 0 }"
             >
               <div class="mb-3 flex size-14 items-center justify-center m3-shape-scallop bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)] shadow-sm">
-                <UploadIcon class="size-7" />
+                <M3Icon
+                  name="upload"
+                  :size="28"
+                />
               </div>
               <h2 class="text-base font-semibold text-[var(--md-sys-color-on-surface)] select-none">
                 Upload Only
@@ -737,7 +750,10 @@ onUnmounted(() => {
               :style="{ '--card-index': 1 }"
             >
               <div class="mb-3 flex size-14 items-center justify-center m3-shape-scallop bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)] shadow-sm">
-                <FolderPlus class="size-7" />
+                <M3Icon
+                  name="create_new_folder"
+                  :size="28"
+                />
               </div>
               <h2 class="text-base font-semibold text-[var(--md-sys-color-on-surface)] select-none">
                 Upload to Album
@@ -754,7 +770,10 @@ onUnmounted(() => {
               :style="{ '--card-index': 2 }"
             >
               <div class="mb-3 flex size-14 items-center justify-center m3-shape-scallop bg-[var(--md-sys-color-tertiary-container)] text-[var(--md-sys-color-on-tertiary-container)] shadow-sm">
-                <Sparkles class="size-7" />
+                <M3Icon
+                  name="auto_awesome"
+                  :size="28"
+                />
               </div>
               <h2 class="text-base font-semibold text-[var(--md-sys-color-on-surface)] select-none">
                 Auto Album
@@ -772,7 +791,11 @@ onUnmounted(() => {
             style="--wails-draggable: none"
           >
             <div class="relative mb-6 flex size-28 items-center justify-center rounded-[36px] border border-[var(--md-sys-color-primary-container)]/60 bg-[var(--md-sys-color-primary-container)]/35 text-[var(--md-sys-color-primary)] shadow-sm transition-transform duration-300 hover:scale-105">
-              <UserPlus class="size-14" />
+              <M3Icon
+                name="person_add"
+                :filled="true"
+                :size="56"
+              />
             </div>
             <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-[var(--md-sys-color-on-surface)] select-none">
               Connect Google Photos
@@ -796,7 +819,11 @@ onUnmounted(() => {
               aria-label="Add Google account"
               @click="openAccountSetup"
             >
-              <UserPlus class="size-4 mr-2.5 stroke-[2.5]" />
+              <M3Icon
+                name="person_add"
+                :size="18"
+                class="mr-2"
+              />
               <span>Add Google Account</span>
             </Button>
             <p class="mt-4 text-[11px] text-[var(--md-sys-color-on-surface-variant)]/60 select-none">
@@ -836,7 +863,11 @@ onUnmounted(() => {
               style="--wails-draggable: none"
             >
               <div class="relative mb-5 flex size-28 items-center justify-center m3-shape-cookie bg-[var(--md-sys-color-primary-container)]/40 text-[var(--md-sys-color-primary)] shadow-xs">
-                <CloudUpload class="size-14" />
+                <M3Icon
+                  name="cloud_upload"
+                  :filled="isDraggingFiles"
+                  :size="56"
+                />
               </div>
               <h2 class="text-2xl font-bold text-[var(--md-sys-color-on-surface)] select-none m3-headline-medium">
                 Drop files to upload
@@ -905,7 +936,11 @@ onUnmounted(() => {
             aria-labelledby="album-dialog-title"
           >
             <div class="flex size-16 items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
-              <FolderPlus class="size-8" />
+              <M3Icon
+                name="create_new_folder"
+                :filled="true"
+                :size="32"
+              />
             </div>
             <div class="flex flex-col gap-1">
               <h2
@@ -953,14 +988,22 @@ onUnmounted(() => {
                   :class="albumNameOrKey === recent ? 'border-[var(--md-sys-color-primary)] bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]' : ''"
                   @click="albumNameOrKey = recent"
                 >
-                  <Folder class="size-3 shrink-0 text-[var(--md-sys-color-primary)]" />
+                  <M3Icon
+                    name="folder"
+                    :filled="albumNameOrKey === recent"
+                    :size="14"
+                    class="shrink-0 text-[var(--md-sys-color-primary)]"
+                  />
                   <span class="max-w-[130px] truncate">{{ recent }}</span>
                   <span
                     class="ml-0.5 rounded-full p-0.5 opacity-60 hover:opacity-100 hover:bg-black/10 dark:hover:bg-white/10"
                     title="Remove from recents"
                     @click="removeRecentAlbum(recent, $event)"
                   >
-                    <X class="size-2.5" />
+                    <M3Icon
+                      name="close"
+                      :size="12"
+                    />
                   </span>
                 </button>
               </div>
