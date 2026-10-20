@@ -1,7 +1,7 @@
 # Lumen
 
 Lumen is a fork of gotohp with a redesigned interface built around
-Material 3 Expressive: tonal color roles, large rounded shapes, and
+Material 3 Expressive (WIP): tonal color roles, large rounded shapes, and
 smooth motion. Upload logic is unchanged from upstream.
 Unofficial. Not affiliated with or endorsed by Google.
 Credit and thanks to xob0t for the original project (MIT license):
