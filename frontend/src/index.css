@@ -996,3 +996,43 @@ html[data-input="keyboard"] [data-slot="select-content"] [role="option"][data-hi
     transform: scale(0.96);
   }
 }
+
+/* Dialog body scrollbar styling */
+.m3-dialog-body {
+  scrollbar-width: thin;
+  scrollbar-color: var(--md-sys-color-outline-variant) transparent;
+}
+
+.m3-dialog-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.m3-dialog-body::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 8px 0;
+}
+
+.m3-dialog-body::-webkit-scrollbar-thumb {
+  background-color: var(--md-sys-color-outline-variant);
+  border-radius: 9999px;
+}
+
+.m3-dialog-body::-webkit-scrollbar-thumb:hover {
+  background-color: var(--md-sys-color-outline);
+}
+
+/* Compact instructions card on short window heights */
+@media (max-height: 640px) {
+  .m3-instructions-card {
+    padding: 0.625rem !important;
+  }
+
+  .m3-instructions-card ol {
+    font-size: 0.75rem !important;
+    line-height: 1.35 !important;
+  }
+
+  .m3-instructions-card li {
+    margin-bottom: 0.25rem !important;
+  }
+}

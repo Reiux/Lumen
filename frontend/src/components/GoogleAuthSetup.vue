@@ -31,6 +31,7 @@ const showAdvanced = ref(false)
 const tokenError = ref('')
 const connectionError = ref('')
 const rawCredentialError = ref('')
+const dialogBodyRef = ref<HTMLElement | null>(null)
 
 let openerElement: HTMLElement | null = null
 
@@ -38,8 +39,14 @@ watch(isOpen, (open) => {
   if (open) {
     openerElement = (document.activeElement as HTMLElement) || null
     nextTick(() => {
+      if (dialogBodyRef.value) {
+        dialogBodyRef.value.scrollTop = 0
+      }
       const input = document.getElementById('google-oauth-token')
-      input?.focus()
+      if (input) {
+        input.focus({ preventScroll: true })
+        input.scrollIntoView({ block: 'nearest' })
+      }
     })
   } else {
     oauthToken.value = ''
@@ -189,22 +196,22 @@ async function addRawCredential() {
       >
         <!-- Centered M3 Modal Dialog -->
         <div
-          class="m3-dialog-card relative w-full max-w-lg rounded-[32px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container)] p-6 shadow-2xl outline-none max-h-[90vh] overflow-y-auto select-none"
+          class="m3-dialog-card relative flex flex-col w-full max-w-lg rounded-[32px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container)] shadow-2xl outline-none max-h-[calc(100dvh-32px)] overflow-hidden select-none"
           role="dialog"
           aria-modal="true"
           aria-labelledby="google-auth-title"
           style="--wails-draggable: none"
         >
-          <!-- Header -->
-          <div class="flex items-start justify-between pb-4">
+          <!-- Sticky Header -->
+          <div class="sticky top-0 z-20 flex shrink-0 items-center justify-between border-b border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container)] px-6 py-4">
             <div class="flex items-center gap-3">
-              <div class="flex size-11 items-center justify-center rounded-2xl bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
+              <div class="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
                 <KeyRound class="size-5" />
               </div>
               <div class="flex flex-col">
                 <h2
                   id="google-auth-title"
-                  class="text-lg font-bold tracking-tight text-[var(--md-sys-color-on-surface)]"
+                  class="text-base font-bold tracking-tight text-[var(--md-sys-color-on-surface)]"
                 >
                   Connect Google Photos
                 </h2>
@@ -216,7 +223,7 @@ async function addRawCredential() {
 
             <button
               type="button"
-              class="flex size-8 cursor-pointer items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-on-surface)]"
+              class="m3-interactive flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-on-surface)]"
               aria-label="Close dialog"
               @click="isOpen = false"
             >
@@ -224,20 +231,24 @@ async function addRawCredential() {
             </button>
           </div>
 
-          <div class="flex flex-col gap-6 pt-1">
+          <!-- Scrollable Body -->
+          <div
+            ref="dialogBodyRef"
+            class="m3-dialog-body flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-6"
+          >
             <!-- Step 1: Open Google Sign-in -->
             <div class="flex flex-col gap-3">
               <div class="flex items-center gap-2.5">
                 <span class="flex size-6 shrink-0 items-center justify-center rounded-full bg-[var(--md-sys-color-primary)] text-xs font-bold text-[var(--md-sys-color-on-primary)] shadow-xs">
                   1
                 </span>
-                <h2 class="text-sm font-semibold text-[var(--md-sys-color-on-surface)]">
+                <h3 class="text-sm font-semibold text-[var(--md-sys-color-on-surface)]">
                   Open the Google sign-in page
-                </h2>
+                </h3>
               </div>
 
               <!-- Tonal card instructions -->
-              <div class="rounded-2xl border border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-low)] p-4 text-xs leading-relaxed text-[var(--md-sys-color-on-surface-variant)]">
+              <div class="m3-instructions-card rounded-2xl border border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-low)] p-4 text-xs leading-relaxed text-[var(--md-sys-color-on-surface-variant)]">
                 <ol class="list-decimal space-y-1.5 pl-4">
                   <li>
                     Click the button below to open Google's Embedded Setup page in your default browser.
@@ -273,9 +284,9 @@ async function addRawCredential() {
                 <span class="flex size-6 shrink-0 items-center justify-center rounded-full bg-[var(--md-sys-color-primary)] text-xs font-bold text-[var(--md-sys-color-on-primary)] shadow-xs">
                   2
                 </span>
-                <h2 class="text-sm font-semibold text-[var(--md-sys-color-on-surface)]">
+                <h3 class="text-sm font-semibold text-[var(--md-sys-color-on-surface)]">
                   Paste the oauth_token cookie value
-                </h2>
+                </h3>
               </div>
 
               <!-- Outlined Token Field with Floating Label & Paste Action -->
@@ -342,102 +353,104 @@ async function addRawCredential() {
                   <span class="text-[11px] leading-relaxed opacity-95">{{ connectionError }}</span>
                 </div>
               </div>
+            </div>
 
-              <!-- Connect Account Button -->
-              <Button
+            <!-- Collapsible Section: Paste a captured credential instead -->
+            <div class="border-t border-[var(--md-sys-color-outline-variant)]/30 pt-4">
+              <button
                 type="button"
-                class="mt-1 h-11 w-full rounded-full text-sm font-semibold shadow-sm cursor-pointer select-none bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] hover:bg-[var(--md-sys-color-primary)]/90 disabled:opacity-40 disabled:cursor-not-allowed"
-                :disabled="!oauthToken.trim() || isConnecting"
-                :loading="isConnecting"
-                aria-label="Connect Google account"
-                @click="connectAccount"
+                class="flex w-full cursor-pointer items-center justify-between text-xs font-semibold text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:text-[var(--md-sys-color-on-surface)]"
+                aria-label="Toggle captured credential input section"
+                :aria-expanded="showAdvanced"
+                @click="showAdvanced = !showAdvanced"
               >
-                <span>{{ isConnecting ? 'Connecting...' : 'Connect Account' }}</span>
-              </Button>
+                <span>Paste a captured credential instead</span>
+                <ChevronDown
+                  class="size-4 transition-transform duration-200"
+                  :class="showAdvanced && 'rotate-180'"
+                />
+              </button>
+
+              <div
+                v-if="showAdvanced"
+                class="mt-4 flex flex-col gap-3"
+              >
+                <div
+                  class="m3-outlined-field relative flex h-[56px] w-full items-center rounded-2xl border bg-[var(--md-sys-color-surface-container-low)] transition-all focus-within:border-2"
+                  :class="rawCredentialError
+                    ? 'border-[var(--md-sys-color-error)] focus-within:border-[var(--md-sys-color-error)] m3-field-error'
+                    : 'border-[var(--md-sys-color-outline)] focus-within:border-[var(--md-sys-color-primary)]'"
+                >
+                  <input
+                    id="google-raw-credential"
+                    v-model="rawCredential"
+                    type="password"
+                    autocomplete="off"
+                    spellcheck="false"
+                    placeholder=" "
+                    class="peer h-full w-full flex-1 rounded-2xl bg-transparent pl-4 pr-[52px] pt-4 pb-1 text-sm text-[var(--md-sys-color-on-surface)] border-0 outline-none shadow-none focus:outline-none focus:ring-0"
+                    :disabled="isAddingRawCredential"
+                    @keydown.enter="addRawCredential"
+                  >
+                  <label
+                    for="google-raw-credential"
+                    class="pointer-events-none absolute left-4 text-[11px] font-medium transition-all peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:text-sm peer-focus:top-2 peer-focus:translate-y-0 peer-focus:text-[11px] top-2 translate-y-0 select-none"
+                    :class="rawCredentialError
+                      ? 'text-[var(--md-sys-color-error)]'
+                      : 'text-[var(--md-sys-color-primary)] peer-placeholder-shown:text-[var(--md-sys-color-on-surface-variant)]'"
+                  >
+                    Captured credential (androidId=...&Email=...)
+                  </label>
+
+                  <button
+                    type="button"
+                    class="m3-interactive absolute right-1.5 top-1/2 -translate-y-1/2 flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-on-surface)]"
+                    aria-label="Paste raw credential from clipboard"
+                    title="Paste from clipboard"
+                    @click="pasteRawCredential"
+                  >
+                    <ClipboardPaste class="size-5" />
+                  </button>
+                </div>
+
+                <!-- Visible raw credential error -->
+                <p
+                  v-if="rawCredentialError"
+                  class="px-2 text-xs font-medium text-[var(--md-sys-color-error)]"
+                >
+                  {{ rawCredentialError }}
+                </p>
+
+                <Button
+                  type="button"
+                  variant="outline"
+                  class="h-10 rounded-full px-5 text-xs font-semibold self-start cursor-pointer select-none"
+                  :disabled="!rawCredential.trim() || isAddingRawCredential"
+                  aria-label="Add captured credential"
+                  @click="addRawCredential"
+                >
+                  <Loader2
+                    v-if="isAddingRawCredential"
+                    class="size-3.5 mr-2 animate-spin"
+                  />
+                  <span>{{ isAddingRawCredential ? 'Adding...' : 'Add Credential' }}</span>
+                </Button>
+              </div>
             </div>
           </div>
 
-          <!-- Collapsible Section: Paste a captured credential instead -->
-          <div class="mt-6 border-t border-[var(--md-sys-color-outline-variant)]/30 pt-4">
-            <button
+          <!-- Sticky Footer with Connect Button -->
+          <div class="sticky bottom-0 z-20 shrink-0 border-t border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container)] px-6 py-4 flex items-center justify-end">
+            <Button
               type="button"
-              class="flex w-full cursor-pointer items-center justify-between text-xs font-semibold text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:text-[var(--md-sys-color-on-surface)]"
-              aria-label="Toggle captured credential input section"
-              :aria-expanded="showAdvanced"
-              @click="showAdvanced = !showAdvanced"
+              class="h-11 w-full rounded-full text-sm font-semibold shadow-sm cursor-pointer select-none bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] hover:bg-[var(--md-sys-color-primary)]/90 disabled:opacity-40 disabled:cursor-not-allowed"
+              :disabled="!oauthToken.trim() || isConnecting"
+              :loading="isConnecting"
+              aria-label="Connect Google account"
+              @click="connectAccount"
             >
-              <span>Paste a captured credential instead</span>
-              <ChevronDown
-                class="size-4 transition-transform duration-200"
-                :class="showAdvanced && 'rotate-180'"
-              />
-            </button>
-
-            <div
-              v-if="showAdvanced"
-              class="mt-4 flex flex-col gap-3"
-            >
-              <div
-                class="m3-outlined-field relative flex h-[56px] w-full items-center rounded-2xl border bg-[var(--md-sys-color-surface-container-low)] transition-all focus-within:border-2"
-                :class="rawCredentialError
-                  ? 'border-[var(--md-sys-color-error)] focus-within:border-[var(--md-sys-color-error)] m3-field-error'
-                  : 'border-[var(--md-sys-color-outline)] focus-within:border-[var(--md-sys-color-primary)]'"
-              >
-                <input
-                  id="google-raw-credential"
-                  v-model="rawCredential"
-                  type="password"
-                  autocomplete="off"
-                  spellcheck="false"
-                  placeholder=" "
-                  class="peer h-full w-full flex-1 rounded-2xl bg-transparent pl-4 pr-[52px] pt-4 pb-1 text-sm text-[var(--md-sys-color-on-surface)] border-0 outline-none shadow-none focus:outline-none focus:ring-0"
-                  :disabled="isAddingRawCredential"
-                  @keydown.enter="addRawCredential"
-                >
-                <label
-                  for="google-raw-credential"
-                  class="pointer-events-none absolute left-4 text-[11px] font-medium transition-all peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:text-sm peer-focus:top-2 peer-focus:translate-y-0 peer-focus:text-[11px] top-2 translate-y-0 select-none"
-                  :class="rawCredentialError
-                    ? 'text-[var(--md-sys-color-error)]'
-                    : 'text-[var(--md-sys-color-primary)] peer-placeholder-shown:text-[var(--md-sys-color-on-surface-variant)]'"
-                >
-                  Captured credential (androidId=...&Email=...)
-                </label>
-
-                <button
-                  type="button"
-                  class="m3-interactive absolute right-1.5 top-1/2 -translate-y-1/2 flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-on-surface)]"
-                  aria-label="Paste raw credential from clipboard"
-                  title="Paste from clipboard"
-                  @click="pasteRawCredential"
-                >
-                  <ClipboardPaste class="size-5" />
-                </button>
-              </div>
-
-              <!-- Visible raw credential error -->
-              <p
-                v-if="rawCredentialError"
-                class="px-2 text-xs font-medium text-[var(--md-sys-color-error)]"
-              >
-                {{ rawCredentialError }}
-              </p>
-
-              <Button
-                type="button"
-                variant="outline"
-                class="h-10 rounded-full px-5 text-xs font-semibold self-start cursor-pointer select-none"
-                :disabled="!rawCredential.trim() || isAddingRawCredential"
-                aria-label="Add captured credential"
-                @click="addRawCredential"
-              >
-                <Loader2
-                  v-if="isAddingRawCredential"
-                  class="size-3.5 mr-2 animate-spin"
-                />
-                <span>{{ isAddingRawCredential ? 'Adding...' : 'Add Credential' }}</span>
-              </Button>
-            </div>
+              <span>{{ isConnecting ? 'Connecting...' : 'Connect Account' }}</span>
+            </Button>
           </div>
         </div>
       </div>
