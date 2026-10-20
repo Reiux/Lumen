@@ -244,6 +244,7 @@ export class Preferences {
     "uploadSpeedLimitKBps": number;
     "watchFoldersEnabled": boolean;
     "watchedFolders": string[];
+    "watchedFolderConfigs": WatchedFolderConfig[];
     "recentAlbums": string[];
 
     /**
@@ -311,6 +312,9 @@ export class Preferences {
         if (!("watchedFolders" in $$source)) {
             this["watchedFolders"] = [];
         }
+        if (!("watchedFolderConfigs" in $$source)) {
+            this["watchedFolderConfigs"] = [];
+        }
         if (!("recentAlbums" in $$source)) {
             this["recentAlbums"] = [];
         }
@@ -329,13 +333,17 @@ export class Preferences {
      */
     static createFrom($$source: any = {}): Preferences {
         const $$createField18_0 = $$createType2;
-        const $$createField19_0 = $$createType2;
+        const $$createField19_0 = $$createType4;
+        const $$createField20_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("watchedFolders" in $$parsedSource) {
             $$parsedSource["watchedFolders"] = $$createField18_0($$parsedSource["watchedFolders"]);
         }
+        if ("watchedFolderConfigs" in $$parsedSource) {
+            $$parsedSource["watchedFolderConfigs"] = $$createField19_0($$parsedSource["watchedFolderConfigs"]);
+        }
         if ("recentAlbums" in $$parsedSource) {
-            $$parsedSource["recentAlbums"] = $$createField19_0($$parsedSource["recentAlbums"]);
+            $$parsedSource["recentAlbums"] = $$createField20_0($$parsedSource["recentAlbums"]);
         }
         return new Preferences($$parsedSource as Partial<Preferences>);
     }
@@ -484,7 +492,34 @@ export class UploadBatchStart {
     }
 }
 
+export class WatchedFolderConfig {
+    "path": string;
+    "accountEmail": string;
+
+    /** Creates a new WatchedFolderConfig instance. */
+    constructor($$source: Partial<WatchedFolderConfig> = {}) {
+        if (!("path" in $$source)) {
+            this["path"] = "";
+        }
+        if (!("accountEmail" in $$source)) {
+            this["accountEmail"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new WatchedFolderConfig instance from a string or object.
+     */
+    static createFrom($$source: any = {}): WatchedFolderConfig {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new WatchedFolderConfig($$parsedSource as Partial<WatchedFolderConfig>);
+    }
+}
+
 // Private type creation functions
 const $$createType0 = AccountSummary.createFrom;
 const $$createType1 = $Create.Array($$createType0);
 const $$createType2 = $Create.Array($Create.Any);
+const $$createType3 = WatchedFolderConfig.createFrom;
+const $$createType4 = $Create.Array($$createType3);

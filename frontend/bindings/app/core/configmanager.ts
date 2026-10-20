@@ -33,12 +33,24 @@ export function AddWatchedFolder(folder: string): $CancellablePromise<void> {
     return $Call.ByID(586195750, folder);
 }
 
+export function AddWatchedFolderWithAccount(folder: string, accountEmail: string): $CancellablePromise<void> {
+    return $Call.ByID(3425035533, folder, accountEmail);
+}
+
 export function ClearHashCache(): $CancellablePromise<number> {
     return $Call.ByID(305047140);
 }
 
+export function CountFolderBacklog(folder: string): $CancellablePromise<number> {
+    return $Call.ByID(3394065051, folder);
+}
+
 export function CredentialNeedsTokenBinding(authString: string): $CancellablePromise<boolean> {
     return $Call.ByID(3401558551, authString);
+}
+
+export function GetAccountForPath(filePath: string): $CancellablePromise<string> {
+    return $Call.ByID(430116842, filePath);
 }
 
 export function GetAccounts(): $CancellablePromise<$models.AccountsState> {
@@ -63,6 +75,10 @@ export function GetHashCacheCount(): $CancellablePromise<number> {
     return $Call.ByID(792493146);
 }
 
+export function GetInotifyError(): $CancellablePromise<string> {
+    return $Call.ByID(1482242087);
+}
+
 export function GetRecentAlbums(): $CancellablePromise<string[]> {
     return $Call.ByID(2303587648).then(($result: any) => {
         return $$createType1($result);
@@ -72,6 +88,12 @@ export function GetRecentAlbums(): $CancellablePromise<string[]> {
 export function GetSettings(): $CancellablePromise<$models.Preferences> {
     return $Call.ByID(4032120730).then(($result: any) => {
         return $$createType2($result);
+    });
+}
+
+export function GetWatchedFolderConfigs(): $CancellablePromise<$models.WatchedFolderConfig[]> {
+    return $Call.ByID(140277918).then(($result: any) => {
+        return $$createType4($result);
     });
 }
 
@@ -185,3 +207,5 @@ export function SetWatchFoldersEnabled(v: boolean): $CancellablePromise<void> {
 const $$createType0 = $models.AccountsState.createFrom;
 const $$createType1 = $Create.Array($Create.Any);
 const $$createType2 = $models.Preferences.createFrom;
+const $$createType3 = $models.WatchedFolderConfig.createFrom;
+const $$createType4 = $Create.Array($$createType3);

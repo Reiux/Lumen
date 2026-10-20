@@ -26,29 +26,35 @@ type AccountConfig struct {
 	Selected    string   `json:"selected" koanf:"selected"`
 }
 
+type WatchedFolderConfig struct {
+	Path         string `json:"path" koanf:"path"`
+	AccountEmail string `json:"accountEmail" koanf:"account_email"`
+}
+
 // Preferences are GUI settings. The CLI never reads them; every CLI run is
 // configured by flags alone.
 type Preferences struct {
-	Proxy                         string   `json:"proxy" koanf:"proxy"`
-	UseQuota                      bool     `json:"useQuota" koanf:"use_quota"`
-	Saver                         bool     `json:"saver" koanf:"saver"`
-	Recursive                     bool     `json:"recursive" koanf:"recursive"`
-	ForceUpload                   bool     `json:"forceUpload" koanf:"force_upload"`
-	PairLivePhotos                bool     `json:"pairLivePhotos" koanf:"pair_live_photos"`
-	SkipIncompleteLivePhotos      bool     `json:"skipIncompleteLivePhotos" koanf:"skip_incomplete_live_photos"`
-	UpdateExistingPhotosToLive    bool     `json:"updateExistingPhotosToLive" koanf:"update_existing_photos_to_live"`
-	UploadThreads                 int      `json:"uploadThreads" koanf:"upload_threads"`
-	DeleteFromHost                bool     `json:"deleteFromHost" koanf:"delete_from_host"`
-	DisableUnsupportedFilesFilter bool     `json:"disableUnsupportedFilesFilter" koanf:"disable_unsupported_files_filter"`
-	SetDateFromFilename           bool     `json:"setDateFromFilename" koanf:"set_date_from_filename"`
-	ExcludePattern                string   `json:"excludePattern" koanf:"exclude_pattern"`
-	MinimizeToTray                bool     `json:"minimizeToTray" koanf:"minimize_to_tray"`
-	NotifyOnComplete              bool     `json:"notifyOnComplete" koanf:"notify_on_complete"`
-	UseLocalHashCache             bool     `json:"useLocalHashCache" koanf:"use_local_hash_cache"`
-	UploadSpeedLimitKBps          int      `json:"uploadSpeedLimitKBps" koanf:"upload_speed_limit_kbps"`
-	WatchFoldersEnabled           bool     `json:"watchFoldersEnabled" koanf:"watch_folders_enabled"`
-	WatchedFolders                []string `json:"watchedFolders" koanf:"watched_folders"`
-	RecentAlbums                  []string `json:"recentAlbums" koanf:"recent_albums"`
+	Proxy                         string                `json:"proxy" koanf:"proxy"`
+	UseQuota                      bool                  `json:"useQuota" koanf:"use_quota"`
+	Saver                         bool                  `json:"saver" koanf:"saver"`
+	Recursive                     bool                  `json:"recursive" koanf:"recursive"`
+	ForceUpload                   bool                  `json:"forceUpload" koanf:"force_upload"`
+	PairLivePhotos                bool                  `json:"pairLivePhotos" koanf:"pair_live_photos"`
+	SkipIncompleteLivePhotos      bool                  `json:"skipIncompleteLivePhotos" koanf:"skip_incomplete_live_photos"`
+	UpdateExistingPhotosToLive    bool                  `json:"updateExistingPhotosToLive" koanf:"update_existing_photos_to_live"`
+	UploadThreads                 int                   `json:"uploadThreads" koanf:"upload_threads"`
+	DeleteFromHost                bool                  `json:"deleteFromHost" koanf:"delete_from_host"`
+	DisableUnsupportedFilesFilter bool                  `json:"disableUnsupportedFilesFilter" koanf:"disable_unsupported_files_filter"`
+	SetDateFromFilename           bool                  `json:"setDateFromFilename" koanf:"set_date_from_filename"`
+	ExcludePattern                string                `json:"excludePattern" koanf:"exclude_pattern"`
+	MinimizeToTray                bool                  `json:"minimizeToTray" koanf:"minimize_to_tray"`
+	NotifyOnComplete              bool                  `json:"notifyOnComplete" koanf:"notify_on_complete"`
+	UseLocalHashCache             bool                  `json:"useLocalHashCache" koanf:"use_local_hash_cache"`
+	UploadSpeedLimitKBps          int                   `json:"uploadSpeedLimitKBps" koanf:"upload_speed_limit_kbps"`
+	WatchFoldersEnabled           bool                  `json:"watchFoldersEnabled" koanf:"watch_folders_enabled"`
+	WatchedFolders                []string              `json:"watchedFolders" koanf:"watched_folders"`
+	WatchedFolderConfigs          []WatchedFolderConfig `json:"watchedFolderConfigs" koanf:"watched_folder_configs"`
+	RecentAlbums                  []string              `json:"recentAlbums" koanf:"recent_albums"`
 	// AlbumName and AlbumAutoMode are per-session choices and are never persisted.
 	AlbumName     string `json:"albumName" koanf:"-"`
 	AlbumAutoMode bool   `json:"albumAutoMode" koanf:"-"`
@@ -99,6 +105,7 @@ func (l legacyConfig) toConfig() Config {
 			NotifyOnComplete:              DefaultPreferences.NotifyOnComplete,
 			UseLocalHashCache:             DefaultPreferences.UseLocalHashCache,
 			WatchedFolders:                []string{},
+			WatchedFolderConfigs:          []WatchedFolderConfig{},
 			RecentAlbums:                  []string{},
 		},
 	}
@@ -126,6 +133,7 @@ var (
 		NotifyOnComplete:         true,
 		UseLocalHashCache:        false,
 		WatchedFolders:           []string{},
+		WatchedFolderConfigs:     []WatchedFolderConfig{},
 		RecentAlbums:             []string{},
 	}
 	DefaultConfig = Config{Preferences: DefaultPreferences}
@@ -337,7 +345,31 @@ func (g *ConfigManager) GetWatchedFolders() []string {
 	return append([]string(nil), AppConfig.Preferences.WatchedFolders...)
 }
 
+func (g *ConfigManager) GetWatchedFolderConfigs() []WatchedFolderConfig {
+	configMu.RLock()
+	defer configMu.RUnlock()
+	if len(AppConfig.Preferences.WatchedFolderConfigs) > 0 {
+		return append([]WatchedFolderConfig(nil), AppConfig.Preferences.WatchedFolderConfigs...)
+	}
+	var synthesized []WatchedFolderConfig
+	selected := AppConfig.Account.Selected
+	for _, f := range AppConfig.Preferences.WatchedFolders {
+		synthesized = append(synthesized, WatchedFolderConfig{
+			Path:         f,
+			AccountEmail: selected,
+		})
+	}
+	return synthesized
+}
+
 func (g *ConfigManager) AddWatchedFolder(folder string) error {
+	configMu.RLock()
+	selected := AppConfig.Account.Selected
+	configMu.RUnlock()
+	return g.AddWatchedFolderWithAccount(folder, selected)
+}
+
+func (g *ConfigManager) AddWatchedFolderWithAccount(folder string, accountEmail string) error {
 	folder = filepath.Clean(strings.TrimSpace(folder))
 	if folder == "" {
 		return fmt.Errorf("folder path cannot be empty")
@@ -351,13 +383,36 @@ func (g *ConfigManager) AddWatchedFolder(folder string) error {
 	}
 
 	configMu.Lock()
-	for _, f := range AppConfig.Preferences.WatchedFolders {
-		if filepath.Clean(f) == folder {
-			configMu.Unlock()
-			return nil
+	if accountEmail == "" {
+		accountEmail = AppConfig.Account.Selected
+	}
+
+	exists := false
+	for i, fc := range AppConfig.Preferences.WatchedFolderConfigs {
+		if filepath.Clean(fc.Path) == folder {
+			AppConfig.Preferences.WatchedFolderConfigs[i].AccountEmail = accountEmail
+			exists = true
+			break
 		}
 	}
-	AppConfig.Preferences.WatchedFolders = append(AppConfig.Preferences.WatchedFolders, folder)
+	if !exists {
+		AppConfig.Preferences.WatchedFolderConfigs = append(AppConfig.Preferences.WatchedFolderConfigs, WatchedFolderConfig{
+			Path:         folder,
+			AccountEmail: accountEmail,
+		})
+	}
+
+	hasLegacy := false
+	for _, f := range AppConfig.Preferences.WatchedFolders {
+		if filepath.Clean(f) == folder {
+			hasLegacy = true
+			break
+		}
+	}
+	if !hasLegacy {
+		AppConfig.Preferences.WatchedFolders = append(AppConfig.Preferences.WatchedFolders, folder)
+	}
+
 	err = saveAppConfigLocked()
 	configMu.Unlock()
 
@@ -368,18 +423,70 @@ func (g *ConfigManager) AddWatchedFolder(folder string) error {
 func (g *ConfigManager) RemoveWatchedFolder(folder string) error {
 	folder = filepath.Clean(strings.TrimSpace(folder))
 	configMu.Lock()
-	var updated []string
+	var updatedLegacy []string
 	for _, f := range AppConfig.Preferences.WatchedFolders {
 		if filepath.Clean(f) != folder {
-			updated = append(updated, f)
+			updatedLegacy = append(updatedLegacy, f)
 		}
 	}
-	AppConfig.Preferences.WatchedFolders = updated
+	AppConfig.Preferences.WatchedFolders = updatedLegacy
+
+	var updatedConfigs []WatchedFolderConfig
+	for _, fc := range AppConfig.Preferences.WatchedFolderConfigs {
+		if filepath.Clean(fc.Path) != folder {
+			updatedConfigs = append(updatedConfigs, fc)
+		}
+	}
+	AppConfig.Preferences.WatchedFolderConfigs = updatedConfigs
+
 	err := saveAppConfigLocked()
 	configMu.Unlock()
 
 	SyncFolderWatcher()
 	return err
+}
+
+func (g *ConfigManager) CountFolderBacklog(folder string) (int, error) {
+	folder = filepath.Clean(strings.TrimSpace(folder))
+	count := 0
+	err := filepath.Walk(folder, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			if strings.HasPrefix(filepath.Base(path), ".") && path != folder {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if isIgnoredTempFile(path) {
+			return nil
+		}
+		if isSupportedByGooglePhotos(path) {
+			count++
+		}
+		return nil
+	})
+	return count, err
+}
+
+func (g *ConfigManager) GetInotifyError() string {
+	return GetLastInotifyError()
+}
+
+func (g *ConfigManager) GetAccountForPath(filePath string) string {
+	configMu.RLock()
+	defer configMu.RUnlock()
+	cleaned := filepath.Clean(filePath)
+	for _, fc := range AppConfig.Preferences.WatchedFolderConfigs {
+		dir := filepath.Clean(fc.Path)
+		if strings.HasPrefix(cleaned, dir) {
+			if fc.AccountEmail != "" {
+				return fc.AccountEmail
+			}
+		}
+	}
+	return AppConfig.Account.Selected
 }
 
 var FolderPickerFunc func() (string, error)
@@ -1013,6 +1120,17 @@ func loadAppConfig() Config {
 
 	if c.Preferences.WatchedFolders == nil {
 		c.Preferences.WatchedFolders = []string{}
+	}
+	if c.Preferences.WatchedFolderConfigs == nil {
+		c.Preferences.WatchedFolderConfigs = []WatchedFolderConfig{}
+	}
+	if len(c.Preferences.WatchedFolderConfigs) == 0 && len(c.Preferences.WatchedFolders) > 0 {
+		for _, f := range c.Preferences.WatchedFolders {
+			c.Preferences.WatchedFolderConfigs = append(c.Preferences.WatchedFolderConfigs, WatchedFolderConfig{
+				Path:         f,
+				AccountEmail: c.Account.Selected,
+			})
+		}
 	}
 	if c.Preferences.RecentAlbums == nil {
 		c.Preferences.RecentAlbums = []string{}
