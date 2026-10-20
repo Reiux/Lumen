@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"runtime"
 	"strings"
 
 	"app/core"
@@ -36,6 +37,10 @@ func main() {
 }
 
 func runGUI() {
+	if runtime.GOOS == "linux" && os.Getenv("WEBKIT_DISABLE_DMABUF_RENDERER") == "" {
+		_ = os.Setenv("WEBKIT_DISABLE_DMABUF_RENDERER", "1")
+	}
+
 	normalizeFrontendDevServerURL()
 
 	configManager := &core.ConfigManager{}
