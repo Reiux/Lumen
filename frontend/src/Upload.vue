@@ -5,6 +5,7 @@ import ThreadProgress from './components/ThreadProgress.vue'
 import M3WavyProgress from './components/ui/M3WavyProgress.vue'
 import Button from './components/ui/button/Button.vue'
 import M3Icon from './components/ui/M3Icon.vue'
+import M3LoadingIndicator from './components/ui/M3LoadingIndicator.vue'
 import { ScrollArea } from './components/ui/scroll-area'
 
 const { state } = uploadManager
@@ -207,7 +208,13 @@ async function handleCancel() {
     >
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2 text-[var(--md-sys-color-primary)]">
+          <M3LoadingIndicator
+            v-if="state.isCreatingAlbum"
+            size="xs"
+            color="var(--md-sys-color-primary)"
+          />
           <M3Icon
+            v-else
             name="create_new_folder"
             :filled="true"
             :size="16"

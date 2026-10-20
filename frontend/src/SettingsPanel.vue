@@ -6,6 +6,7 @@ import M3Switch from './components/ui/M3Switch.vue'
 import M3Slider from './components/ui/M3Slider.vue'
 import Button from './components/ui/button/Button.vue'
 import M3Icon from './components/ui/M3Icon.vue'
+import M3LoadingIndicator from './components/ui/M3LoadingIndicator.vue'
 import {
   Tooltip,
   TooltipContent,
@@ -553,11 +554,17 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
               <Button
                 variant="outline"
                 size="sm"
-                class="h-7 text-xs rounded-full px-3 gap-1 cursor-pointer select-none"
+                class="h-7 text-xs rounded-full px-3 gap-1.5 cursor-pointer select-none"
                 :disabled="isAddingFolder"
                 @click="addWatchedFolder"
               >
+                <M3LoadingIndicator
+                  v-if="isAddingFolder"
+                  size="xs"
+                  color="var(--md-sys-color-primary)"
+                />
                 <M3Icon
+                  v-else
                   name="add"
                   :size="14"
                 />
@@ -724,11 +731,16 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
             <Button
               variant="outline"
               size="sm"
-              class="h-7 text-xs rounded-full px-3 cursor-pointer select-none"
+              class="h-7 text-xs rounded-full px-3 gap-1.5 cursor-pointer select-none"
               :disabled="isClearingCache || hashCacheCount === 0"
               @click="clearHashCache"
             >
-              {{ isClearingCache ? 'Clearing...' : 'Clear Cache' }}
+              <M3LoadingIndicator
+                v-if="isClearingCache"
+                size="xs"
+                color="var(--md-sys-color-primary)"
+              />
+              <span>{{ isClearingCache ? 'Clearing...' : 'Clear Cache' }}</span>
             </Button>
           </div>
         </div>
