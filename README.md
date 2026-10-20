@@ -2,8 +2,6 @@
 
 Unofficial desktop client for Google Photos with a Material 3 Expressive interface. Lumen is a redesign fork of [gotohp](https://github.com/xob0t/gotohp) with tonal color roles, large rounded shapes, and smooth motion. Upload and auth logic are preserved from upstream.
 
-![Lumen Demo](readme_assets/app_demo.gif)
-
 Lumen lets you back up photo and video libraries to Google Photos directly from your desktop. It supports quota-free uploads, Apple Live Photo pairing, background folder synchronization, upload bandwidth throttling, and local deduplication.
 
 > **Disclaimer:** Unofficial client. Not affiliated with, endorsed by, or supported by Google LLC. Google Photos is a trademark of Google LLC.
