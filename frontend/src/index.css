@@ -502,6 +502,84 @@ button:not(.no-state-layer):active:not(:disabled)::before,
   transform: scale(0.97);
 }
 
+/* M3 Expressive Connected Button Group (Morphing Inner Corners) */
+.m3-button-group {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+  isolation: isolate;
+}
+
+.m3-button-group > button:first-child,
+.m3-button-group .m3-btn-group-start {
+  border-top-left-radius: 9999px !important;
+  border-bottom-left-radius: 9999px !important;
+  border-top-right-radius: 4px !important;
+  border-bottom-right-radius: 4px !important;
+  position: relative;
+  transition: border-radius var(--md-sys-motion-spatial-fast),
+              transform var(--md-sys-motion-spatial-fast),
+              background-color var(--md-sys-motion-effects-fast),
+              box-shadow var(--md-sys-motion-effects-fast) !important;
+}
+
+.m3-button-group > button:first-child:hover,
+.m3-button-group > button:first-child:focus-visible,
+.m3-button-group .m3-btn-group-start:hover,
+.m3-button-group .m3-btn-group-start:focus-visible {
+  border-top-right-radius: 18px !important;
+  border-bottom-right-radius: 18px !important;
+  z-index: 2;
+  transform: scale(1.02);
+}
+
+.m3-button-group > button:first-child:active,
+.m3-button-group .m3-btn-group-start:active {
+  border-top-right-radius: 12px !important;
+  border-bottom-right-radius: 12px !important;
+  transform: scale(0.98);
+}
+
+.m3-button-group > button:last-child,
+.m3-button-group .m3-btn-group-end {
+  border-top-right-radius: 9999px !important;
+  border-bottom-right-radius: 9999px !important;
+  border-top-left-radius: 4px !important;
+  border-bottom-left-radius: 4px !important;
+  margin-left: -1px;
+  position: relative;
+  transition: border-radius var(--md-sys-motion-spatial-fast),
+              transform var(--md-sys-motion-spatial-fast),
+              background-color var(--md-sys-motion-effects-fast),
+              box-shadow var(--md-sys-motion-effects-fast) !important;
+}
+
+.m3-button-group > button:last-child:hover,
+.m3-button-group > button:last-child:focus-visible,
+.m3-button-group .m3-btn-group-end:hover,
+.m3-button-group .m3-btn-group-end:focus-visible {
+  border-top-left-radius: 18px !important;
+  border-bottom-left-radius: 18px !important;
+  z-index: 2;
+  transform: scale(1.02);
+}
+
+.m3-button-group > button:last-child:active,
+.m3-button-group .m3-btn-group-end:active {
+  border-top-left-radius: 12px !important;
+  border-bottom-left-radius: 12px !important;
+  transform: scale(0.98);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .m3-button-group > button:first-child,
+  .m3-button-group > button:last-child,
+  .m3-button-group .m3-btn-group-start,
+  .m3-button-group .m3-btn-group-end {
+    transform: none !important;
+  }
+}
+
 /* M3 Shape Morphing for Buttons & Pills */
 .m3-btn-morph,
 button.rounded-full,

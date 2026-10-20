@@ -93,12 +93,16 @@ function onCopyClick() {
         </span>
       </div>
 
-      <!-- Action buttons -->
-      <div class="flex items-center gap-2">
+      <!-- Connected Action Button Group (M3 Expressive) -->
+      <div
+        class="m3-button-group shadow-xs"
+        role="group"
+        aria-label="Upload results actions"
+      >
         <!-- Tonal Copy as JSON Button with Icon morph -->
         <Button
           type="button"
-          class="h-9 rounded-full px-4 text-xs font-semibold shadow-xs cursor-pointer select-none bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container-highest)] border border-[var(--md-sys-color-outline-variant)]/40 relative"
+          class="m3-btn-group-start h-9 px-4 text-xs font-semibold cursor-pointer select-none bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container-highest)] border border-[var(--md-sys-color-outline-variant)]/50"
           aria-label="Copy results as JSON"
           @click="onCopyClick"
         >
@@ -123,7 +127,7 @@ function onCopyClick() {
         <Button
           variant="outline"
           type="button"
-          class="h-9 rounded-full px-3.5 text-xs font-semibold shadow-xs cursor-pointer select-none"
+          class="m3-btn-group-end h-9 px-4 text-xs font-semibold cursor-pointer select-none border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container)] hover:bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-on-surface)]"
           aria-label="Dismiss results and start new upload"
           @click="emit('clear')"
         >
