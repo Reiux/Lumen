@@ -161,7 +161,8 @@ func TestUploadFlagsPropagateToRunOptions(t *testing.T) {
 		Recursive: true, Threads: 7, ForceUpload: true, DeleteFromHost: true,
 		DisableUnsupportedFilesFilter: true, SetDateFromFilename: true, ExcludePattern: "excluded",
 		PairLivePhotos: true, SkipIncompleteLivePhotos: false,
-		UpdateExistingPhotosToLive: true, IgnoreAppleMetadata: true, AlbumName: "Trip",
+		UpdateExistingPhotosToLive: true, IgnoreAppleMetadata: true,
+		AlbumName:                  "Trip",
 	}
 	if !reflect.DeepEqual(opts, want) || !slices.Equal(paths, []string{"photo.jpg"}) {
 		t.Fatalf("parsed upload = %+v, %q; want %+v, [photo.jpg]", opts, paths, want)

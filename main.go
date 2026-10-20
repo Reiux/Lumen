@@ -9,6 +9,8 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
+	"time"
 
 	"app/core"
 	"app/internal/cli"
@@ -16,10 +18,14 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
+	"github.com/wailsapp/wails/v3/pkg/services/notifications"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
+
+//go:embed build/trayicon.png
+var trayIcon []byte
 
 var title = "Lumen v" + getAppVersion()
 
@@ -44,11 +50,14 @@ func runGUI() {
 	normalizeFrontendDevServerURL()
 
 	configManager := &core.ConfigManager{}
+	notificationService := notifications.New()
+
 	wailsApp := application.New(application.Options{
 		Name:        "com.reiux.lumen",
 		Description: "Google Photos unofficial client",
 		Services: []application.Service{
 			application.NewService(configManager),
+			application.NewService(notificationService),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.BundledAssetFileServer(assets),
@@ -61,11 +70,14 @@ func runGUI() {
 	window := wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:               title,
 		Frameless:           false,
-		Width:               400,
-		Height:              600,
+		Width:               1000,
+		Height:              680,
+		MinWidth:            800,
+		MinHeight:           560,
+		InitialPosition:     application.WindowCentered,
 		EnableFileDrop:      true,
-		DisableResize:       true,
-		MaximiseButtonState: application.ButtonDisabled,
+		DisableResize:       false,
+		MaximiseButtonState: application.ButtonEnabled,
 		BackgroundType:      application.BackgroundTypeTranslucent,
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 0,
@@ -75,7 +87,93 @@ func runGUI() {
 		URL: "/",
 	})
 
+	window.Center()
+
+	// System Tray initialization
+	tray := wailsApp.SystemTray.New()
+	tray.SetIcon(trayIcon)
+	tray.SetTooltip("Lumen")
+	trayMenu := application.NewMenu()
+	trayMenu.Add("Open Lumen").OnClick(func(ctx *application.Context) {
+		window.Show()
+		window.Focus()
+	})
+	trayMenu.AddSeparator()
+	trayMenu.Add("Quit").OnClick(func(ctx *application.Context) {
+		wailsApp.Quit()
+	})
+	tray.SetMenu(trayMenu)
+	tray.OnClick(func() {
+		if window.IsVisible() {
+			window.Hide()
+		} else {
+			window.Show()
+			window.Focus()
+		}
+	})
+
+	// Intercept window close if MinimizeToTray preference is enabled
+	window.OnWindowEvent(events.Common.WindowClosing, func(event *application.WindowEvent) {
+		if configManager.GetSettings().MinimizeToTray {
+			event.Cancel()
+			window.Hide()
+		}
+	})
+
+	// Native folder picker for watching directories
+	core.FolderPickerFunc = func() (string, error) {
+		return wailsApp.Dialog.OpenFile().
+			CanChooseDirectories(true).
+			CanChooseFiles(false).
+			AttachToWindow(window).
+			SetTitle("Select Folder to Watch").
+			PromptForSingleSelection()
+	}
+
 	uploadManager := core.NewUploadManager(gui.NewWailsReporter(wailsApp), wailsApp.Logger)
+
+	// Background Folder Watcher integration
+	var (
+		watchMu           sync.Mutex
+		pendingWatchFiles []string
+	)
+
+	onWatchedFiles := func(files []string) {
+		watchMu.Lock()
+		defer watchMu.Unlock()
+		if uploadManager.IsRunning() {
+			pendingWatchFiles = append(pendingWatchFiles, files...)
+			return
+		}
+		wailsApp.Logger.Info("Watched folder detected new files", "count", len(files))
+		uploadManager.Upload(files, configManager.SessionUploadOptions())
+	}
+
+	_ = core.InitFolderWatcher(onWatchedFiles)
+
+	// Listen for upload completion to drain queued watch files or send desktop notification
+	wailsApp.Event.On("uploadStop", func(e *application.CustomEvent) {
+		watchMu.Lock()
+		if len(pendingWatchFiles) > 0 {
+			nextBatch := pendingWatchFiles
+			pendingWatchFiles = nil
+			watchMu.Unlock()
+			go func() {
+				time.Sleep(500 * time.Millisecond)
+				wailsApp.Logger.Info("Processing queued watched files", "fileCount", len(nextBatch))
+				uploadManager.Upload(nextBatch, configManager.SessionUploadOptions())
+			}()
+			return
+		}
+		watchMu.Unlock()
+
+		if configManager.GetSettings().NotifyOnComplete {
+			_ = notificationService.SendNotification(notifications.NotificationOptions{
+				Title: "Lumen",
+				Body:  "Upload batch complete",
+			})
+		}
+	})
 
 	// Listen for upload cancel event
 	wailsApp.Event.On("uploadCancel", func(e *application.CustomEvent) {

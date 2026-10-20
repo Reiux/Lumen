@@ -1,130 +1,205 @@
 # Lumen
 
-Lumen is a fork of gotohp with a redesigned interface built around
-Material 3 Expressive: tonal color roles, large rounded shapes, and
-smooth motion. Upload logic is unchanged from upstream.
-Unofficial. Not affiliated with or endorsed by Google.
-Credit and thanks to xob0t for the original project (MIT license):
-https://github.com/xob0t/gotohp
+Unofficial desktop client for Google Photos with a Material 3 Expressive interface.
 
-![demo](readme_assets/app_demo.webp)
+![Lumen Demo](readme_assets/app_demo.gif)
 
-Unofficial Google Photos Desktop GUI Client
+Lumen lets you back up photo and video libraries to Google Photos directly from your desktop. It supports quota-free uploads, Apple Live Photo pairing, background folder synchronization, upload bandwidth throttling, and local deduplication.
 
-- Unlimited uploads (can be disabled)
-- Drag-and-drop file upload interface
-- Credential management
-- Real-time upload progress tracking
-- Configurable upload threads
-- Individual files or directories uploads, with optional recursive scanning
-- Skips files already present in your account
-- CLI mode
-- Configurable, persistent upload settings (stored in "%system config path%/gotohp/gotohp.config")  
-   You can force local config by creating empty gotohp.config next to executable.
+> **Disclaimer:** Unofficial client. Not affiliated with, endorsed by, or supported by Google LLC. Google Photos is a trademark of Google LLC.
 
-## [Download](https://github.com/xob0t/gotohp/releases/latest)
+---
 
-## CLI usage
+## Features
 
-Download the `gotohp-cli` release artifact for your platform. It runs without the GUI.
+- **Unlimited Uploads:** Upload original media without consuming your Google storage quota by default (or toggle quota usage when needed).
+- **Material 3 Expressive UI:** Clean layout with tonal color roles, fluid transitions, and dark/light theme switching.
+- **Apple Live Photos:** Automatically detects and pairs `.heic`/`.jpg` images with their matching `.mov` clips using QuickTime metadata or filename stems.
+- **Local Hash Cache:** Deduplicates files locally before uploading to eliminate unnecessary network round-trips for previously uploaded media.
+- **Upload Speed Limiter:** Configurable bandwidth cap to keep background uploads from saturating your connection.
+- **Folder Watching (Auto-Backup):** Monitors chosen directories in the background and uploads new photos and videos as they are added.
+- **System Tray & Notifications:** Minimizes to the system tray for background sync, with desktop notifications when upload batches complete.
+- **Recent Albums Browser:** Select from your recently accessed albums or create new albums directly from the upload view.
+- **Drag & Drop:** Upload individual files or nested directories with optional recursive scanning.
+- **Multi-Account Management:** Store and switch between multiple Google accounts with custom profile avatars.
+- **Date from Filename:** Extracts capture dates from camera filenames (e.g. `20240709_182027.jpg`) when EXIF metadata is missing.
+- **Standalone CLI:** Headless command-line binary (`lumen-cli`) for headless servers, scripts, and cron jobs.
+
+---
+
+## Downloads
+
+Download prebuilt binaries for Linux, macOS, and Windows from the [Releases](https://github.com/Reiux/Lumen/releases/latest) page.
+
+---
+
+## CLI Usage
+
+The standalone binary `lumen-cli` runs without GUI dependencies. The desktop binary `lumen` also accepts these subcommands directly.
 
 ```shell
-gotohp-cli upload /path/to/photos --recursive --threads 5
-gotohp-cli creds add "<oauth_token cookie value>"   # Embedded Setup sign-in, see below
-gotohp-cli creds add "androidId=..."                 # or a raw credential string
-gotohp-cli creds add - < token.txt                   # or read either from stdin
-gotohp-cli creds set user@gmail.com
+# Upload photos recursively using 5 threads
+lumen-cli upload /path/to/photos --recursive --threads 5
+
+# Upload directly to an album (creates the album if it does not exist)
+lumen-cli upload /path/to/trip --album "Tokyo 2026"
+
+# Pair Apple Live Photos
+lumen-cli upload /path/to/camera --pair-live-photos
+
+# Use Storage Saver quality instead of original quality
+lumen-cli upload /path/to/photos --saver
+
+# Add credentials
+lumen-cli creds add "<oauth_token cookie value>"
+lumen-cli creds add "androidId=..."
+lumen-cli creds add - < token.txt
+
+# List and switch active account
+lumen-cli creds list
+lumen-cli creds set user@gmail.com
 ```
 
-The CLI shares the config file with the GUI, but reads only the stored credentials from it. Everything else (proxy, quality, upload behaviour) is set by flags, so a scripted run is unaffected by preferences changed in the GUI. Pass `--config <path>` to use a different config file and `--account <email>` to upload with a specific stored account.
+The CLI shares stored credentials with the GUI via the user configuration file. All other upload settings (threads, quota, quality, album) are controlled via command-line flags so that automated scripts remain predictable regardless of GUI preferences.
 
-Run `gotohp-cli help` or `gotohp-cli upload --help` for all commands and options.
+Run `lumen-cli --help` or `lumen-cli upload --help` for the full list of options.
 
-The GUI binary runs the same CLI when given a command, e.g. `gotohp upload ...`.
+---
 
-## Sign in
+## Sign In
 
-### Option 1 - Embedded setup
+### Option 1: Embedded Setup (Recommended)
 
-1. Open Lumen and click **Add Google account**.
-2. Click **Open Google sign-in** and sign in with the account you want to add.
-3. Sign in on the Google Embedded Setup page and click **I agree**. The page may keep loading forever; this is expected.
-4. Open the browser developer tools. Under Application or Storage, open Cookies for `accounts.google.com`.
-5. Copy only the value of the `oauth_token` cookie and paste it into Lumen.
-6. Click **Connect account**.
+1. Open Lumen and click **Connect Account** (or **Add Google account**).
+2. Click **Open Google sign-in** to launch the sign-in prompt in your default browser.
+3. Sign in to your account and click **I agree** on the Google Embedded Setup page. The page may continue loading indefinitely; this is expected.
+4. Open your browser Developer Tools (`F12` or right-click -> Inspect).
+5. Navigate to **Application** (or **Storage**) -> **Cookies** -> `https://accounts.google.com`.
+6. Copy the value of the `oauth_token` cookie.
+7. Paste the token into Lumen and click **Connect account**.
 
-From the CLI, open the same page yourself and run `gotohp-cli creds add "<oauth_token value>"`.
+From the CLI, open the Embedded Setup URL in a browser and add the token:
+```shell
+lumen-cli creds add "<oauth_token value>"
+```
 
-### Option 2 - ReVanced. No root required
+### Option 2: ReVanced (No root required)
 
 <details>
-  <summary><strong>Click to expand</strong></summary>
+  <summary><strong>View instructions</strong></summary>
 
-1. Install Google Photos ReVanced on your android device/emulator.
-   - Install GmsCore [https://github.com/ReVanced/GmsCore/releases](https://github.com/ReVanced/GmsCore/releases)
-   - Install patched apk [https://github.com/RookieEnough/Morphe-AutoBuilds/releases](https://github.com/RookieEnough/Morphe-AutoBuilds/releases) or patch it yourself
-2. Connect the device to your PC via ADB.
-3. Open the terminal on your PC and execute
+1. Install Google Photos ReVanced on your Android device or emulator:
+   - Install [GmsCore](https://github.com/ReVanced/GmsCore/releases).
+   - Install a patched Google Photos APK (via [Morphe-AutoBuilds](https://github.com/RookieEnough/Morphe-AutoBuilds/releases) or patch it yourself using ReVanced Manager).
+2. Enable USB debugging and connect your device to your PC via ADB.
+3. Open a terminal on your PC and run:
 
-   Windows
-
-   ```cmd
-   adb logcat | FINDSTR "auth%2Fphotos.native"
-   ```
-
-   Linux/Mac
-
+   **Linux / macOS:**
    ```shell
    adb logcat | grep "auth%2Fphotos.native"
    ```
 
-4. If you are already using ReVanced - remove Google Account from GmsCore.
-5. Open Google Photos ReVanced on your device and log into your account.
-6. One or more identical GmsCore logs should appear in the terminal.
-7. Copy text from `androidId=` to the end of the line from any log.
-8. That's it! 🎉
+   **Windows (Command Prompt):**
+   ```cmd
+   adb logcat | FINDSTR "auth%2Fphotos.native"
+   ```
+
+4. If you already had an account logged in, remove the Google account from GmsCore first.
+5. Open Google Photos ReVanced on the device and sign in.
+6. A log line containing the authentication parameters will appear in your terminal.
+7. Copy the string starting from `androidId=` through to the end of that line.
+8. Paste that string into Lumen or run `lumen-cli creds add "androidId=..."`.
 
 </details>
 
-### Option 3 - Official apk. Root required
+### Option 3: Official APK (Root required)
 
 <details>
-  <summary><strong>Click to expand</strong></summary>
+  <summary><strong>View instructions</strong></summary>
 
-1. Get a rooted android device or an emulator.
-2. Connect the device to your PC via ADB.
-3. Install [HTTP Toolkit](https://httptoolkit.com)
-4. In HTTP Toolkit, select Intercept - `Android Device via ADB`. Filter traffic with
-
+1. Ensure you have a rooted Android device or emulator with ADB root access.
+2. Connect your device via ADB and install [HTTP Toolkit](https://httptoolkit.com).
+3. In HTTP Toolkit, choose **Android Device via ADB** intercept mode.
+4. Filter intercepted traffic using:
    ```text
    contains(https://www.googleapis.com/auth/photos.native)
    ```
-
-   Or if you have an older version of Google Photos, try
-
-   ```text
-   contains(www.googleapis.com%2Fauth%2Fplus.photos.readwrite)
-   ```
-
-5. Open Google Photos app and login with your account.
-6. A single request should appear.  
-   Copy request body as text.
-7. Add that credential string in Lumen.
-8. If Lumen asks for a token binding key, keep the rooted device connected and click `Read from ADB`. Lumen will read the account's `lstBindingKeyAlias` from Android AccountManager and save it into the credential.
+   *(For older Google Photos versions, try `contains(www.googleapis.com%2Fauth%2Fplus.photos.readwrite)`).*
+5. Open the official Google Photos app on your device and log in.
+6. When the matching request appears in HTTP Toolkit, copy the request body text.
+7. Paste the body string into Lumen.
+8. If Lumen prompts for a token binding key, keep the device connected with ADB root enabled and click **Read from ADB**. Lumen will read `lstBindingKeyAlias` from the Android AccountManager and attach it to the credential.
 
 #### Troubleshooting
-
-- **No Auth Request Intercepted**
-  1. Log out of your Google account.
-  2. Log in again.
-  3. Try `Android App via Frida` interception method in HTTP Toolkit.
-- **Token binding key not found**
-  1. Make sure the same Google account is present on the connected device.
-  2. Make sure root is available to ADB.
+- **No request intercepted:** Log out and log back in, or use HTTP Toolkit's `Android App via Frida` interception method.
+- **Token binding key not found:** Confirm root is granted to ADB shell (`adb root`) and the target Google account is present on the device.
 
 </details>
 
-## Build
+---
 
-Follow official wails3 guide
-[https://v3.wails.io/getting-started/installation/](https://v3.wails.io/getting-started/installation/)
+## Building from Source
+
+### Prerequisites
+
+- **Go:** 1.24 or higher
+- **Node.js:** 20.x or higher with `npm`
+- **C Compiler:** `gcc` or `clang`
+- **Linux dependencies (Linux only):** `gtk3` / `gtk4`, `webkit2gtk-4.1` (or `webkit2gtk-4.0`), `pkg-config`
+  - Arch/CachyOS: `sudo pacman -S webkit2gtk-4.1 gtk3 base-devel`
+  - Debian/Ubuntu: `sudo apt-get install libgtk-3-dev libwebkit2gtk-4.1-dev build-essential`
+  - Fedora: `sudo dnf install gtk3-devel webkit2gtk4.1-devel gcc`
+- **Wails v3 CLI (optional for packaging):**
+  ```shell
+  go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+  ```
+
+### Build Steps
+
+1. **Clone the repository:**
+   ```shell
+   git clone https://github.com/Reiux/Lumen.git
+   cd Lumen
+   ```
+
+2. **Build frontend assets:**
+   ```shell
+   cd frontend
+   npm install
+   npm run build
+   cd ..
+   ```
+
+3. **Build the desktop GUI application:**
+   ```shell
+   go build -o bin/lumen .
+   ```
+
+4. **Build the standalone CLI:**
+   ```shell
+   go build -tags cli -o bin/lumen-cli .
+   ```
+
+Alternatively, if you have [Task](https://taskfile.dev) installed:
+```shell
+task build
+```
+
+---
+
+## Configuration
+
+Lumen stores configuration and saved accounts in your system configuration directory:
+- **Linux:** `~/.config/lumen/lumen.config`
+- **macOS:** `~/Library/Application Support/lumen/lumen.config`
+- **Windows:** `%APPDATA%\lumen\lumen.config`
+
+To use a portable configuration file next to the binary, create an empty `lumen.config` file in the same directory as the executable.
+
+---
+
+## Credits & License
+
+- Original project and upload logic: [gotohp](https://github.com/xob0t/gotohp) by [xob0t](https://github.com/xob0t), released under the MIT License.
+- Redesigned interface & new features: Lumen contributors.
+- Licensed under the [MIT License](LICENSE). Copyright (c) 2024-2026 xob0t and Lumen contributors.
