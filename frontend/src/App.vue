@@ -636,7 +636,7 @@ onUnmounted(() => {
 
     <!-- Main Content Area -->
     <section
-      class="relative flex flex-1 h-full min-w-0 flex-col overflow-y-auto bg-[var(--md-sys-color-surface)] p-6"
+      class="m3-main-scroll-pane relative flex flex-1 h-full min-w-0 flex-col overflow-y-auto bg-[var(--md-sys-color-surface)] p-6"
       :class="isSettling && 'm3-launch-settle'"
       :style="isSettling ? { '--settle-index': 2, '--launch-stagger': settleStagger + 'ms', '--wails-draggable': 'drag', contain: 'layout paint' } : { '--wails-draggable': 'drag', contain: 'layout paint' }"
     >
@@ -766,7 +766,7 @@ onUnmounted(() => {
               <Transition name="m3-dialog-modal">
                 <div
                   v-if="showAlbumInput"
-                  class="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 select-none overflow-y-auto"
+                  class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 select-none overflow-y-auto"
                   style="--wails-draggable: none"
                   @click.self="cancelAlbumUpload"
                 >

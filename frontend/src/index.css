@@ -473,11 +473,17 @@ button.rounded-full:active:not(:disabled),
 [data-state="open"].m3-dialog-overlay,
 .m3-dialog-modal-enter-active {
   animation: m3-scrim-in var(--md-sys-motion-duration-effects) var(--md-sys-motion-easing-effects) forwards;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 [data-state="closed"].m3-dialog-overlay,
 .m3-dialog-modal-leave-active {
   animation: m3-scrim-out var(--md-sys-motion-duration-effects-fast) var(--md-sys-motion-easing-effects) forwards;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 @keyframes m3-scrim-in {
@@ -492,37 +498,47 @@ button.rounded-full:active:not(:disabled),
 
 [data-state="open"].m3-dialog-content {
   animation: m3-dialog-enter var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial) forwards;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 [data-state="closed"].m3-dialog-content {
   animation: m3-dialog-exit var(--md-sys-motion-duration-effects-fast) var(--md-sys-motion-easing-effects) forwards;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
 }
 
 @keyframes m3-dialog-enter {
   from {
     opacity: 0;
-    transform: scale(0.92);
+    transform: translateZ(0) scale(0.94);
   }
   to {
     opacity: 1;
-    transform: scale(1);
+    transform: translateZ(0) scale(1);
   }
 }
 
 @keyframes m3-dialog-exit {
   from {
     opacity: 1;
-    transform: scale(1);
+    transform: translateZ(0) scale(1);
   }
   to {
     opacity: 0;
-    transform: scale(0.95);
+    transform: translateZ(0) scale(0.96);
   }
 }
 
 /* Modal transition for Vue transitions (Google Auth & Album Prompt) */
 .m3-dialog-card {
   contain: layout paint;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
+  will-change: transform, opacity;
 }
 
 .m3-dialog-modal-enter-active .m3-dialog-card {
@@ -536,22 +552,22 @@ button.rounded-full:active:not(:disabled),
 @keyframes m3-dialog-card-enter {
   from {
     opacity: 0;
-    transform: scale(0.92);
+    transform: translateZ(0) scale(0.94);
   }
   to {
     opacity: 1;
-    transform: scale(1);
+    transform: translateZ(0) scale(1);
   }
 }
 
 @keyframes m3-dialog-card-exit {
   from {
     opacity: 1;
-    transform: scale(1);
+    transform: translateZ(0) scale(1);
   }
   to {
     opacity: 0;
-    transform: scale(0.95);
+    transform: translateZ(0) scale(0.96);
   }
 }
 
@@ -629,6 +645,13 @@ button.rounded-full:active:not(:disabled),
   scrollbar-color: var(--md-sys-color-surface-container-highest) transparent;
 }
 
+/* Prevent layout shift and reflow on scroll containers */
+.m3-main-scroll-pane,
+.m3-dialog-wrapper {
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+}
+
 /* Drop zone styling */
 .drop-zone {
   border-radius: 36px;
@@ -678,6 +701,10 @@ button.rounded-full:active:not(:disabled),
 /* Staggered entry for 3 drop cards */
 .m3-drop-card {
   contain: layout paint;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
+  will-change: transform, opacity;
   animation: m3-card-stagger-in var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial) backwards;
   animation-delay: calc(var(--card-index, 0) * 40ms);
 }
@@ -685,48 +712,59 @@ button.rounded-full:active:not(:disabled),
 @keyframes m3-card-stagger-in {
   from {
     opacity: 0;
-    transform: translateY(16px) scale(0.95);
+    transform: translateZ(0) translateY(14px) scale(0.96);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateZ(0) translateY(0) scale(1);
   }
 }
 
 /* M3 Pane Fade-Through Transition */
 .m3-fade-through-enter-active {
-  animation: m3-fade-through-in 300ms var(--md-sys-motion-easing-spatial);
+  animation: m3-fade-through-in 220ms var(--md-sys-motion-easing-spatial);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
+  will-change: transform, opacity;
 }
 
 .m3-fade-through-leave-active {
-  animation: m3-fade-through-out 150ms var(--md-sys-motion-easing-effects) forwards;
+  animation: m3-fade-through-out 120ms var(--md-sys-motion-easing-effects) forwards;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
+  will-change: transform, opacity;
 }
 
 @keyframes m3-fade-through-in {
   from {
     opacity: 0;
-    transform: scale(0.96) translateY(6px);
+    transform: translateZ(0) translateY(6px);
   }
   to {
     opacity: 1;
-    transform: scale(1) translateY(0);
+    transform: translateZ(0) translateY(0);
   }
 }
 
 @keyframes m3-fade-through-out {
   from {
     opacity: 1;
-    transform: scale(1);
+    transform: translateZ(0) translateY(0);
   }
   to {
     opacity: 0;
-    transform: scale(0.96);
+    transform: translateZ(0) translateY(-4px);
   }
 }
 
 /* Staggered thread cards entry */
 .m3-thread-card {
   contain: layout paint;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
   animation: m3-thread-enter var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial) backwards;
   animation-delay: calc(var(--thread-index, 0) * 35ms);
   transition: border-color var(--md-sys-motion-effects),
@@ -736,22 +774,28 @@ button.rounded-full:active:not(:disabled),
 @keyframes m3-thread-enter {
   from {
     opacity: 0;
-    transform: translateY(12px) scale(0.96);
+    transform: translateZ(0) translateY(12px) scale(0.96);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateZ(0) translateY(0) scale(1);
   }
 }
 
 /* Results stat cards staggered entry */
 .m3-stat-card-1 {
   contain: layout paint;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
   animation: m3-stat-card-in var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial) backwards;
 }
 
 .m3-stat-card-2 {
   contain: layout paint;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: translateZ(0);
   animation: m3-stat-card-in var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial) backwards;
   animation-delay: 80ms;
 }
@@ -759,11 +803,11 @@ button.rounded-full:active:not(:disabled),
 @keyframes m3-stat-card-in {
   from {
     opacity: 0;
-    transform: translateY(14px) scale(0.95);
+    transform: translateZ(0) translateY(14px) scale(0.96);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateZ(0) translateY(0) scale(1);
   }
 }
 
@@ -972,6 +1016,10 @@ html[data-input="keyboard"] [data-slot="select-content"] [role="option"][data-hi
   z-index: 60 !important;
   transform-origin: var(--reka-popper-transform-origin, top left) !important;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45) !important;
+  backface-visibility: hidden !important;
+  -webkit-backface-visibility: hidden !important;
+  transform: translateZ(0) !important;
+  will-change: transform, opacity !important;
 }
 
 .m3-select-content[data-state="open"] {
@@ -985,25 +1033,25 @@ html[data-input="keyboard"] [data-slot="select-content"] [role="option"][data-hi
 @keyframes m3-menu-open {
   0% {
     opacity: 0;
-    transform: scale(0.94) translateY(-4px);
+    transform: translateZ(0) scale(0.94) translateY(-4px);
   }
   36% {
     opacity: 1;
   }
   100% {
     opacity: 1;
-    transform: scale(1) translateY(0);
+    transform: translateZ(0) scale(1) translateY(0);
   }
 }
 
 @keyframes m3-menu-close {
   0% {
     opacity: 1;
-    transform: scale(1);
+    transform: translateZ(0) scale(1);
   }
   100% {
     opacity: 0;
-    transform: scale(0.96);
+    transform: translateZ(0) scale(0.96);
   }
 }
 
