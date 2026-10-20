@@ -348,6 +348,12 @@ button.rounded-full:active:not(:disabled),
               box-shadow var(--md-sys-motion-effects-fast);
 }
 
+.m3-outlined-field input {
+  border: 0 !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
 .m3-outlined-field label {
   transition: top var(--md-sys-motion-spatial-fast),
               font-size var(--md-sys-motion-spatial-fast),
