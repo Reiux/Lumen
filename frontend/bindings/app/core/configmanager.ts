@@ -103,6 +103,10 @@ export function GetWatchedFolders(): $CancellablePromise<string[]> {
     });
 }
 
+export function IsTrayAvailable(): $CancellablePromise<boolean> {
+    return $Call.ByID(2807422592);
+}
+
 export function PickWatchedFolder(): $CancellablePromise<string> {
     return $Call.ByID(1038435738);
 }

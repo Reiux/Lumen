@@ -52,6 +52,8 @@ func runGUI() {
 	configManager := &core.ConfigManager{}
 	notificationService := notifications.New()
 
+	var window *application.WebviewWindow
+
 	wailsApp := application.New(application.Options{
 		Name:        "com.reiux.lumen",
 		Description: "Google Photos unofficial client",
@@ -65,9 +67,19 @@ func runGUI() {
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
+		SingleInstance: &application.SingleInstanceOptions{
+			UniqueID: "com.reiux.lumen",
+			OnSecondInstanceLaunch: func(data application.SecondInstanceData) {
+				if window != nil {
+					window.Show()
+					window.UnMinimise()
+					window.Focus()
+				}
+			},
+		},
 	})
 
-	window := wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
+	window = wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:               title,
 		Frameless:           false,
 		Width:               1000,
@@ -89,32 +101,48 @@ func runGUI() {
 
 	window.Center()
 
-	// System Tray initialization
-	tray := wailsApp.SystemTray.New()
-	tray.SetIcon(trayIcon)
-	tray.SetTooltip("Lumen")
-	trayMenu := application.NewMenu()
-	trayMenu.Add("Open Lumen").OnClick(func(ctx *application.Context) {
-		window.Show()
-		window.Focus()
-	})
-	trayMenu.AddSeparator()
-	trayMenu.Add("Quit").OnClick(func(ctx *application.Context) {
-		wailsApp.Quit()
-	})
-	tray.SetMenu(trayMenu)
-	tray.OnClick(func() {
-		if window.IsVisible() {
-			window.Hide()
-		} else {
-			window.Show()
-			window.Focus()
+	// Detect if system tray is supported on this desktop environment
+	traySupported := true
+	if runtime.GOOS == "linux" {
+		if os.Getenv("DBUS_SESSION_BUS_ADDRESS") == "" && os.Getenv("DISPLAY") == "" && os.Getenv("WAYLAND_DISPLAY") == "" {
+			traySupported = false
 		}
-	})
+	}
 
-	// Intercept window close if MinimizeToTray preference is enabled
+	tray := wailsApp.SystemTray.New()
+	if tray == nil {
+		traySupported = false
+	}
+	core.SetTrayAvailable(traySupported)
+
+	if tray != nil && traySupported {
+		tray.SetIcon(trayIcon)
+		tray.SetTooltip("Lumen")
+		trayMenu := application.NewMenu()
+		trayMenu.Add("Show").OnClick(func(ctx *application.Context) {
+			window.Show()
+			window.UnMinimise()
+			window.Focus()
+		})
+		trayMenu.AddSeparator()
+		trayMenu.Add("Quit").OnClick(func(ctx *application.Context) {
+			wailsApp.Quit()
+		})
+		tray.SetMenu(trayMenu)
+		tray.OnClick(func() {
+			if window.IsVisible() {
+				window.Hide()
+			} else {
+				window.Show()
+				window.UnMinimise()
+				window.Focus()
+			}
+		})
+	}
+
+	// Intercept window close if MinimizeToTray preference is enabled and tray is available
 	window.OnWindowEvent(events.Common.WindowClosing, func(event *application.WindowEvent) {
-		if configManager.GetSettings().MinimizeToTray {
+		if configManager.GetSettings().MinimizeToTray && core.TrayAvailable && tray != nil {
 			event.Cancel()
 			window.Hide()
 		}
