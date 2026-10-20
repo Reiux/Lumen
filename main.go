@@ -21,13 +21,13 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-var title = "gotohp v" + getAppVersion()
+var title = "Lumen v" + getAppVersion()
 
 func main() {
 	// Run the CLI when the arguments name one of its commands; otherwise start the GUI.
 	if cli.IsCLIInvocation(os.Args[1:]) {
 		os.Exit(cli.Run(os.Args[1:], cli.Info{
-			ExecutableName: "gotohp",
+			ExecutableName: "lumen",
 			HasGUI:         true,
 			Version:        getAppVersion(),
 		}))
@@ -45,7 +45,7 @@ func runGUI() {
 
 	configManager := &core.ConfigManager{}
 	wailsApp := application.New(application.Options{
-		Name:        "com.xob0t.gotohp",
+		Name:        "com.reiux.lumen",
 		Description: "Google Photos unofficial client",
 		Services: []application.Service{
 			application.NewService(configManager),

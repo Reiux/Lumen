@@ -3,11 +3,11 @@ Version=1.0
 Name=Lumen
 Comment=Google Photos Unofficial Client
 # The Exec line includes %u to pass the URL to the application
-Exec=/usr/local/bin/gotohp %u
+Exec=/usr/local/bin/lumen %u
 Terminal=false
 Type=Application
-Icon=gotohp
+Icon=lumen
 Categories=Utility;
-StartupWMClass=gotohp
+StartupWMClass=lumen
 
  

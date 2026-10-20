@@ -5,10 +5,10 @@
 !include "FileFunc.nsh"
 
 !ifndef INFO_PROJECTNAME
-    !define INFO_PROJECTNAME "gotohp"
+    !define INFO_PROJECTNAME "lumen"
 !endif
 !ifndef INFO_COMPANYNAME
-    !define INFO_COMPANYNAME "xob0t"
+    !define INFO_COMPANYNAME "Reiux"
 !endif
 !ifndef INFO_PRODUCTNAME
     !define INFO_PRODUCTNAME "Lumen"
