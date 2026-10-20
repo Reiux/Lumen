@@ -152,9 +152,18 @@ function simulateResults() {
   }))
 
   state.results.fail = [
-    '/Photos/2026/Corrupt_Archive.raw: Unrecognized codec header or invalid EXIF stream',
-    '/Photos/2026/Video_Exceeds_Quota.mp4: Google Photos quota exceeded for non-saver mode',
-    '/Photos/2026/Locked_File.png: Resource temporarily unavailable (os error 11)',
+    {
+      path: '/Photos/2026/Corrupt_Archive.raw',
+      error: 'Unrecognized codec header or invalid EXIF stream',
+    },
+    {
+      path: '/Photos/2026/Video_Exceeds_Quota.mp4',
+      error: 'Google Photos quota exceeded for non-saver mode',
+    },
+    {
+      path: '/Photos/2026/Locked_File.png',
+      error: 'Resource temporarily unavailable (os error 11)',
+    },
   ]
 
   state.results.skipped = [

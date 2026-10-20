@@ -408,6 +408,24 @@ async function handlePickFolder() {
   }
 }
 
+async function handleRetryAll() {
+  if (import.meta.env.DEV && mockState.enabled) {
+    mockState.currentView = 'uploading'
+    uploadManager.state.isUploading = true
+    return
+  }
+  await uploadManager.retryFailed()
+}
+
+async function handleRetryItem(filePath: string) {
+  if (import.meta.env.DEV && mockState.enabled) {
+    mockState.currentView = 'uploading'
+    uploadManager.state.isUploading = true
+    return
+  }
+  await uploadManager.retryFailed([filePath])
+}
+
 const albumErrorHandler = (e: Event) => {
   const event = e as CustomEvent<{ AlbumName: string; Error: string }>
   const { AlbumName, Error } = event.detail
@@ -957,6 +975,8 @@ onUnmounted(() => {
               style="--wails-draggable: none"
               @copy="handleCopyClick"
               @clear="() => uploadManager.resetUploadResults()"
+              @retry-all="handleRetryAll"
+              @retry-item="handleRetryItem"
             />
           </div>
         </div>

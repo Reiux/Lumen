@@ -3,6 +3,11 @@ export interface UploadSuccess {
   mediaKey: string
 }
 
+export interface FailedUpload {
+  path: string
+  error: string
+}
+
 export interface SkippedUploadResult {
   paths: string[]
   code: string
@@ -11,7 +16,7 @@ export interface SkippedUploadResult {
 
 export interface UploadResults {
   success: UploadSuccess[]
-  fail: string[]
+  fail: FailedUpload[]
   skipped: SkippedUploadResult[]
   warnings: SkippedUploadResult[]
 }
@@ -29,7 +34,10 @@ export interface UploadResultEvent {
 
 export function recordUploadResult(results: UploadResults, event: UploadResultEvent): number {
   if (event.IsError) {
-    results.fail.push(event.ErrorMessage ? `${event.Path}: ${event.ErrorMessage}` : event.Path)
+    results.fail.push({
+      path: event.Path || 'Unknown file',
+      error: event.ErrorMessage || 'Upload failed',
+    })
     return 1
   }
 
