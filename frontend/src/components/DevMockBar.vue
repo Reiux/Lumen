@@ -7,7 +7,8 @@ import {
   setMockView,
   toggleMockMode,
 } from '../utils/mockMode'
-import { ChevronUp, FlaskConical } from '@lucide/vue'
+import { replayLaunch } from '../utils/launchState'
+import { ChevronUp, FlaskConical, RotateCcw } from '@lucide/vue'
 
 const isExpanded = ref(true)
 const isAvailable = isDevMode()
@@ -101,6 +102,16 @@ if (isAvailable) {
       >
         <FlaskConical class="size-3.5" />
         <span>{{ mockState.enabled ? 'Mock Mode: ON' : 'Mock Mode: OFF' }}</span>
+      </button>
+
+      <button
+        type="button"
+        class="ml-1 flex items-center gap-1 rounded-full bg-[var(--md-sys-color-primary-container)] px-2.5 py-1 text-[11px] font-semibold text-[var(--md-sys-color-on-primary-container)] hover:bg-[var(--md-sys-color-primary)] hover:text-[var(--md-sys-color-on-primary)] transition-colors cursor-pointer"
+        title="Replay launch animation (respects ?launchSlow=...)"
+        @click="replayLaunch"
+      >
+        <RotateCcw class="size-3" />
+        <span>Replay launch</span>
       </button>
 
       <button
