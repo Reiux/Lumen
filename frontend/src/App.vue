@@ -39,6 +39,11 @@ const copyButtonText = ref('Copy as JSON')
 
 // Navigation state: upload, settings, or about
 const activeTab = ref<'upload' | 'settings' | 'about'>('upload')
+const tabOrder = ['upload', 'settings', 'about'] as const
+const activeTabIndex = computed(() => {
+  const idx = tabOrder.indexOf(activeTab.value)
+  return idx >= 0 ? idx : 0
+})
 
 // Tablet collapsible navigation state
 const { width: windowWidth } = useWindowSize()
@@ -160,16 +165,12 @@ watch(displaySelectedOption, (newValue) => {
   }
 })
 
-watch(activeTab, async () => {
+watch(activeTab, async (newTab) => {
   await nextTick()
-  const scrollPane = document.querySelector('.m3-main-scroll-pane')
-  if (scrollPane) {
-    scrollPane.scrollTop = 0
+  const pane = document.querySelector<HTMLElement>(`.m3-tab-pane[data-tab="${newTab}"]`)
+  if (pane) {
+    pane.scrollTop = 0
   }
-  const tabPanes = document.querySelectorAll('.m3-tab-pane')
-  tabPanes.forEach((el) => {
-    el.scrollTop = 0
-  })
 })
 
 watch(
@@ -947,17 +948,24 @@ onUnmounted(() => {
       </div>
     </aside>
 
-    <!-- Main Content Area -->
+    <!-- Main Content Area: Continuous Viewport -->
     <section
-      class="m3-main-scroll-pane relative flex flex-1 h-full min-w-0 flex-col overflow-hidden bg-[var(--md-sys-color-surface)] p-6"
+      class="m3-main-viewport relative flex flex-1 h-full min-w-0 flex-col overflow-hidden bg-[var(--md-sys-color-surface)]"
       :class="isSettling && 'm3-launch-settle'"
       :style="isSettling ? { '--settle-index': 2, '--launch-stagger': settleStagger + 'ms', '--wails-draggable': 'drag', contain: 'layout style' } : { '--wails-draggable': 'drag', contain: 'layout style' }"
     >
-      <!-- View: Upload Tab -->
-      <Transition name="m3-tab-pane">
+      <div
+        class="m3-pan-track flex h-full w-[300%]"
+        :style="{
+          transform: `translate3d(-${activeTabIndex * (100 / 3)}%, 0, 0)`,
+        }"
+      >
+        <!-- View: Upload Tab -->
         <div
-          v-show="activeTab === 'upload'"
-          class="m3-tab-pane flex h-full w-full flex-1 flex-col min-h-0 overflow-y-auto overflow-x-hidden p-0.5"
+          data-tab="upload"
+          class="m3-tab-pane flex h-full w-[33.333333%] shrink-0 min-w-0 flex-col overflow-y-auto overflow-x-hidden p-6"
+          :inert="activeTab !== 'upload' ? true : undefined"
+          :aria-hidden="activeTab !== 'upload'"
           style="contain: layout style; --wails-draggable: none"
         >
           <!-- If actively uploading, show Upload.vue directly in main area -->
@@ -1163,31 +1171,31 @@ onUnmounted(() => {
             />
           </div>
         </div>
-      </Transition>
 
-      <!-- View: Settings Tab -->
-      <Transition name="m3-tab-pane">
+        <!-- View: Settings Tab -->
         <div
-          v-show="activeTab === 'settings'"
-          class="m3-tab-pane flex h-full w-full flex-1 flex-col min-h-0 overflow-y-auto overflow-x-hidden p-0.5"
+          data-tab="settings"
+          class="m3-tab-pane flex h-full w-[33.333333%] shrink-0 min-w-0 flex-col overflow-y-auto overflow-x-hidden p-6"
+          :inert="activeTab !== 'settings' ? true : undefined"
+          :aria-hidden="activeTab !== 'settings'"
           style="contain: layout style; --wails-draggable: none"
         >
           <TooltipProvider disable-hoverable-content>
             <SettingsPanel @upload-folder="onUploadFolderFromSettings" />
           </TooltipProvider>
         </div>
-      </Transition>
 
-      <!-- View: About Tab -->
-      <Transition name="m3-tab-pane">
+        <!-- View: About Tab -->
         <div
-          v-show="activeTab === 'about'"
-          class="m3-tab-pane flex h-full w-full flex-1 flex-col min-h-0 overflow-y-auto overflow-x-hidden p-0.5"
+          data-tab="about"
+          class="m3-tab-pane flex h-full w-[33.333333%] shrink-0 min-w-0 flex-col overflow-y-auto overflow-x-hidden p-6"
+          :inert="activeTab !== 'about' ? true : undefined"
+          :aria-hidden="activeTab !== 'about'"
           style="contain: layout style; --wails-draggable: none"
         >
           <AboutView />
         </div>
-      </Transition>
+      </div>
     </section>
 
     <!-- Add Account Dialog -->
