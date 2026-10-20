@@ -82,10 +82,10 @@ function onCopyClick() {
 
 <template>
   <div class="flex w-full flex-col gap-5 rounded-[32px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-6 shadow-sm select-none">
-    <!-- Header -->
-    <div class="flex items-center justify-between">
-      <div class="flex flex-col">
-        <h2 class="text-xl font-bold tracking-tight text-[var(--md-sys-color-on-surface)]">
+    <!-- Header: responsive wrap for compact windows -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 flex-wrap">
+      <div class="flex flex-col min-w-0">
+        <h2 class="text-lg sm:text-xl font-bold tracking-tight text-[var(--md-sys-color-on-surface)] truncate">
           Upload Batch Results
         </h2>
         <span class="text-xs text-[var(--md-sys-color-on-surface-variant)]">
@@ -95,7 +95,7 @@ function onCopyClick() {
 
       <!-- Connected Action Button Group (M3 Expressive) -->
       <div
-        class="m3-button-group shadow-xs"
+        class="m3-button-group shadow-xs shrink-0 self-start sm:self-auto"
         role="group"
         aria-label="Upload results actions"
       >
@@ -141,7 +141,7 @@ function onCopyClick() {
       </div>
     </div>
 
-    <!-- Two Stat Cards Side by Side -->
+    <!-- Two Stat Cards Side by Side (Tonal Containers) -->
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <!-- Successful in Tertiary Container -->
       <div class="m3-stat-card-1 flex items-center gap-4 rounded-[24px] border border-[var(--md-sys-color-tertiary)]/30 bg-[var(--md-sys-color-tertiary-container)] p-5 text-[var(--md-sys-color-on-tertiary-container)] shadow-xs">
@@ -163,22 +163,34 @@ function onCopyClick() {
         </div>
       </div>
 
-      <!-- Failed in Error Container -->
-      <div class="m3-stat-card-2 flex items-center gap-4 rounded-[24px] border border-[var(--md-sys-color-error)]/30 bg-[var(--md-sys-color-error-container)] p-5 text-[var(--md-sys-color-on-error-container)] shadow-xs">
-        <div class="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--md-sys-color-on-error-container)]/15">
+      <!-- Failed: Error Container when failed > 0, Neutral Container when failed === 0 -->
+      <div
+        class="m3-stat-card-2 flex items-center gap-4 rounded-[24px] p-5 shadow-xs transition-colors duration-200"
+        :class="results.fail.length > 0
+          ? 'border border-[var(--md-sys-color-error)]/30 bg-[var(--md-sys-color-error-container)] text-[var(--md-sys-color-on-error-container)]'
+          : 'border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-on-surface-variant)]'"
+      >
+        <div
+          class="flex size-12 shrink-0 items-center justify-center rounded-2xl"
+          :class="results.fail.length > 0
+            ? 'bg-[var(--md-sys-color-on-error-container)]/15 text-[var(--md-sys-color-on-error-container)]'
+            : 'bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-on-surface-variant)]'"
+        >
           <M3Icon
-            name="cancel"
+            :name="results.fail.length > 0 ? 'cancel' : 'task_alt'"
             :filled="true"
             :size="24"
-            class="text-[var(--md-sys-color-on-error-container)]"
           />
         </div>
         <div class="flex flex-col min-w-0">
-          <span class="text-3xl font-extrabold tabular-nums tracking-tight">
+          <span
+            class="text-3xl font-extrabold tabular-nums tracking-tight"
+            :class="results.fail.length > 0 ? 'text-[var(--md-sys-color-on-error-container)]' : 'text-[var(--md-sys-color-on-surface)]'"
+          >
             {{ displayFail }}
           </span>
           <span class="text-xs font-semibold opacity-90 truncate">
-            Failed Uploads
+            {{ results.fail.length > 0 ? 'Failed Uploads' : 'No Failures' }}
           </span>
         </div>
       </div>
