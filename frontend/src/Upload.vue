@@ -211,7 +211,7 @@ async function handleCancel() {
           />
           <M3Icon
             v-else
-            name="create_new_folder"
+            name="folder_special"
             :filled="true"
             :size="16"
           />

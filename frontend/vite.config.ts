@@ -40,9 +40,16 @@ export default defineConfig({
     host: '127.0.0.1',
   },
   resolve: {
-    alias: {
-      '@': path.resolve(import.meta.dirname, './src'),
-    },
+    alias: [
+      {
+        find: /.*\/@materialwebunofficial\/md3e-web\/dist\/fonts\/material-symbols-rounded\.woff2$/,
+        replacement: path.resolve(import.meta.dirname, './node_modules/material-symbols/material-symbols-rounded.woff2'),
+      },
+      {
+        find: '@',
+        replacement: path.resolve(import.meta.dirname, './src'),
+      },
+    ],
   },
 })
 
