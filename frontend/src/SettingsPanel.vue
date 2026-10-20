@@ -83,6 +83,28 @@ const watchedConfigs = ref<WatchedFolderConfig[]>([])
 const inotifyError = ref('')
 const pendingBacklog = ref<{ folder: string; count: number; account: string } | null>(null)
 
+const SPEED_STEPS = [0, 512, 1024, 2048, 5120, 10240, 20480, 51200]
+
+const speedStepIndex = computed({
+  get: () => {
+    const current = settings.value.uploadSpeedLimitKBps || 0
+    let bestIdx = 0
+    let minDiff = Infinity
+    for (let i = 0; i < SPEED_STEPS.length; i++) {
+      const diff = Math.abs(SPEED_STEPS[i] - current)
+      if (diff < minDiff) {
+        minDiff = diff
+        bestIdx = i
+      }
+    }
+    return bestIdx
+  },
+  set: (idx: number) => {
+    const clamped = Math.max(0, Math.min(SPEED_STEPS.length - 1, Math.round(idx)))
+    settings.value.uploadSpeedLimitKBps = SPEED_STEPS[clamped]
+  },
+})
+
 const speedLimitDisplay = computed(() => {
   const kbps = settings.value.uploadSpeedLimitKBps
   if (!kbps || kbps <= 0) return 'Unlimited'
@@ -420,20 +442,20 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                 </div>
                 <span class="text-xs text-[var(--md-sys-color-on-surface-variant)]">Pace upload speed to prevent network saturation</span>
               </div>
-              <span class="inline-flex items-center justify-center rounded-full bg-[var(--md-sys-color-secondary-container)] px-3 py-0.5 text-xs font-bold text-[var(--md-sys-color-on-secondary-container)] shadow-xs">
+              <span class="inline-flex items-center justify-center rounded-full bg-[var(--md-sys-color-secondary-container)] px-3 py-0.5 text-xs font-bold text-[var(--md-sys-color-on-secondary-container)] shadow-xs shrink-0 whitespace-nowrap">
                 {{ speedLimitDisplay }}
               </span>
             </div>
             <div class="flex items-center gap-3">
-              <span class="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)]">Unlimited</span>
+              <span class="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)] shrink-0 select-none">Unlimited</span>
               <M3Slider
-                v-model="settings.uploadSpeedLimitKBps"
+                v-model="speedStepIndex"
                 :min="0"
-                :max="51200"
-                :step="512"
+                :max="SPEED_STEPS.length - 1"
+                :step="1"
                 aria-label="Upload Speed Limit slider"
               />
-              <span class="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)]">50 MB/s</span>
+              <span class="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)] shrink-0 whitespace-nowrap select-none">50 MB/s</span>
             </div>
           </div>
 

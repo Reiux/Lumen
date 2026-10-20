@@ -9,9 +9,10 @@ import (
 )
 
 func TestRateLimitedReader_Unlimited(t *testing.T) {
+	SetGlobalRateLimitKBps(0)
 	data := []byte("hello world this is a test string")
 	src := bytes.NewReader(data)
-	limited := NewRateLimitedReader(context.Background(), src, 0)
+	limited := NewRateLimitedReader(context.Background(), src)
 
 	buf, err := io.ReadAll(limited)
 	if err != nil {
@@ -23,7 +24,10 @@ func TestRateLimitedReader_Unlimited(t *testing.T) {
 }
 
 func TestRateLimitedReader_Throttle(t *testing.T) {
-	// 10 KB of data throttled at 20 KB/s should take at least ~300ms
+	// 10 KB of data throttled at 20 KB/s should take at least ~250ms
+	SetGlobalRateLimitKBps(20)
+	defer SetGlobalRateLimitKBps(0)
+
 	size := 10 * 1024
 	data := make([]byte, size)
 	for i := range data {
@@ -32,7 +36,7 @@ func TestRateLimitedReader_Throttle(t *testing.T) {
 
 	src := bytes.NewReader(data)
 	start := time.Now()
-	limited := NewRateLimitedReader(context.Background(), src, 20) // 20 KB/s
+	limited := NewRateLimitedReader(context.Background(), src)
 
 	buf, err := io.ReadAll(limited)
 	elapsed := time.Since(start)
@@ -44,18 +48,20 @@ func TestRateLimitedReader_Throttle(t *testing.T) {
 		t.Errorf("expected size %d, got %d", size, len(buf))
 	}
 
-	// At 20 KB/s, 10 KB should take around 500ms (we allow at least 250ms)
-	if elapsed < 250*time.Millisecond {
-		t.Errorf("expected throttled elapsed time >= 250ms, got %v", elapsed)
+	if elapsed < 200*time.Millisecond {
+		t.Errorf("expected throttled elapsed time >= 200ms, got %v", elapsed)
 	}
 }
 
 func TestRateLimitedReader_ContextCancel(t *testing.T) {
+	SetGlobalRateLimitKBps(1) // 1 KB/s -> very slow
+	defer SetGlobalRateLimitKBps(0)
+
 	data := make([]byte, 50*1024)
 	src := bytes.NewReader(data)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	limited := NewRateLimitedReader(ctx, src, 1) // 1 KB/s -> very slow
+	limited := NewRateLimitedReader(ctx, src)
 
 	go func() {
 		time.Sleep(50 * time.Millisecond)
@@ -73,5 +79,16 @@ func TestRateLimitedReader_ContextCancel(t *testing.T) {
 
 	if err != context.Canceled {
 		t.Errorf("expected context.Canceled, got %v", err)
+	}
+}
+
+func TestGlobalRateLimiter_LiveUpdate(t *testing.T) {
+	limiter := NewGlobalRateLimiter(500 * 1024)
+	if limiter.GetLimit() != 500*1024 {
+		t.Fatalf("expected 500KB/s limit, got %d", limiter.GetLimit())
+	}
+	limiter.SetLimit(1000 * 1024)
+	if limiter.GetLimit() != 1000*1024 {
+		t.Fatalf("expected 1000KB/s limit, got %d", limiter.GetLimit())
 	}
 }

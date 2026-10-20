@@ -437,11 +437,8 @@ func (a *Api) UploadFileWithProgress(ctx context.Context, filePath string, uploa
 			return ScottyFinalizeToken{}, fmt.Errorf("error opening file: %w", err)
 		}
 
-		// Wrap file in progress reader if callback provided
-		var reader io.Reader = file
-		if a.speedLimitKBps > 0 {
-			reader = NewRateLimitedReader(ctx, reader, a.speedLimitKBps)
-		}
+		// Wrap file in rate-limited reader and progress reader
+		var reader io.Reader = NewRateLimitedReader(ctx, file)
 		if onProgress != nil {
 			reader = NewProgressReader(reader, fileSize, func(bytesRead, total int64) {
 				onProgress(bytesRead, total, attemptNum)

@@ -347,6 +347,7 @@ func (g *ConfigManager) SetUploadSpeedLimitKBps(v int) {
 	updateAppConfig(func(config *Config) {
 		config.Preferences.UploadSpeedLimitKBps = v
 	})
+	SetGlobalRateLimitKBps(v)
 }
 
 func (g *ConfigManager) SetWatchFoldersEnabled(v bool) {
@@ -1040,6 +1041,8 @@ func loadConfigLocked() error {
 
 	dbPath := filepath.Join(filepath.Dir(ConfigPath), "hash_cache.db")
 	_, _ = InitGlobalHashCache(dbPath)
+
+	SetGlobalRateLimitKBps(AppConfig.Preferences.UploadSpeedLimitKBps)
 
 	return nil
 }
