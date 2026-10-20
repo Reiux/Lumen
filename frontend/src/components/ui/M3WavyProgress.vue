@@ -39,7 +39,7 @@ const clampedPercent = computed(() => {
 
     <!-- Active wavy fill -->
     <div
-      class="absolute inset-y-0 left-0 overflow-hidden transition-all duration-300 ease-out"
+      class="absolute inset-y-0 left-0 overflow-hidden transition-[width] duration-300 ease-out"
       :style="{ width: `${clampedPercent}%` }"
     >
       <!-- Normal wavy animated track -->

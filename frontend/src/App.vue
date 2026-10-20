@@ -564,7 +564,7 @@ onUnmounted(() => {
         >
           <button
             type="button"
-            class="m3-nav-item group relative flex h-11 w-full cursor-pointer items-center gap-3.5 px-4 text-sm font-medium transition-all"
+            class="m3-nav-item group relative flex h-11 w-full cursor-pointer items-center gap-3.5 px-4 text-sm font-medium transition-colors"
             :class="activeTab === 'upload' ? 'is-selected font-semibold' : 'hover:bg-[var(--md-sys-color-surface-container-high)]/60'"
             aria-label="Upload view"
             @click="activeTab = 'upload'"
@@ -591,7 +591,7 @@ onUnmounted(() => {
 
           <button
             type="button"
-            class="m3-nav-item group relative flex h-11 w-full cursor-pointer items-center gap-3.5 px-4 text-sm font-medium transition-all"
+            class="m3-nav-item group relative flex h-11 w-full cursor-pointer items-center gap-3.5 px-4 text-sm font-medium transition-colors"
             :class="activeTab === 'settings' ? 'is-selected font-semibold' : 'hover:bg-[var(--md-sys-color-surface-container-high)]/60'"
             aria-label="Settings view"
             @click="activeTab = 'settings'"
@@ -618,7 +618,7 @@ onUnmounted(() => {
 
           <button
             type="button"
-            class="m3-nav-item group relative flex h-11 w-full cursor-pointer items-center gap-3.5 px-4 text-sm font-medium text-[var(--md-sys-color-on-surface-variant)] transition-all hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-on-surface)]"
+            class="m3-nav-item group relative flex h-11 w-full cursor-pointer items-center gap-3.5 px-4 text-sm font-medium text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-on-surface)]"
             aria-label="Manage accounts"
             @click="openAccountSetup"
           >
@@ -668,7 +668,7 @@ onUnmounted(() => {
             <div
               data-file-drop-target
               data-drop-zone="regular"
-              class="drop-zone m3-drop-card flex flex-col items-center justify-center rounded-[32px] border-2 border-dashed border-[var(--md-sys-color-outline-variant)]/60 bg-[var(--md-sys-color-surface-container)] p-6 text-center transition-all cursor-pointer"
+              class="drop-zone m3-drop-card flex flex-col items-center justify-center rounded-[32px] border-2 border-dashed border-[var(--md-sys-color-outline-variant)]/60 bg-[var(--md-sys-color-surface-container)] p-6 text-center transition-[background-color,border-color,transform,box-shadow] duration-200 cursor-pointer"
               :style="{ '--card-index': 0 }"
             >
               <div class="mb-3 flex size-14 items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)] shadow-sm">
@@ -685,7 +685,7 @@ onUnmounted(() => {
             <div
               data-file-drop-target
               data-drop-zone="album"
-              class="drop-zone m3-drop-card flex flex-col items-center justify-center rounded-[32px] border-2 border-dashed border-[var(--md-sys-color-outline-variant)]/60 bg-[var(--md-sys-color-surface-container)] p-6 text-center transition-all cursor-pointer"
+              class="drop-zone m3-drop-card flex flex-col items-center justify-center rounded-[32px] border-2 border-dashed border-[var(--md-sys-color-outline-variant)]/60 bg-[var(--md-sys-color-surface-container)] p-6 text-center transition-[background-color,border-color,transform,box-shadow] duration-200 cursor-pointer"
               :style="{ '--card-index': 1 }"
             >
               <div class="mb-3 flex size-14 items-center justify-center rounded-full bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)] shadow-sm">
@@ -702,7 +702,7 @@ onUnmounted(() => {
             <div
               data-file-drop-target
               data-drop-zone="auto-album"
-              class="drop-zone m3-drop-card flex flex-col items-center justify-center rounded-[32px] border-2 border-dashed border-[var(--md-sys-color-outline-variant)]/60 bg-[var(--md-sys-color-surface-container)] p-6 text-center transition-all cursor-pointer"
+              class="drop-zone m3-drop-card flex flex-col items-center justify-center rounded-[32px] border-2 border-dashed border-[var(--md-sys-color-outline-variant)]/60 bg-[var(--md-sys-color-surface-container)] p-6 text-center transition-[background-color,border-color,transform,box-shadow] duration-200 cursor-pointer"
               :style="{ '--card-index': 2 }"
             >
               <div class="mb-3 flex size-14 items-center justify-center rounded-full bg-[var(--md-sys-color-tertiary-container)] text-[var(--md-sys-color-on-tertiary-container)] shadow-sm">
@@ -744,7 +744,7 @@ onUnmounted(() => {
               </span>
             </div>
             <Button
-              class="mt-8 h-12 rounded-full px-8 text-sm font-semibold cursor-pointer select-none bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] hover:bg-[var(--md-sys-color-primary)]/90 shadow-md transition-all hover:scale-[1.02] active:scale-[0.98]"
+              class="mt-8 h-12 rounded-full px-8 text-sm font-semibold cursor-pointer select-none bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] hover:bg-[var(--md-sys-color-primary)]/90 shadow-md transition-[background-color,transform] duration-200 hover:scale-[1.02] active:scale-[0.98]"
               aria-label="Add Google account"
               @click="openAccountSetup"
             >

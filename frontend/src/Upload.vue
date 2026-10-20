@@ -207,7 +207,7 @@ async function handleCancel() {
       </p>
       <div class="relative h-2 w-full overflow-hidden rounded-full bg-[var(--md-sys-color-surface-container-highest)] mt-1">
         <div
-          class="h-full rounded-full bg-[var(--md-sys-color-secondary)] transition-all duration-300"
+          class="h-full rounded-full bg-[var(--md-sys-color-secondary)] transition-[width] duration-300"
           :style="{ width: `${albumProgressPercent}%` }"
         />
       </div>

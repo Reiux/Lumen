@@ -292,7 +292,7 @@ async function addRawCredential() {
               <!-- Outlined Token Field with Floating Label & Paste Action -->
               <div class="flex flex-col gap-1">
                 <div
-                  class="m3-outlined-field relative flex h-[56px] w-full items-center rounded-2xl border bg-[var(--md-sys-color-surface-container-low)] transition-all focus-within:border-2"
+                  class="m3-outlined-field relative flex h-[56px] w-full items-center rounded-2xl border bg-[var(--md-sys-color-surface-container-low)] transition-colors duration-150 focus-within:border-2"
                   :class="[
                     tokenError
                       ? 'border-[var(--md-sys-color-error)] focus-within:border-[var(--md-sys-color-error)] m3-field-error'
@@ -312,7 +312,7 @@ async function addRawCredential() {
                   >
                   <label
                     for="google-oauth-token"
-                    class="pointer-events-none absolute left-4 text-[11px] font-medium transition-all peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:text-sm peer-focus:top-2 peer-focus:translate-y-0 peer-focus:text-[11px] top-2 translate-y-0 select-none"
+                    class="pointer-events-none absolute left-4 text-[11px] font-medium transition-[transform,font-size,color] duration-150 peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:text-sm peer-focus:top-2 peer-focus:translate-y-0 peer-focus:text-[11px] top-2 translate-y-0 select-none"
                     :class="tokenError
                       ? 'text-[var(--md-sys-color-error)]'
                       : 'text-[var(--md-sys-color-primary)] peer-placeholder-shown:text-[var(--md-sys-color-on-surface-variant)]'"
@@ -376,7 +376,7 @@ async function addRawCredential() {
                 class="mt-4 flex flex-col gap-3"
               >
                 <div
-                  class="m3-outlined-field relative flex h-[56px] w-full items-center rounded-2xl border bg-[var(--md-sys-color-surface-container-low)] transition-all focus-within:border-2"
+                  class="m3-outlined-field relative flex h-[56px] w-full items-center rounded-2xl border bg-[var(--md-sys-color-surface-container-low)] transition-colors duration-150 focus-within:border-2"
                   :class="rawCredentialError
                     ? 'border-[var(--md-sys-color-error)] focus-within:border-[var(--md-sys-color-error)] m3-field-error'
                     : 'border-[var(--md-sys-color-outline)] focus-within:border-[var(--md-sys-color-primary)]'"
@@ -394,7 +394,7 @@ async function addRawCredential() {
                   >
                   <label
                     for="google-raw-credential"
-                    class="pointer-events-none absolute left-4 text-[11px] font-medium transition-all peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:text-sm peer-focus:top-2 peer-focus:translate-y-0 peer-focus:text-[11px] top-2 translate-y-0 select-none"
+                    class="pointer-events-none absolute left-4 text-[11px] font-medium transition-[transform,font-size,color] duration-150 peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:text-sm peer-focus:top-2 peer-focus:translate-y-0 peer-focus:text-[11px] top-2 translate-y-0 select-none"
                     :class="rawCredentialError
                       ? 'text-[var(--md-sys-color-error)]'
                       : 'text-[var(--md-sys-color-primary)] peer-placeholder-shown:text-[var(--md-sys-color-on-surface-variant)]'"

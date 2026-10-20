@@ -211,7 +211,7 @@ watch(() => settings.value.uploadThreads, async (newValue) => {
 
           <!-- Proxy URL with Floating Label -->
           <div class="relative pt-2">
-            <div class="m3-outlined-field relative rounded-2xl border border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container-low)] transition-all focus-within:border-2 focus-within:border-[var(--md-sys-color-primary)]">
+            <div class="m3-outlined-field relative rounded-2xl border border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container-low)] transition-colors duration-150 focus-within:border-2 focus-within:border-[var(--md-sys-color-primary)]">
               <input
                 id="proxy-input"
                 v-model="settings.proxy"
@@ -221,7 +221,7 @@ watch(() => settings.value.uploadThreads, async (newValue) => {
               >
               <label
                 for="proxy-input"
-                class="pointer-events-none absolute left-4 top-2 text-[11px] font-medium text-[var(--md-sys-color-primary)] transition-all peer-placeholder-shown:top-3.5 peer-placeholder-shown:text-xs peer-placeholder-shown:text-[var(--md-sys-color-on-surface-variant)] peer-focus:top-2 peer-focus:text-[11px] peer-focus:text-[var(--md-sys-color-primary)]"
+                class="pointer-events-none absolute left-4 top-2 text-[11px] font-medium text-[var(--md-sys-color-primary)] transition-[top,font-size,color] duration-150 peer-placeholder-shown:top-3.5 peer-placeholder-shown:text-xs peer-placeholder-shown:text-[var(--md-sys-color-on-surface-variant)] peer-focus:top-2 peer-focus:text-[11px] peer-focus:text-[var(--md-sys-color-primary)]"
               >
                 Proxy URL (optional)
               </label>
