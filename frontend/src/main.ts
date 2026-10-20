@@ -6,6 +6,13 @@ import 'vue-sonner/style.css'
 
 initInputModality()
 
+if (import.meta.env.DEV) {
+  import('./utils/flickerDebug').then(({ initFlickerDebug }) => {
+    initFlickerDebug()
+  })
+}
+
 const app = createApp(App)
 app.directive('ripple', vRipple)
 app.mount('#app')
+

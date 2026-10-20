@@ -7,6 +7,9 @@ interface RippleElement extends HTMLElement {
 export const vRipple: Directive<RippleElement> = {
   mounted(el) {
     function createRipple(x: number, y: number) {
+      if (document.documentElement.hasAttribute('data-noripple')) {
+        return
+      }
       if (el.hasAttribute('disabled') || el.getAttribute('aria-disabled') === 'true') {
         return
       }

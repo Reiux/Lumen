@@ -8,10 +8,31 @@ import {
   toggleMockMode,
 } from '../utils/mockMode'
 import { replayLaunch } from '../utils/launchState'
+import {
+  FLICKER_FLAGS,
+  isFlickerFlagActive,
+  setFlickerFlag,
+  type FlickerFlag,
+} from '../utils/flickerDebug'
 import { ChevronUp, FlaskConical, RotateCcw } from '@lucide/vue'
 
 const isExpanded = ref(true)
 const isAvailable = isDevMode()
+
+const flagsState = ref<Record<FlickerFlag, boolean>>({
+  noanim: isFlickerFlagActive('noanim'),
+  nobackdrop: isFlickerFlagActive('nobackdrop'),
+  noripple: isFlickerFlagActive('noripple'),
+  nostate: isFlickerFlagActive('nostate'),
+  nolaunch: isFlickerFlagActive('nolaunch'),
+  nowave: isFlickerFlagActive('nowave'),
+})
+
+function toggleFlag(flag: FlickerFlag) {
+  const next = !flagsState.value[flag]
+  flagsState.value[flag] = next
+  setFlickerFlag(flag, next)
+}
 
 if (isAvailable) {
   initMockMode()
@@ -89,6 +110,25 @@ if (isAvailable) {
         >
           Results Screen
         </button>
+      </div>
+
+      <!-- Flicker Bisect Flags -->
+      <div class="border-t border-[var(--md-sys-color-outline-variant)]/30 pt-1.5 flex flex-col gap-1">
+        <span class="text-[10px] font-semibold text-[var(--md-sys-color-primary)]">Flicker Bisect Switches</span>
+        <div class="flex flex-wrap gap-1">
+          <button
+            v-for="flag in FLICKER_FLAGS"
+            :key="flag"
+            type="button"
+            class="rounded px-2 py-0.5 text-[10px] font-mono transition-colors cursor-pointer"
+            :class="flagsState[flag]
+              ? 'bg-[var(--md-sys-color-tertiary-container)] text-[var(--md-sys-color-on-tertiary-container)] font-bold'
+              : 'bg-[var(--md-sys-color-surface-container)] text-[var(--md-sys-color-on-surface-variant)] opacity-70'"
+            @click="toggleFlag(flag)"
+          >
+            ?{{ flag }}=1
+          </button>
+        </div>
       </div>
     </div>
 

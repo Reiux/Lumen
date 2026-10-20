@@ -42,7 +42,8 @@ const clampedPercent = computed(() => {
       class="absolute inset-y-0 left-0 overflow-hidden transition-all duration-300 ease-out"
       :style="{ width: `${clampedPercent}%` }"
     >
-      <div class="relative h-full w-[2000px]">
+      <!-- Normal wavy animated track -->
+      <div class="wavy-track relative h-full w-[2000px]">
         <svg
           class="h-full w-full animate-wavy-slide"
           preserveAspectRatio="none"
@@ -57,6 +58,11 @@ const clampedPercent = computed(() => {
           />
         </svg>
       </div>
+
+      <!-- Static straight track (shown when ?nowave=1 / data-nowave is set) -->
+      <div class="static-track hidden h-full w-full items-center">
+        <div class="h-1.5 w-full rounded-full bg-[var(--md-sys-color-primary)]" />
+      </div>
     </div>
   </div>
 </template>
@@ -69,6 +75,14 @@ const clampedPercent = computed(() => {
 
 .animate-wavy-slide {
   animation: wavySlide 2s linear infinite;
+}
+
+:global(html[data-nowave]) .wavy-track {
+  display: none !important;
+}
+
+:global(html[data-nowave]) .static-track {
+  display: flex !important;
 }
 
 @media (prefers-reduced-motion: reduce) {
