@@ -48,7 +48,7 @@ if (isAvailable) {
     <!-- Collapsible Controls Card -->
     <div
       v-if="isExpanded && mockState.enabled"
-      class="flex flex-col gap-2 rounded-2xl border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container-highest)]/95 p-3 shadow-2xl backdrop-blur-md text-xs text-[var(--md-sys-color-on-surface)]"
+      class="flex flex-col gap-2 rounded-2xl border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container-highest)] p-3 shadow-2xl text-xs text-[var(--md-sys-color-on-surface)]"
     >
       <div class="flex items-center justify-between gap-4 border-b border-[var(--md-sys-color-outline-variant)]/30 pb-1.5">
         <span class="font-bold text-[var(--md-sys-color-primary)] flex items-center gap-1.5">
@@ -133,7 +133,7 @@ if (isAvailable) {
     </div>
 
     <!-- Main Mock Pill Bar -->
-    <div class="flex items-center gap-1.5 rounded-full border border-[var(--md-sys-color-outline-variant)]/60 bg-[var(--md-sys-color-surface-container-high)]/90 px-3 py-1.5 shadow-xl backdrop-blur-md">
+    <div class="flex items-center gap-1.5 rounded-full border border-[var(--md-sys-color-outline-variant)]/60 bg-[var(--md-sys-color-surface-container-high)] px-3 py-1.5 shadow-xl">
       <button
         type="button"
         class="flex items-center gap-1.5 text-xs font-semibold cursor-pointer transition-colors"

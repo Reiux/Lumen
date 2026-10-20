@@ -190,7 +190,7 @@ async function addRawCredential() {
     <Transition name="m3-dialog-modal">
       <div
         v-if="isOpen"
-        class="fixed inset-0 z-50 grid place-items-center bg-black/65 backdrop-blur-xs p-4 select-none overflow-y-auto"
+        class="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 select-none overflow-y-auto"
         style="--wails-draggable: none"
         @click.self="isOpen = false"
       >
