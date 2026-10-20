@@ -944,15 +944,89 @@ button.rounded-full:active:not(:disabled),
   overscroll-behavior: contain;
 }
 
-/* Drop zone styling */
+/* Scrims & Modal Overlays: restored blur with opaque fallback */
+.m3-dialog-wrapper,
+.m3-dialog-overlay {
+  background-color: rgba(0, 0, 0, 0.68);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Dialog content elevation pseudo-elements */
+.m3-dialog-card {
+  position: relative;
+  isolation: isolate;
+  background-clip: padding-box;
+}
+
+.m3-dialog-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 24px 48px -8px rgba(0, 0, 0, 0.55),
+              0 0 48px -12px oklch(0.78 0.14 245 / 20%);
+  opacity: 1;
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* Popover & Menus: restored blur with opaque fallback */
+.m3-select-content,
+[data-slot="select-content"],
+.m3-menu-popover {
+  background-color: var(--md-sys-color-surface-container);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  position: relative;
+}
+
+.m3-select-content::before,
+[data-slot="select-content"]::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* Floating bars: restored blur with opaque fallback */
+.m3-floating-bar {
+  background-color: var(--md-sys-color-surface-container-high);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+/* Drop zone styling with pseudo-element elevation shadow */
 .drop-zone {
+  position: relative;
   border-radius: 32px;
   background-clip: padding-box;
   transition: transform var(--md-sys-motion-spatial-fast),
               border-radius var(--md-sys-motion-spatial),
               border-color var(--md-sys-motion-effects),
-              background-color var(--md-sys-motion-effects),
-              box-shadow var(--md-sys-motion-effects);
+              background-color var(--md-sys-motion-effects);
+}
+
+.drop-zone::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 8px 32px -4px oklch(0.78 0.14 245 / 28%);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--md-sys-motion-effects),
+              border-radius var(--md-sys-motion-spatial);
+  z-index: -1;
+}
+
+.drop-zone:hover::after,
+.drop-zone.file-drop-target-active::after,
+.drop-zone.is-active::after {
+  opacity: 1;
 }
 
 .drop-zone:hover,
@@ -962,7 +1036,6 @@ button.rounded-full:active:not(:disabled),
   border-color: var(--md-sys-color-primary) !important;
   background-color: var(--md-sys-color-primary-container) !important;
   transform: scale(1.015);
-  box-shadow: 0 8px 32px -4px oklch(0.78 0.14 245 / 22%);
 }
 
 .drop-zone.file-drop-target-active h2,
@@ -1193,6 +1266,24 @@ button.rounded-full:active:not(:disabled),
   [data-sonner-toast][data-removed="true"] {
     animation: m3-fade-out-reduced 100ms ease forwards !important;
     transform: none !important;
+  }
+
+  /* Disable backdrop-filters and pseudo-element transitions in reduced motion */
+  .m3-dialog-wrapper,
+  .m3-dialog-overlay,
+  .m3-select-content,
+  [data-slot="select-content"],
+  .m3-floating-bar {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  .drop-zone::after,
+  .m3-interactive-card::after,
+  .m3-drop-card::after,
+  .m3-dialog-card::before,
+  .m3-select-content::before {
+    transition: none !important;
   }
 
   .m3-launch-settle {
