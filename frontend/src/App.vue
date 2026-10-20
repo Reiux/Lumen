@@ -838,10 +838,10 @@ onUnmounted(() => {
               <div class="relative mb-5 flex size-28 items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)]/40 text-[var(--md-sys-color-primary)] shadow-xs transition-transform duration-300 group-hover:scale-105">
                 <CloudUpload class="size-14" />
               </div>
-              <h2 class="text-2xl font-bold text-[var(--md-sys-color-on-surface)] select-none">
+              <h2 class="text-2xl font-bold text-[var(--md-sys-color-on-surface)] select-none m3-headline-medium">
                 Drop files to upload
               </h2>
-              <p class="mt-2 text-sm text-[var(--md-sys-color-on-surface-variant)] select-none max-w-md">
+              <p class="mt-2 text-sm text-[var(--md-sys-color-on-surface-variant)] select-none max-w-md m3-body-medium">
                 Drag photos, videos, or complete directories anywhere on this card.
               </p>
               <div class="mt-6 flex flex-wrap items-center justify-center gap-2">
