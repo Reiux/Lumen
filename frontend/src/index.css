@@ -521,6 +521,10 @@ button.rounded-full:active:not(:disabled),
 }
 
 /* Modal transition for Vue transitions (Google Auth & Album Prompt) */
+.m3-dialog-card {
+  contain: layout paint;
+}
+
 .m3-dialog-modal-enter-active .m3-dialog-card {
   animation: m3-dialog-card-enter var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial) forwards;
 }
@@ -593,6 +597,7 @@ button.rounded-full:active:not(:disabled),
   position: relative;
   overflow: hidden;
   isolation: isolate;
+  contain: layout paint;
   transition: transform var(--md-sys-motion-spatial-fast),
               border-radius var(--md-sys-motion-spatial),
               background-color var(--md-sys-motion-effects),
@@ -627,6 +632,7 @@ button.rounded-full:active:not(:disabled),
 /* Drop zone styling */
 .drop-zone {
   border-radius: 36px;
+  contain: layout paint;
   transition: transform var(--md-sys-motion-spatial-fast),
               border-radius var(--md-sys-motion-spatial),
               border-color var(--md-sys-motion-effects),
@@ -671,6 +677,7 @@ button.rounded-full:active:not(:disabled),
 
 /* Staggered entry for 3 drop cards */
 .m3-drop-card {
+  contain: layout paint;
   animation: m3-card-stagger-in var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial) backwards;
   animation-delay: calc(var(--card-index, 0) * 40ms);
 }
@@ -688,7 +695,7 @@ button.rounded-full:active:not(:disabled),
 
 /* M3 Pane Fade-Through Transition */
 .m3-fade-through-enter-active {
-  animation: m3-fade-through-in 300ms var(--md-sys-motion-easing-spatial) forwards;
+  animation: m3-fade-through-in 300ms var(--md-sys-motion-easing-spatial);
 }
 
 .m3-fade-through-leave-active {
@@ -719,6 +726,7 @@ button.rounded-full:active:not(:disabled),
 
 /* Staggered thread cards entry */
 .m3-thread-card {
+  contain: layout paint;
   animation: m3-thread-enter var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial) backwards;
   animation-delay: calc(var(--thread-index, 0) * 35ms);
   transition: border-color var(--md-sys-motion-effects),
@@ -738,10 +746,12 @@ button.rounded-full:active:not(:disabled),
 
 /* Results stat cards staggered entry */
 .m3-stat-card-1 {
+  contain: layout paint;
   animation: m3-stat-card-in var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial) backwards;
 }
 
 .m3-stat-card-2 {
+  contain: layout paint;
   animation: m3-stat-card-in var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial) backwards;
   animation-delay: 80ms;
 }

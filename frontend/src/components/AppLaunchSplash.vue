@@ -68,6 +68,9 @@ function finish() {
   hasEnded = true
   clearTimers()
   cleanupEvents()
+  if (splashLogoEl.value) {
+    splashLogoEl.value.style.willChange = 'auto'
+  }
   const mult = getLaunchMultiplier()
   emit('settle', TIMING.stagger * mult)
   emit('finish')
@@ -235,7 +238,7 @@ onUnmounted(() => {
           opacity: logoOpacity,
           transform: logoTransform,
           transition: logoTransition,
-          willChange: 'transform, opacity',
+          willChange: isVisible ? 'transform, opacity' : 'auto',
         }"
       >
         <SunMedium class="size-14" />
