@@ -174,6 +174,137 @@
     color: var(--md-sys-color-on-surface);
     font-family: 'Roboto Flex Variable', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
     font-optical-sizing: auto;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-variation-settings: 'opsz' 28, 'wght' 700, 'GRAD' 40;
+  }
+
+  label, .m3-label {
+    font-variation-settings: 'opsz' 12, 'wght' 550, 'GRAD' 20;
+  }
+
+  /* Material 3 Expressive Typography Hierarchy with Roboto Flex Variable Axes */
+  .m3-display-large {
+    font-size: 3.5rem;
+    line-height: 4rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    font-variation-settings: 'opsz' 56, 'wght' 700, 'GRAD' 50;
+  }
+
+  .m3-display-medium {
+    font-size: 2.75rem;
+    line-height: 3.25rem;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+    font-variation-settings: 'opsz' 44, 'wght' 700, 'GRAD' 50;
+  }
+
+  .m3-display-small {
+    font-size: 2.25rem;
+    line-height: 2.75rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    font-variation-settings: 'opsz' 36, 'wght' 700, 'GRAD' 40;
+  }
+
+  .m3-headline-large {
+    font-size: 2rem;
+    line-height: 2.5rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    font-variation-settings: 'opsz' 32, 'wght' 700, 'GRAD' 30;
+  }
+
+  .m3-headline-medium {
+    font-size: 1.75rem;
+    line-height: 2.25rem;
+    font-weight: 650;
+    letter-spacing: 0;
+    font-variation-settings: 'opsz' 28, 'wght' 650, 'GRAD' 30;
+  }
+
+  .m3-headline-small {
+    font-size: 1.5rem;
+    line-height: 2rem;
+    font-weight: 650;
+    letter-spacing: 0;
+    font-variation-settings: 'opsz' 24, 'wght' 650, 'GRAD' 25;
+  }
+
+  .m3-title-large {
+    font-size: 1.375rem;
+    line-height: 1.75rem;
+    font-weight: 600;
+    letter-spacing: 0;
+    font-variation-settings: 'opsz' 22, 'wght' 600, 'GRAD' 20;
+  }
+
+  .m3-title-medium {
+    font-size: 1rem;
+    line-height: 1.5rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    font-variation-settings: 'opsz' 16, 'wght' 600, 'GRAD' 20;
+  }
+
+  .m3-title-small {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    font-variation-settings: 'opsz' 14, 'wght' 600, 'GRAD' 15;
+  }
+
+  .m3-body-large {
+    font-size: 1rem;
+    line-height: 1.5rem;
+    font-weight: 400;
+    letter-spacing: 0.015em;
+    font-variation-settings: 'opsz' 16, 'wght' 400;
+  }
+
+  .m3-body-medium {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 400;
+    letter-spacing: 0.015em;
+    font-variation-settings: 'opsz' 14, 'wght' 400;
+  }
+
+  .m3-body-small {
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 400;
+    letter-spacing: 0.02em;
+    font-variation-settings: 'opsz' 12, 'wght' 400;
+  }
+
+  .m3-label-large {
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    font-variation-settings: 'opsz' 14, 'wght' 600, 'GRAD' 20;
+  }
+
+  .m3-label-medium {
+    font-size: 0.75rem;
+    line-height: 1rem;
+    font-weight: 550;
+    letter-spacing: 0.03em;
+    font-variation-settings: 'opsz' 12, 'wght' 550, 'GRAD' 20;
+  }
+
+  .m3-label-small {
+    font-size: 0.6875rem;
+    line-height: 0.875rem;
+    font-weight: 550;
+    letter-spacing: 0.035em;
+    font-variation-settings: 'opsz' 11, 'wght' 550, 'GRAD' 20;
   }
 
   /* Show focus ring only for keyboard input */
