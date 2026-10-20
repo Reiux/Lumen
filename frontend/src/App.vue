@@ -520,7 +520,7 @@ onUnmounted(() => {
 
             <div
               v-if="displaySelectedOption"
-              class="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 backdrop-blur-[2px] transition-opacity group-hover:opacity-100"
+              class="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 transition-opacity group-hover:opacity-100"
             >
               <Camera class="size-5 text-white" />
             </div>
@@ -766,7 +766,7 @@ onUnmounted(() => {
               <Transition name="m3-dialog-modal">
                 <div
                   v-if="showAlbumInput"
-                  class="fixed inset-0 z-50 grid place-items-center bg-black/65 backdrop-blur-xs p-4 select-none overflow-y-auto"
+                  class="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 select-none overflow-y-auto"
                   style="--wails-draggable: none"
                   @click.self="cancelAlbumUpload"
                 >
