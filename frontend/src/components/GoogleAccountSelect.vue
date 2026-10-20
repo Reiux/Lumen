@@ -19,6 +19,7 @@ interface Props {
   modelValue?: string
   options?: string[]
   removingAccount?: string
+  avatarUrl?: string | null
 }
 
 interface Emits {
@@ -31,6 +32,7 @@ const props = withDefaults(defineProps<Props>(), {
   modelValue: '',
   options: () => [],
   removingAccount: '',
+  avatarUrl: null,
 })
 
 const emit = defineEmits<Emits>()
@@ -73,8 +75,14 @@ const selectedInitial = computed(() => {
       class="m3-interactive m3-chip inline-flex h-9 max-w-[240px] items-center gap-2 rounded-full border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] pl-1.5 pr-3 text-xs font-medium text-[var(--md-sys-color-on-surface)] shadow-xs outline-none transition-colors duration-150 select-none cursor-pointer"
       style="--wails-draggable: none"
     >
+      <img
+        v-if="avatarUrl"
+        :src="avatarUrl"
+        alt="Account avatar"
+        class="size-6 shrink-0 rounded-full object-cover"
+      >
       <div
-        v-if="selectedInitial"
+        v-else-if="selectedInitial"
         class="flex size-6 shrink-0 items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)] text-[11px] font-semibold text-[var(--md-sys-color-on-primary-container)]"
       >
         {{ selectedInitial }}
