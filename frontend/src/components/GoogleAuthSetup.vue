@@ -3,7 +3,7 @@ import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Browser, Clipboard } from '@wailsio/runtime'
 import { toast } from 'vue-sonner'
 import { ConfigManager } from '../../bindings/app/core'
-import Button from './ui/button/Button.vue'
+import M3Button from './ui/M3Button.vue'
 import M3Icon from './ui/M3Icon.vue'
 
 const embeddedSetupURL = 'https://accounts.google.com/EmbeddedSetup'
@@ -264,21 +264,16 @@ async function addRawCredential() {
                 </ol>
               </div>
 
-              <Button
-                type="button"
-                variant="outline"
-                class="h-10 rounded-full px-5 text-xs font-semibold self-start cursor-pointer select-none"
+              <M3Button
+                variant="outlined"
+                size="s"
+                icon="open_in_new"
                 :disabled="isConnecting"
                 aria-label="Open Google sign-in page in default browser"
                 @click="openEmbeddedSetup"
               >
-                <M3Icon
-                  name="open_in_new"
-                  :size="16"
-                  class="mr-2 text-[var(--md-sys-color-primary)]"
-                />
                 <span>Open Google Sign-in</span>
-              </Button>
+              </M3Button>
             </div>
 
             <!-- Step 2: Paste Token -->
@@ -437,38 +432,33 @@ async function addRawCredential() {
                   {{ rawCredentialError }}
                 </p>
 
-                <Button
-                  type="button"
-                  variant="outline"
-                  class="h-10 rounded-full px-5 text-xs font-semibold self-start cursor-pointer select-none"
+                <M3Button
+                  variant="outlined"
+                  size="s"
                   :disabled="!rawCredential.trim() || isAddingRawCredential"
+                  :loading="isAddingRawCredential"
                   aria-label="Add captured credential"
                   @click="addRawCredential"
                 >
-                  <M3Icon
-                    v-if="isAddingRawCredential"
-                    name="progress_activity"
-                    :size="14"
-                    class="mr-2 animate-spin"
-                  />
                   <span>{{ isAddingRawCredential ? 'Adding...' : 'Add Credential' }}</span>
-                </Button>
+                </M3Button>
               </div>
             </div>
           </div>
 
           <!-- Sticky Footer with Connect Button -->
           <div class="sticky bottom-0 z-20 shrink-0 border-t border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container)] px-6 py-4 flex items-center justify-end">
-            <Button
-              type="button"
-              class="h-11 w-full rounded-full text-sm font-semibold shadow-sm cursor-pointer select-none bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] hover:bg-[var(--md-sys-color-primary)]/90 disabled:opacity-40 disabled:cursor-not-allowed"
+            <M3Button
+              variant="filled"
+              size="m"
+              class="w-full"
               :disabled="!oauthToken.trim() || isConnecting"
               :loading="isConnecting"
               aria-label="Connect Google account"
               @click="connectAccount"
             >
               <span>{{ isConnecting ? 'Connecting...' : 'Connect Account' }}</span>
-            </Button>
+            </M3Button>
           </div>
         </div>
       </div>

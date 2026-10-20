@@ -5,112 +5,75 @@ interface Props {
   size?: 'xs' | 'sm' | 'md' | 'lg' | number
   color?: string
   label?: string
+  contained?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   size: 'md',
-  color: 'var(--md-sys-color-primary)',
+  color: undefined,
   label: 'Loading...',
+  contained: false,
 })
 
-const sizePx = computed(() => {
+const scale = computed(() => {
+  if (typeof props.size === 'number') {
+    return props.size / 48
+  }
+  switch (props.size) {
+    case 'xs': return 0.45
+    case 'sm': return 0.6
+    case 'lg': return 1.0
+    case 'md':
+    default: return 0.75
+  }
+})
+
+const containerSize = computed(() => {
   if (typeof props.size === 'number') return `${props.size}px`
   switch (props.size) {
-    case 'xs': return '16px'
-    case 'sm': return '22px'
-    case 'lg': return '52px'
+    case 'xs': return '22px'
+    case 'sm': return '28px'
+    case 'lg': return '48px'
     case 'md':
-    default: return '32px'
+    default: return '36px'
   }
 })
 </script>
 
 <template>
   <div
-    class="m3-loading-indicator inline-flex items-center justify-center shrink-0 select-none"
+    class="m3e-loading-container inline-flex items-center justify-center shrink-0 select-none"
     role="status"
     :aria-label="label"
-    :style="{ width: sizePx, height: sizePx }"
+    :style="{ width: containerSize, height: containerSize }"
   >
-    <!-- Outer Morphing Shape -->
     <div
-      class="m3-morph-shape absolute inset-0"
-      :style="{ borderColor: color }"
-    />
-    <!-- Inner Expressive Pulse Core -->
-    <div
-      class="m3-morph-core size-1/3 rounded-full"
-      :style="{ backgroundColor: color }"
-    />
+      class="m3e-loading-scaler origin-center"
+      :style="{ transform: `scale(${scale})` }"
+    >
+      <md-loading-indicator
+        :variant="contained ? 'contained' : undefined"
+        :aria-label="label"
+        class="m3e-loading-element"
+      />
+    </div>
     <span class="sr-only">{{ label }}</span>
   </div>
 </template>
 
 <style scoped>
-.m3-loading-indicator {
-  position: relative;
-  isolation: isolate;
+.m3e-loading-container {
+  overflow: hidden;
+  vertical-align: middle;
 }
-
-.m3-morph-shape {
-  border-width: 2.5px;
-  border-style: solid;
-  border-radius: 50%;
-  animation: m3-shape-morph-spin 2.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
-  box-sizing: border-box;
+.m3e-loading-scaler {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-
-.m3-morph-core {
-  animation: m3-core-pulse 1.3s cubic-bezier(0.34, 1.56, 0.64, 1) infinite alternate;
-}
-
-@keyframes m3-shape-morph-spin {
-  0% {
-    border-radius: 50%;
-    transform: rotate(0deg) scale(0.92);
-  }
-  25% {
-    border-radius: 36% 14% 36% 14%;
-    transform: rotate(90deg) scale(1.06);
-  }
-  50% {
-    border-radius: 28%;
-    transform: rotate(180deg) scale(0.92);
-  }
-  75% {
-    border-radius: 14% 36% 14% 36%;
-    transform: rotate(270deg) scale(1.06);
-  }
-  100% {
-    border-radius: 50%;
-    transform: rotate(360deg) scale(0.92);
-  }
-}
-
-@keyframes m3-core-pulse {
-  0% {
-    transform: scale(0.65);
-    opacity: 0.45;
-  }
-  100% {
-    transform: scale(1.15);
-    opacity: 1;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .m3-morph-shape {
-    animation: none;
-    border-radius: 50%;
-    transform: none;
-  }
-  .m3-morph-core {
-    animation: m3-core-reduced 1.5s ease-in-out infinite alternate;
-  }
-}
-
-@keyframes m3-core-reduced {
-  0% { opacity: 0.4; }
-  100% { opacity: 1; }
+.m3e-loading-element {
+  display: block;
 }
 </style>

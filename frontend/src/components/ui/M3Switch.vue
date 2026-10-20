@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import M3Icon from './M3Icon.vue'
+import { ref, watch, onMounted } from 'vue'
 
 interface Props {
   modelValue: boolean
@@ -21,76 +21,52 @@ const emit = defineEmits<{
   (e: 'change', value: boolean): void
 }>()
 
-function toggle() {
+const switchRef = ref<HTMLElement | null>(null)
+
+function onChange(e: Event) {
   if (props.disabled) return
-  const next = !props.modelValue
-  emit('update:modelValue', next)
-  emit('change', next)
+  const target = e.target as { checked?: boolean }
+  const isChecked = target?.checked ?? !props.modelValue
+  emit('update:modelValue', isChecked)
+  emit('change', isChecked)
 }
+
+watch(
+  () => props.modelValue,
+  (val) => {
+    if (switchRef.value) {
+      ;(switchRef.value as unknown as { checked: boolean }).checked = val
+    }
+  }
+)
+
+onMounted(() => {
+  if (switchRef.value) {
+    ;(switchRef.value as unknown as { checked: boolean }).checked = props.modelValue
+  }
+})
 </script>
 
 <template>
-  <button
+  <md-switch
     :id="id"
-    type="button"
-    role="switch"
-    :aria-checked="modelValue"
+    ref="switchRef"
+    :checked="modelValue || undefined"
+    :disabled="disabled || undefined"
     :aria-label="ariaLabel"
-    :disabled="disabled"
-    class="group m3-switch no-state-layer relative inline-flex h-8 w-[52px] shrink-0 cursor-pointer items-center rounded-full border-2 p-0.5 outline-none disabled:cursor-not-allowed disabled:opacity-40 select-none"
-    :class="[
-      modelValue
-        ? (variant === 'danger'
-          ? 'bg-[var(--md-sys-color-error)] border-[var(--md-sys-color-error)]'
-          : 'bg-[var(--md-sys-color-primary)] border-[var(--md-sys-color-primary)]')
-        : 'bg-[var(--md-sys-color-surface-container-highest)] border-[var(--md-sys-color-outline)]',
-    ]"
-    @click="toggle"
-  >
-    <span
-      class="m3-switch-thumb flex h-6 items-center justify-center rounded-full shadow-xs"
-      :class="[
-        modelValue
-          ? (variant === 'danger'
-            ? 'w-6 translate-x-[20px] bg-[var(--md-sys-color-on-error)] text-[var(--md-sys-color-error)] group-active:w-7 group-active:translate-x-[16px]'
-            : 'w-6 translate-x-[20px] bg-[var(--md-sys-color-on-primary)] text-[var(--md-sys-color-primary)] group-active:w-7 group-active:translate-x-[16px]')
-          : 'w-4 translate-x-[4px] bg-[var(--md-sys-color-outline)] text-transparent group-active:w-6',
-      ]"
-    >
-      <M3Icon
-        name="check"
-        :size="14"
-        class="font-bold m3-switch-icon"
-        :class="modelValue ? 'opacity-100 scale-100' : 'opacity-0 scale-50'"
-      />
-    </span>
-  </button>
+    class="m3e-switch cursor-pointer select-none"
+    :class="variant === 'danger' && 'm3e-switch-danger'"
+    @change="onChange"
+  />
 </template>
 
 <style scoped>
-.m3-switch {
-  border-radius: 9999px !important;
-  overflow: hidden;
-  -webkit-tap-highlight-color: transparent !important;
-  outline: none !important;
-  transition: background-color var(--md-sys-motion-effects),
-              border-color var(--md-sys-motion-effects);
+.m3e-switch {
+  display: inline-block;
+  vertical-align: middle;
 }
-
-.m3-switch:active {
-  border-radius: 9999px !important;
-  transform: none !important;
-}
-
-.m3-switch-thumb {
-  transition: transform var(--md-sys-motion-spatial),
-              width var(--md-sys-motion-spatial-fast),
-              background-color var(--md-sys-motion-effects),
-              color var(--md-sys-motion-effects);
-}
-
-.m3-switch-icon {
-  transition: opacity var(--md-sys-motion-effects),
-              transform var(--md-sys-motion-effects);
+.m3e-switch-danger {
+  --md-sys-color-primary: var(--md-sys-color-error);
+  --md-sys-color-on-primary: var(--md-sys-color-on-error);
 }
 </style>
