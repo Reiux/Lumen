@@ -101,56 +101,57 @@ const selectedInitial = computed(() => {
     </SelectTriggerPrimitive>
 
     <SelectContent
-      align="center"
-      class="min-w-[220px] max-w-[min(18rem,calc(100vw-3rem))] rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container-high)] p-1.5 shadow-2xl backdrop-blur-md"
+      align="start"
+      position="popper"
+      class="m3-select-content min-w-[var(--reka-select-trigger-width)] max-w-[248px] rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/50 p-1.5"
       style="--wails-draggable: none"
       @close-auto-focus="onRestoreFocus"
     >
-      <SelectGroup>
+      <SelectGroup class="flex flex-col gap-1">
         <div
           v-for="option in options"
           :key="option"
-          class="relative flex items-center"
+          class="flex w-full min-h-[48px] items-center rounded-2xl"
         >
           <SelectItemPrimitive
             :value="option"
-            class="m3-interactive m3-menu-item relative flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-xl py-2 pr-8 pl-2.5 text-xs text-[var(--md-sys-color-on-surface)] outline-none select-none transition-colors"
+            class="m3-interactive m3-menu-item flex flex-1 min-w-0 items-center min-h-[48px] gap-2.5 rounded-2xl pl-2.5 pr-1 py-1.5 text-xs text-[var(--md-sys-color-on-surface)] outline-none select-none cursor-pointer"
           >
-            <div class="flex size-6 shrink-0 items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)] text-[11px] font-semibold text-[var(--md-sys-color-on-primary-container)]">
+            <div class="flex size-7 shrink-0 items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)] text-xs font-semibold text-[var(--md-sys-color-on-primary-container)]">
               {{ option.charAt(0).toUpperCase() }}
             </div>
-            <SelectItemText class="min-w-0 flex-1">
-              <span class="block truncate">{{ option }}</span>
+            <SelectItemText class="min-w-0 flex-1 truncate">
+              <span class="block truncate text-xs font-medium">{{ option }}</span>
             </SelectItemText>
-            <SelectItemIndicator class="shrink-0 text-[var(--md-sys-color-primary)] mr-1">
-              <Check class="size-3.5" />
+            <SelectItemIndicator class="shrink-0 text-[var(--md-sys-color-primary)] mx-0.5">
+              <Check class="size-4" />
             </SelectItemIndicator>
           </SelectItemPrimitive>
           <button
             type="button"
-            class="absolute right-1 top-1/2 z-10 flex size-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-error-container)] hover:text-[var(--md-sys-color-on-error-container)] disabled:pointer-events-none disabled:opacity-40"
+            class="m3-interactive flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-error-container)] hover:text-[var(--md-sys-color-on-error-container)] mr-1 disabled:pointer-events-none disabled:opacity-40"
             :aria-label="`Remove ${option}`"
             :title="`Remove ${option}`"
             :disabled="removingAccount === option"
             @pointerdown.stop.prevent
             @click.stop.prevent="emit('item-removed', option)"
           >
-            <X class="size-3" />
+            <X class="size-4" />
           </button>
         </div>
       </SelectGroup>
       <SelectSeparator
         v-if="options.length"
-        class="my-1 h-px bg-[var(--md-sys-color-outline-variant)]/40"
+        class="my-1.5 h-px bg-[var(--md-sys-color-outline-variant)]/40"
       />
       <button
         type="button"
-        class="flex w-full cursor-pointer items-center gap-2 rounded-xl py-2 px-3 text-xs font-medium text-[var(--md-sys-color-primary)] outline-none select-none transition-colors hover:bg-[var(--md-sys-color-primary-container)]/30"
+        class="m3-interactive flex w-full min-h-[44px] cursor-pointer items-center gap-2.5 rounded-2xl py-2 px-3 text-xs font-medium text-[var(--md-sys-color-primary)] outline-none select-none transition-colors hover:bg-[var(--md-sys-color-primary-container)]/30"
         @pointerdown.stop.prevent
         @click.stop.prevent="isOpen = false; emit('add')"
       >
-        <Plus class="size-4" />
-        Add account
+        <Plus class="size-4 shrink-0" />
+        <span>Add account</span>
       </button>
     </SelectContent>
   </Select>
