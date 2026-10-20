@@ -65,7 +65,7 @@ type exitError struct{ code int }
 func (e exitError) Error() string { return fmt.Sprintf("exit %d", e.code) }
 
 func newRootCommand(info Info) *cobra.Command {
-	long := "gotohp - Google Photos unofficial client"
+	long := "Lumen - Google Photos unofficial client"
 	if info.HasGUI {
 		long += fmt.Sprintf("\n\nRun %s without a command to launch the GUI.", info.ExecutableName)
 	}
@@ -77,14 +77,14 @@ func newRootCommand(info Info) *cobra.Command {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
-	root.SetVersionTemplate("gotohp v{{.Version}}\n")
+	root.SetVersionTemplate("Lumen v{{.Version}}\n")
 	root.PersistentFlags().StringP("config", "c", "", "path to config file")
 	root.AddCommand(newUploadCommand(), newCredentialsCommand(), &cobra.Command{
 		Use:   "version",
 		Short: "Show version information",
 		Args:  cobra.NoArgs,
 		Run: func(*cobra.Command, []string) {
-			fmt.Printf("gotohp v%s\n", info.Version)
+			fmt.Printf("Lumen v%s\n", info.Version)
 		},
 	})
 	return root

@@ -1,4 +1,4 @@
-name: "gotohp-cli"
+name: "lumen-cli"
 arch: ${GOARCH}
 platform: "linux"
 version: "0.9.0"
@@ -6,11 +6,11 @@ section: "utils"
 priority: "optional"
 maintainer: ${GIT_COMMITTER_NAME} <${GIT_COMMITTER_EMAIL}>
 description: "Google Photos unofficial client CLI"
-vendor: "xob0t"
-homepage: "https://github.com/xob0t/gotohp"
+vendor: "Reiux"
+homepage: "https://github.com/Reiux/Lumen"
 license: "MIT"
 release: "1"
 
 contents:
-  - src: "./bin/gotohp-cli"
-    dst: "/usr/local/bin/gotohp-cli"
+  - src: "./bin/lumen-cli"
+    dst: "/usr/local/bin/lumen-cli"

@@ -5,11 +5,11 @@
 		<key>CFBundleDisplayName</key>
 		<string>Lumen (Dev)</string>
 		<key>CFBundleExecutable</key>
-		<string>gotohp</string>
+		<string>lumen</string>
 		<key>CFBundleGetInfoString</key>
 		<string>This is a comment</string>
 		<key>CFBundleIdentifier</key>
-		<string>com.xob0t.gotohp.dev</string>
+		<string>com.reiux.lumen.dev</string>
 		<key>CFBundleName</key>
 		<string>Lumen (Dev)</string>
 		<key>CFBundlePackageType</key>
