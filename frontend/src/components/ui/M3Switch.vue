@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Check } from '@lucide/vue'
+import M3Icon from './M3Icon.vue'
 
 interface Props {
   modelValue: boolean
@@ -57,8 +57,10 @@ function toggle() {
           : 'w-4 translate-x-[4px] bg-[var(--md-sys-color-outline)] text-transparent group-active:w-6',
       ]"
     >
-      <Check
-        class="size-3.5 stroke-[3] m3-switch-icon"
+      <M3Icon
+        name="check"
+        :size="14"
+        class="font-bold m3-switch-icon"
         :class="modelValue ? 'opacity-100 scale-100' : 'opacity-0 scale-50'"
       />
     </span>

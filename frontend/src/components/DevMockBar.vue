@@ -14,7 +14,7 @@ import {
   setFlickerFlag,
   type FlickerFlag,
 } from '../utils/flickerDebug'
-import { ChevronUp, FlaskConical, RotateCcw } from '@lucide/vue'
+import M3Icon from './ui/M3Icon.vue'
 
 const isExpanded = ref(true)
 const isAvailable = isDevMode()
@@ -52,7 +52,10 @@ if (isAvailable) {
     >
       <div class="flex items-center justify-between gap-4 border-b border-[var(--md-sys-color-outline-variant)]/30 pb-1.5">
         <span class="font-bold text-[var(--md-sys-color-primary)] flex items-center gap-1.5">
-          <FlaskConical class="size-3.5" />
+          <M3Icon
+            name="science"
+            :size="14"
+          />
           Dev Mock Previews
         </span>
         <span class="text-[10px] text-[var(--md-sys-color-on-surface-variant)]">No backend calls</span>
@@ -140,7 +143,10 @@ if (isAvailable) {
         :class="mockState.enabled ? 'text-[var(--md-sys-color-primary)]' : 'text-[var(--md-sys-color-on-surface-variant)]'"
         @click="toggleMockMode"
       >
-        <FlaskConical class="size-3.5" />
+        <M3Icon
+          name="science"
+          :size="14"
+        />
         <span>{{ mockState.enabled ? 'Mock Mode: ON' : 'Mock Mode: OFF' }}</span>
       </button>
 
@@ -150,7 +156,10 @@ if (isAvailable) {
         title="Replay launch animation (respects ?launchSlow=...)"
         @click="replayLaunch"
       >
-        <RotateCcw class="size-3" />
+        <M3Icon
+          name="replay"
+          :size="12"
+        />
         <span>Replay launch</span>
       </button>
 
@@ -161,8 +170,10 @@ if (isAvailable) {
         aria-label="Toggle mock menu"
         @click="isExpanded = !isExpanded"
       >
-        <ChevronUp
-          class="size-3 transition-transform"
+        <M3Icon
+          name="expand_less"
+          :size="14"
+          class="transition-transform"
           :class="!isExpanded && 'rotate-180'"
         />
       </button>

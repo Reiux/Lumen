@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { AlertTriangle, Clock, FolderPlus, X, Zap } from '@lucide/vue'
 import { uploadManager } from './utils/UploadManager'
 import ThreadProgress from './components/ThreadProgress.vue'
 import M3WavyProgress from './components/ui/M3WavyProgress.vue'
 import Button from './components/ui/button/Button.vue'
+import M3Icon from './components/ui/M3Icon.vue'
 import { ScrollArea } from './components/ui/scroll-area'
 
 const { state } = uploadManager
@@ -157,9 +157,11 @@ async function handleCancel() {
           :loading="isCancelling"
           @click="handleCancel"
         >
-          <X
+          <M3Icon
             v-if="!isCancelling"
-            class="size-4 mr-1.5"
+            name="close"
+            :size="16"
+            class="mr-1.5"
           />
           <span>{{ isCancelling ? 'Cancelling...' : 'Cancel Upload' }}</span>
         </Button>
@@ -173,11 +175,20 @@ async function handleCancel() {
       <!-- Stats Bar (Chips) -->
       <div class="flex flex-wrap items-center gap-2 pt-1 text-xs text-[var(--md-sys-color-on-surface-variant)]">
         <span class="inline-flex items-center gap-1.5 rounded-full bg-[var(--md-sys-color-surface-container-high)] px-3 py-1 font-medium">
-          <Zap class="size-3.5 text-[var(--md-sys-color-primary)]" />
+          <M3Icon
+            name="bolt"
+            :filled="true"
+            :size="14"
+            class="text-[var(--md-sys-color-primary)]"
+          />
           <span class="tabular-nums text-[var(--md-sys-color-on-surface)] font-semibold">{{ speedDisplay }}</span>
         </span>
         <span class="inline-flex items-center gap-1.5 rounded-full bg-[var(--md-sys-color-surface-container-high)] px-3 py-1 font-medium">
-          <Clock class="size-3.5 text-[var(--md-sys-color-primary)]" />
+          <M3Icon
+            name="schedule"
+            :size="14"
+            class="text-[var(--md-sys-color-primary)]"
+          />
           <span class="tabular-nums text-[var(--md-sys-color-on-surface)] font-semibold">{{ elapsedDisplay }}</span>
         </span>
         <span
@@ -196,7 +207,11 @@ async function handleCancel() {
     >
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2 text-[var(--md-sys-color-primary)]">
-          <FolderPlus class="size-4" />
+          <M3Icon
+            name="create_new_folder"
+            :filled="true"
+            :size="16"
+          />
           <span class="text-xs font-semibold text-[var(--md-sys-color-on-surface)]">
             {{ state.isCreatingAlbum ? 'Adding to Google Photos Album...' : 'Album Complete' }}
           </span>
@@ -227,7 +242,12 @@ async function handleCancel() {
         :key="`${warning.Code}-${index}`"
         class="flex items-start gap-2.5 rounded-[20px] border border-amber-500/30 bg-amber-500/10 p-3 text-amber-200"
       >
-        <AlertTriangle class="size-4 shrink-0 mt-0.5 text-amber-300" />
+        <M3Icon
+          name="warning"
+          :filled="true"
+          :size="16"
+          class="shrink-0 mt-0.5 text-amber-300"
+        />
         <div class="flex flex-col min-w-0">
           <p class="text-xs font-medium">
             {{ warning.Message }}

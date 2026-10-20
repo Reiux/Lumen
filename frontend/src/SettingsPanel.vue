@@ -1,26 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import {
-  AlertCircle,
-  AlertTriangle,
-  Bell,
-  Database,
-  Flame,
-  Folder,
-  FolderSync,
-  Gauge,
-  Globe,
-  HardDrive,
-  Info,
-  Plus,
-  Sliders,
-  Trash2,
-} from '@lucide/vue'
 import { ConfigManager } from '../bindings/app/core'
 import type { WatchedFolderConfig } from '../bindings/app/core/models'
 import M3Switch from './components/ui/M3Switch.vue'
 import M3Slider from './components/ui/M3Slider.vue'
 import Button from './components/ui/button/Button.vue'
+import M3Icon from './components/ui/M3Icon.vue'
 import {
   Tooltip,
   TooltipContent,
@@ -347,7 +332,10 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
         <!-- Card: System & Notifications -->
         <div class="flex flex-col gap-5 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-6 shadow-xs">
           <div class="flex items-center gap-2.5 text-[var(--md-sys-color-primary)]">
-            <Bell class="size-5" />
+            <M3Icon
+              name="notifications"
+              :size="20"
+            />
             <h2 class="text-base font-semibold text-[var(--md-sys-color-on-surface)]">
               System & Notifications
             </h2>
@@ -401,7 +389,10 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
         <!-- Card: Performance & Network -->
         <div class="flex flex-col gap-5 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-6 shadow-xs">
           <div class="flex items-center gap-2.5 text-[var(--md-sys-color-primary)]">
-            <Sliders class="size-5" />
+            <M3Icon
+              name="tune"
+              :size="20"
+            />
             <h2 class="text-base font-semibold text-[var(--md-sys-color-on-surface)]">
               Performance & Network
             </h2>
@@ -437,7 +428,11 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
             <div class="flex items-center justify-between">
               <div class="flex flex-col">
                 <div class="flex items-center gap-1.5">
-                  <Gauge class="size-4 text-[var(--md-sys-color-primary)]" />
+                  <M3Icon
+                    name="speed"
+                    :size="16"
+                    class="text-[var(--md-sys-color-primary)]"
+                  />
                   <span class="text-sm font-medium text-[var(--md-sys-color-on-surface)]">Bandwidth Limit</span>
                 </div>
                 <span class="text-xs text-[var(--md-sys-color-on-surface-variant)]">Pace upload speed to prevent network saturation</span>
@@ -487,7 +482,10 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
         <!-- Card: Auto-Backup (Folder Watcher) -->
         <div class="flex flex-col gap-4 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-6 shadow-xs">
           <div class="flex items-center gap-2.5 text-[var(--md-sys-color-primary)]">
-            <FolderSync class="size-5" />
+            <M3Icon
+              name="sync_saved_locally"
+              :size="20"
+            />
             <h2 class="text-base font-semibold text-[var(--md-sys-color-on-surface)]">
               Auto-Backup (Folder Watcher)
             </h2>
@@ -522,7 +520,12 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
               v-if="inotifyError"
               class="flex items-start gap-2.5 rounded-2xl bg-[var(--md-sys-color-error-container)] p-3 text-xs text-[var(--md-sys-color-on-error-container)] border border-[var(--md-sys-color-error)]/30"
             >
-              <AlertCircle class="size-4 shrink-0 mt-0.5 text-[var(--md-sys-color-error)]" />
+              <M3Icon
+                name="error"
+                :filled="true"
+                :size="16"
+                class="shrink-0 mt-0.5 text-[var(--md-sys-color-error)]"
+              />
               <div class="flex flex-col gap-0.5">
                 <span class="font-semibold">System inotify watch limit reached</span>
                 <span class="leading-relaxed">{{ inotifyError }}. Some subdirectories cannot be watched. Increase fs.inotify.max_user_watches or remove folders.</span>
@@ -534,7 +537,12 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
               v-if="settings.deleteFromHost"
               class="flex items-center gap-2 rounded-xl bg-[var(--md-sys-color-surface-container-highest)]/80 px-3 py-2 text-[11px] text-[var(--md-sys-color-on-surface-variant)] border border-[var(--md-sys-color-outline-variant)]/30"
             >
-              <Info class="size-3.5 shrink-0 text-[var(--md-sys-color-primary)]" />
+              <M3Icon
+                name="info"
+                :filled="true"
+                :size="14"
+                class="shrink-0 text-[var(--md-sys-color-primary)]"
+              />
               <span>Watched folders always keep local files. "Delete from host" is disabled for background uploads.</span>
             </div>
 
@@ -549,7 +557,10 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                 :disabled="isAddingFolder"
                 @click="addWatchedFolder"
               >
-                <Plus class="size-3" />
+                <M3Icon
+                  name="add"
+                  :size="14"
+                />
                 <span>{{ isAddingFolder ? 'Selecting...' : 'Add Folder' }}</span>
               </Button>
             </div>
@@ -558,7 +569,11 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
               v-if="(watchedConfigs.length || settings.watchedFolders.length) === 0"
               class="flex flex-col items-center justify-center py-4 text-center text-xs text-[var(--md-sys-color-on-surface-variant)]"
             >
-              <Folder class="size-6 text-[var(--md-sys-color-on-surface-variant)]/40 mb-1" />
+              <M3Icon
+                name="folder"
+                :size="24"
+                class="text-[var(--md-sys-color-on-surface-variant)]/40 mb-1"
+              />
               <span>No folders added yet. Click Add Folder to begin monitoring.</span>
             </div>
 
@@ -573,7 +588,12 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
               >
                 <div class="flex flex-col truncate flex-1 min-w-0">
                   <div class="flex items-center gap-2 truncate">
-                    <Folder class="size-3.5 shrink-0 text-[var(--md-sys-color-primary)]" />
+                    <M3Icon
+                      name="folder"
+                      :filled="true"
+                      :size="14"
+                      class="shrink-0 text-[var(--md-sys-color-primary)]"
+                    />
                     <span
                       class="truncate font-mono text-[11px] text-[var(--md-sys-color-on-surface)]"
                       :title="item.path"
@@ -593,7 +613,10 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                   title="Remove folder"
                   @click="removeWatchedFolder(item.path)"
                 >
-                  <Trash2 class="size-3.5" />
+                  <M3Icon
+                    name="delete"
+                    :size="14"
+                  />
                 </button>
               </div>
             </div>
@@ -606,7 +629,10 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
         <!-- Card: Quality & Quota -->
         <div class="flex flex-col gap-4 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-6 shadow-xs">
           <div class="flex items-center gap-2.5 text-[var(--md-sys-color-primary)]">
-            <HardDrive class="size-5" />
+            <M3Icon
+              name="storage"
+              :size="20"
+            />
             <h2 class="text-base font-semibold text-[var(--md-sys-color-on-surface)]">
               Quality & Storage
             </h2>
@@ -660,7 +686,12 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
           <div class="flex items-start justify-between gap-4">
             <div class="flex flex-col">
               <div class="flex items-center gap-1.5">
-                <Database class="size-4 text-[var(--md-sys-color-primary)]" />
+                <M3Icon
+                  name="database"
+                  :filled="true"
+                  :size="16"
+                  class="text-[var(--md-sys-color-primary)]"
+                />
                 <label
                   for="local-hash-cache-switch"
                   class="text-sm font-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
@@ -705,7 +736,10 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
         <!-- Card: Behavior -->
         <div class="flex flex-col gap-4 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-6 shadow-xs">
           <div class="flex items-center gap-2.5 text-[var(--md-sys-color-primary)]">
-            <Globe class="size-5" />
+            <M3Icon
+              name="language"
+              :size="20"
+            />
             <h2 class="text-base font-semibold text-[var(--md-sys-color-on-surface)]">
               Upload Behavior
             </h2>
@@ -750,7 +784,10 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                       class="inline-flex size-4 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]"
                       aria-label="More information about Force Upload"
                     >
-                      <Info class="size-3" />
+                      <M3Icon
+                        name="info"
+                        :size="14"
+                      />
                     </button>
                   </TooltipTrigger>
                   <TooltipContent class="max-w-72 rounded-xl bg-[var(--md-sys-color-surface-container-highest)] p-2.5 text-xs text-[var(--md-sys-color-on-surface)]">
@@ -860,7 +897,11 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
         <!-- Card: Danger Zone -->
         <div class="flex flex-col gap-4 rounded-[28px] border border-[var(--md-sys-color-error)]/40 bg-[var(--md-sys-color-error-container)]/15 p-6 shadow-xs">
           <div class="flex items-center gap-2.5 text-[var(--md-sys-color-error)]">
-            <Flame class="size-5" />
+            <M3Icon
+              name="local_fire_department"
+              :filled="true"
+              :size="20"
+            />
             <h2 class="text-base font-semibold text-[var(--md-sys-color-error)]">
               Danger Zone
             </h2>
@@ -893,7 +934,12 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
             class="mt-2 flex flex-col gap-3 rounded-2xl border border-[var(--md-sys-color-error)]/60 bg-[var(--md-sys-color-error-container)]/40 p-4"
           >
             <div class="flex items-start gap-2.5 text-[var(--md-sys-color-error)]">
-              <AlertTriangle class="size-5 shrink-0 mt-0.5" />
+              <M3Icon
+                name="warning"
+                :filled="true"
+                :size="20"
+                class="shrink-0 mt-0.5"
+              />
               <div class="flex flex-col gap-1">
                 <span class="text-xs font-bold text-[var(--md-sys-color-on-error-container)]">Confirm Local File Deletion</span>
                 <p class="text-[11px] leading-relaxed text-[var(--md-sys-color-on-error-container)]/90">
@@ -932,7 +978,11 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
       >
         <div class="flex flex-col gap-4 w-full max-w-md rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl border border-[var(--md-sys-color-outline-variant)]/40">
           <div class="flex items-center gap-3 text-[var(--md-sys-color-primary)]">
-            <Folder class="size-6" />
+            <M3Icon
+              name="folder"
+              :filled="true"
+              :size="24"
+            />
             <h3 class="text-lg font-bold text-[var(--md-sys-color-on-surface)]">
               Upload Existing Backlog?
             </h3>

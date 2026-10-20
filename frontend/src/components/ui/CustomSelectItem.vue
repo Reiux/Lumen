@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { cn } from '@/lib/utils'
-import { Check } from '@lucide/vue'
+import M3Icon from './M3Icon.vue'
 import {
     SelectItem,
     SelectItemIndicator,
@@ -33,7 +33,10 @@ const forwardedProps = useForwardProps(delegatedProps)
   >
     <span class="flex size-3.5 items-center justify-center">
       <SelectItemIndicator>
-        <Check class="size-4" />
+        <M3Icon
+          name="check"
+          :size="16"
+        />
       </SelectItemIndicator>
     </span>
 
