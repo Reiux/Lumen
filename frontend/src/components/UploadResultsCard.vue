@@ -38,6 +38,10 @@ function animateNumber(target: number, currentRef: Ref<number>, duration = 400) 
   const start = currentRef.value
   const diff = target - start
   if (diff === 0) return
+  if (Math.abs(diff) <= 2) {
+    currentRef.value = target
+    return
+  }
   const startTime = performance.now()
   function step(now: number) {
     const elapsed = now - startTime

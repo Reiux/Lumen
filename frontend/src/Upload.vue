@@ -26,6 +26,10 @@ watch(() => state.uploadedFiles, (newVal) => {
   const startVal = displayUploadedFiles.value
   const diff = newVal - startVal
   if (diff === 0) return
+  if (Math.abs(diff) <= 2) {
+    displayUploadedFiles.value = newVal
+    return
+  }
   const startTime = performance.now()
   const duration = 250 // ms
 
