@@ -13,16 +13,18 @@ Lumen lets you back up photo and video libraries to Google Photos directly from 
 ## Features
 
 - **Unlimited Uploads:** Upload original media without consuming your Google storage quota by default (or toggle quota usage when needed).
-- **Material 3 Expressive UI:** Clean layout with tonal color roles, fluid transitions, and dark/light theme switching.
+- **Material 3 Expressive UI:** Built with Google's Material 3 Expressive design language, featuring saturated color palettes, spatial spring motion curves, and dark theme support.
+- **Continuous Sliding Navigation:** Hardware-accelerated 60fps horizontal viewport track that seamlessly glides between Upload, Settings, and About views with zero style recalculation overhead.
+- **Tablet & Desktop Collapsible Rail:** Responsive navigation rail that expands on wide desktop screens (≥860px) and collapses into a compact 76px icon rail on narrower windows, with manual toggle support.
+- **Tonal Drop Zone & Media Picker:** Single unified drop zone with shape-morphing drag feedback, auto-album organization, and a floating Extended FAB for native file/folder selection.
 - **Apple Live Photos:** Automatically detects and pairs `.heic`/`.jpg` images with their matching `.mov` clips using QuickTime metadata or filename stems.
-- **Local Hash Cache:** Deduplicates files locally before uploading to eliminate unnecessary network round-trips for previously uploaded media.
-- **Upload Speed Limiter:** Configurable bandwidth cap to keep background uploads from saturating your connection.
-- **Folder Watching (Auto-Backup):** Monitors chosen directories in the background and uploads new photos and videos as they are added.
-- **System Tray & Notifications:** Minimizes to the system tray for background sync, with desktop notifications when upload batches complete.
-- **Recent Albums Browser:** Select from your recently accessed albums or create new albums directly from the upload view.
-- **Drag & Drop:** Upload individual files or nested directories with optional recursive scanning.
-- **Multi-Account Management:** Store and switch between multiple Google accounts with custom profile avatars.
-- **Date from Filename:** Extracts capture dates from camera filenames (e.g. `20240709_182027.jpg`) when EXIF metadata is missing.
+- **Account-Keyed Hash Cache:** Deduplicates uploads locally using isolated `(account email, SHA-256 hash, size)` caching, populated strictly upon Google's confirmed upload receipt.
+- **Live Bandwidth Throttling:** Discrete log-scale bandwidth limits (Unlimited, 0.5 to 50 MB/s) applied live across active upload threads.
+- **Folder Watching (Auto-Backup):** Background watcher monitors chosen folders, verifies file write completion, and uploads to bound accounts with backlog confirmation.
+- **System Tray & Desktop Notifications:** Minimizes to the system tray on close with single-instance window focusing, and sends silent batch summary notifications upon completion.
+- **Multi-Account Management:** Store, switch, and remove multiple Google accounts with custom profile avatars and token-binding support for captured Android sessions.
+- **Recent Albums Browser:** Select from recently accessed albums or auto-create albums based on local folder directory names.
+- **Dedicated About View:** Direct access to repository links, build details, architecture overview, and legal disclaimers.
 - **Standalone CLI:** Headless command-line binary (`lumen-cli`) for headless servers, scripts, and cron jobs.
 
 ---
@@ -190,11 +192,11 @@ task build
 ## Configuration
 
 Lumen stores configuration and saved accounts in your system configuration directory:
-- **Linux:** `~/.config/lumen/lumen.config`
-- **macOS:** `~/Library/Application Support/lumen/lumen.config`
-- **Windows:** `%APPDATA%\lumen\lumen.config`
+- **Linux:** `~/.config/gotohp.config`
+- **macOS:** `~/Library/Application Support/gotohp.config`
+- **Windows:** `%APPDATA%\gotohp.config`
 
-To use a portable configuration file next to the binary, create an empty `lumen.config` file in the same directory as the executable.
+To use a portable configuration file next to the binary, create an empty `gotohp.config` file in the same directory as the executable.
 
 ---
 
