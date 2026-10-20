@@ -39,7 +39,7 @@ async function openRepo() {
                 Lumen
               </h1>
               <span class="rounded-full bg-[var(--md-sys-color-primary-container)] px-3 py-0.5 text-xs font-semibold text-[var(--md-sys-color-on-primary-container)]">
-                v0.9.1
+                v0.11.0-m3e
               </span>
             </div>
             <p class="text-sm text-[var(--md-sys-color-on-surface-variant)] leading-relaxed">
