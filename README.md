@@ -188,9 +188,9 @@ task build
 ## Configuration
 
 Lumen stores configuration and saved accounts in:
-- **Linux:** `~/.config/gotohp.config`
-- **macOS:** `~/Library/Application Support/gotohp.config`
-- **Windows:** `%APPDATA%\gotohp.config`
+- **Linux:** `~/.config/gotohp/gotohp.config`
+- **macOS:** `~/Library/Application Support/gotohp/gotohp.config`
+- **Windows:** `%APPDATA%\gotohp\gotohp.config`
 
 To run portably, place an empty `gotohp.config` file next to the binary.
 
