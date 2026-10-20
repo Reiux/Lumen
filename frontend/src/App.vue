@@ -12,7 +12,7 @@ import {
 } from '@lucide/vue'
 import { useColorMode } from '@vueuse/core'
 import { toast } from 'vue-sonner'
-import { Events, Window } from '@wailsio/runtime'
+import { Events } from '@wailsio/runtime'
 import { ConfigManager } from '../bindings/app/core'
 import Button from './components/ui/button/Button.vue'
 import { Input } from '@/components/ui/input'
@@ -26,6 +26,7 @@ import UploadResultsCard from './components/UploadResultsCard.vue'
 import DevMockBar from './components/DevMockBar.vue'
 import Toaster from './components/ui/sonner/Sonner.vue'
 import AppLaunchSplash from './components/AppLaunchSplash.vue'
+import { launchReplayTrigger } from './utils/launchState'
 import { uploadManager } from './utils/UploadManager'
 import { mockState } from './utils/mockMode'
 import {
@@ -63,18 +64,32 @@ const isExtractingTokenBinding = ref(false)
 const isAccountSetupOpen = ref(false)
 const removingAccount = ref('')
 const isSettling = ref(false)
+const settleStagger = ref(40)
 const isSplashActive = ref(typeof window !== 'undefined' && !(window as unknown as { __LUMEN_LAUNCHED__?: boolean }).__LUMEN_LAUNCHED__)
 
-function onLaunchSettle() {
+function onLaunchStart() {
+  isSplashActive.value = true
+}
+
+function onLaunchSettle(stagger?: number) {
+  if (typeof stagger === 'number') {
+    settleStagger.value = stagger
+  }
   isSettling.value = true
+  const maxDelay = (settleStagger.value * 3) + 600
   setTimeout(() => {
     isSettling.value = false
-  }, 1000)
+  }, maxDelay)
 }
 
 function onLaunchFinish() {
   isSplashActive.value = false
 }
+
+watch(launchReplayTrigger, () => {
+  isSplashActive.value = true
+  isSettling.value = false
+})
 
 const displayOptions = computed(() => {
   if (import.meta.env.DEV && mockState.enabled) {
@@ -367,15 +382,6 @@ function triggerAvatarUpload() {
 let onGlobalKeydown: ((e: KeyboardEvent) => void) | null = null
 
 onMounted(async () => {
-  try {
-    await Window.SetResizable(true)
-    await Window.SetMinSize(800, 560)
-    await Window.SetSize(1000, 680)
-    await Window.SetTitle('Lumen')
-  } catch (err) {
-    console.warn('Wails Window resize/title not available:', err)
-  }
-
   await refreshCredentials()
 
   document.addEventListener('dragenter', onDragEnter)
@@ -475,7 +481,7 @@ onUnmounted(() => {
         <div
           class="relative flex flex-col items-center rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-4 text-center shadow-xs"
           :class="isSettling && 'm3-launch-settle'"
-          :style="isSettling ? { '--settle-index': 0 } : undefined"
+          :style="isSettling ? { '--settle-index': 0, '--launch-stagger': settleStagger + 'ms' } : undefined"
         >
           <input
             ref="avatarFileInput"
@@ -553,7 +559,7 @@ onUnmounted(() => {
         <nav
           class="flex flex-col gap-1.5 pt-1"
           :class="isSettling && 'm3-launch-settle'"
-          :style="isSettling ? { '--settle-index': 1 } : undefined"
+          :style="isSettling ? { '--settle-index': 1, '--launch-stagger': settleStagger + 'ms' } : undefined"
           aria-label="Sidebar Navigation"
         >
           <button
@@ -632,7 +638,7 @@ onUnmounted(() => {
     <section
       class="relative flex flex-1 h-full min-w-0 flex-col overflow-y-auto bg-[var(--md-sys-color-surface)] p-6"
       :class="isSettling && 'm3-launch-settle'"
-      :style="isSettling ? { '--settle-index': 2, '--wails-draggable': 'drag' } : '--wails-draggable: drag'"
+      :style="isSettling ? { '--settle-index': 2, '--launch-stagger': settleStagger + 'ms', '--wails-draggable': 'drag' } : '--wails-draggable: drag'"
     >
       <Transition
         name="m3-fade-through"
@@ -917,6 +923,7 @@ onUnmounted(() => {
     </Teleport>
 
     <AppLaunchSplash
+      @start="onLaunchStart"
       @settle="onLaunchSettle"
       @finish="onLaunchFinish"
     />

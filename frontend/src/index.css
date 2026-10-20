@@ -900,7 +900,7 @@ button.rounded-full:active:not(:disabled),
 /* App Launch Motion */
 .m3-launch-settle {
   animation: m3-settle-in 350ms var(--md-sys-motion-easing-spatial) backwards;
-  animation-delay: calc(var(--settle-index, 0) * 30ms);
+  animation-delay: calc(var(--settle-index, 0) * var(--launch-stagger, 40ms));
 }
 
 @keyframes m3-settle-in {
