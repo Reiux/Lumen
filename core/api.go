@@ -36,6 +36,7 @@ type Api struct {
 	commitRetryConfig *RetryConfig
 	saver             bool
 	useQuota          bool
+	speedLimitKBps    int
 }
 
 type AuthResponse struct {
@@ -46,10 +47,11 @@ type AuthResponse struct {
 // ApiOptions selects the account and per-run upload policy for an API client.
 type ApiOptions struct {
 	// Account is the credential email to use; empty means the selected account.
-	Account  string
-	Proxy    string
-	Saver    bool
-	UseQuota bool
+	Account        string
+	Proxy          string
+	Saver          bool
+	UseQuota       bool
+	SpeedLimitKBps int
 }
 
 // NewApi creates a client for the account in opts using the loaded credential store.
@@ -82,6 +84,7 @@ func NewApi(opts ApiOptions) (*Api, error) {
 	}
 	api.saver = opts.Saver
 	api.useQuota = opts.UseQuota
+	api.speedLimitKBps = opts.SpeedLimitKBps
 	return api, nil
 }
 
@@ -436,8 +439,11 @@ func (a *Api) UploadFileWithProgress(ctx context.Context, filePath string, uploa
 
 		// Wrap file in progress reader if callback provided
 		var reader io.Reader = file
+		if a.speedLimitKBps > 0 {
+			reader = NewRateLimitedReader(ctx, reader, a.speedLimitKBps)
+		}
 		if onProgress != nil {
-			reader = NewProgressReader(file, fileSize, func(bytesRead, total int64) {
+			reader = NewProgressReader(reader, fileSize, func(bytesRead, total int64) {
 				onProgress(bytesRead, total, attemptNum)
 			})
 		}

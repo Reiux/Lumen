@@ -29,19 +29,26 @@ type AccountConfig struct {
 // Preferences are GUI settings. The CLI never reads them; every CLI run is
 // configured by flags alone.
 type Preferences struct {
-	Proxy                         string `json:"proxy" koanf:"proxy"`
-	UseQuota                      bool   `json:"useQuota" koanf:"use_quota"`
-	Saver                         bool   `json:"saver" koanf:"saver"`
-	Recursive                     bool   `json:"recursive" koanf:"recursive"`
-	ForceUpload                   bool   `json:"forceUpload" koanf:"force_upload"`
-	PairLivePhotos                bool   `json:"pairLivePhotos" koanf:"pair_live_photos"`
-	SkipIncompleteLivePhotos      bool   `json:"skipIncompleteLivePhotos" koanf:"skip_incomplete_live_photos"`
-	UpdateExistingPhotosToLive    bool   `json:"updateExistingPhotosToLive" koanf:"update_existing_photos_to_live"`
-	UploadThreads                 int    `json:"uploadThreads" koanf:"upload_threads"`
-	DeleteFromHost                bool   `json:"deleteFromHost" koanf:"delete_from_host"`
-	DisableUnsupportedFilesFilter bool   `json:"disableUnsupportedFilesFilter" koanf:"disable_unsupported_files_filter"`
-	SetDateFromFilename           bool   `json:"setDateFromFilename" koanf:"set_date_from_filename"`
-	ExcludePattern                string `json:"excludePattern" koanf:"exclude_pattern"`
+	Proxy                         string   `json:"proxy" koanf:"proxy"`
+	UseQuota                      bool     `json:"useQuota" koanf:"use_quota"`
+	Saver                         bool     `json:"saver" koanf:"saver"`
+	Recursive                     bool     `json:"recursive" koanf:"recursive"`
+	ForceUpload                   bool     `json:"forceUpload" koanf:"force_upload"`
+	PairLivePhotos                bool     `json:"pairLivePhotos" koanf:"pair_live_photos"`
+	SkipIncompleteLivePhotos      bool     `json:"skipIncompleteLivePhotos" koanf:"skip_incomplete_live_photos"`
+	UpdateExistingPhotosToLive    bool     `json:"updateExistingPhotosToLive" koanf:"update_existing_photos_to_live"`
+	UploadThreads                 int      `json:"uploadThreads" koanf:"upload_threads"`
+	DeleteFromHost                bool     `json:"deleteFromHost" koanf:"delete_from_host"`
+	DisableUnsupportedFilesFilter bool     `json:"disableUnsupportedFilesFilter" koanf:"disable_unsupported_files_filter"`
+	SetDateFromFilename           bool     `json:"setDateFromFilename" koanf:"set_date_from_filename"`
+	ExcludePattern                string   `json:"excludePattern" koanf:"exclude_pattern"`
+	MinimizeToTray                bool     `json:"minimizeToTray" koanf:"minimize_to_tray"`
+	NotifyOnComplete              bool     `json:"notifyOnComplete" koanf:"notify_on_complete"`
+	UseLocalHashCache             bool     `json:"useLocalHashCache" koanf:"use_local_hash_cache"`
+	UploadSpeedLimitKBps          int      `json:"uploadSpeedLimitKBps" koanf:"upload_speed_limit_kbps"`
+	WatchFoldersEnabled           bool     `json:"watchFoldersEnabled" koanf:"watch_folders_enabled"`
+	WatchedFolders                []string `json:"watchedFolders" koanf:"watched_folders"`
+	RecentAlbums                  []string `json:"recentAlbums" koanf:"recent_albums"`
 	// AlbumName and AlbumAutoMode are per-session choices and are never persisted.
 	AlbumName     string `json:"albumName" koanf:"-"`
 	AlbumAutoMode bool   `json:"albumAutoMode" koanf:"-"`
@@ -89,6 +96,10 @@ func (l legacyConfig) toConfig() Config {
 			DisableUnsupportedFilesFilter: l.DisableUnsupportedFilesFilter,
 			SetDateFromFilename:           l.SetDateFromFilename,
 			ExcludePattern:                l.ExcludePattern,
+			NotifyOnComplete:              DefaultPreferences.NotifyOnComplete,
+			UseLocalHashCache:             DefaultPreferences.UseLocalHashCache,
+			WatchedFolders:                []string{},
+			RecentAlbums:                  []string{},
 		},
 	}
 }
@@ -112,6 +123,10 @@ var (
 	DefaultPreferences = Preferences{
 		SkipIncompleteLivePhotos: true,
 		UploadThreads:            3,
+		NotifyOnComplete:         true,
+		UseLocalHashCache:        false,
+		WatchedFolders:           []string{},
+		RecentAlbums:             []string{},
 	}
 	DefaultConfig = Config{Preferences: DefaultPreferences}
 )
@@ -251,6 +266,168 @@ func (g *ConfigManager) GetExcludePattern() string {
 	configMu.RLock()
 	defer configMu.RUnlock()
 	return AppConfig.Preferences.ExcludePattern
+}
+
+func (g *ConfigManager) SetMinimizeToTray(v bool) {
+	updateAppConfig(func(config *Config) {
+		config.Preferences.MinimizeToTray = v
+	})
+}
+
+func (g *ConfigManager) SetNotifyOnComplete(v bool) {
+	updateAppConfig(func(config *Config) {
+		config.Preferences.NotifyOnComplete = v
+	})
+}
+
+func (g *ConfigManager) SetUseLocalHashCache(v bool) {
+	updateAppConfig(func(config *Config) {
+		config.Preferences.UseLocalHashCache = v
+	})
+}
+
+func (g *ConfigManager) ClearHashCache() (int64, error) {
+	ensureConfigLoaded()
+	configMu.RLock()
+	selected := AppConfig.Account.Selected
+	configMu.RUnlock()
+	if selected == "" {
+		return 0, nil
+	}
+	if cache := GetGlobalHashCache(); cache != nil {
+		return cache.Clear(selected)
+	}
+	return 0, nil
+}
+
+func (g *ConfigManager) GetHashCacheCount() int64 {
+	ensureConfigLoaded()
+	configMu.RLock()
+	selected := AppConfig.Account.Selected
+	configMu.RUnlock()
+	if selected == "" {
+		return 0
+	}
+	if cache := GetGlobalHashCache(); cache != nil {
+		count, _ := cache.Count(selected)
+		return count
+	}
+	return 0
+}
+
+func (g *ConfigManager) SetUploadSpeedLimitKBps(v int) {
+	if v < 0 {
+		v = 0
+	}
+	updateAppConfig(func(config *Config) {
+		config.Preferences.UploadSpeedLimitKBps = v
+	})
+}
+
+func (g *ConfigManager) SetWatchFoldersEnabled(v bool) {
+	updateAppConfig(func(config *Config) {
+		config.Preferences.WatchFoldersEnabled = v
+	})
+	SyncFolderWatcher()
+}
+
+func (g *ConfigManager) GetWatchedFolders() []string {
+	configMu.RLock()
+	defer configMu.RUnlock()
+	return append([]string(nil), AppConfig.Preferences.WatchedFolders...)
+}
+
+func (g *ConfigManager) AddWatchedFolder(folder string) error {
+	folder = filepath.Clean(strings.TrimSpace(folder))
+	if folder == "" {
+		return fmt.Errorf("folder path cannot be empty")
+	}
+	info, err := os.Stat(folder)
+	if err != nil {
+		return fmt.Errorf("folder does not exist: %w", err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("path is not a directory")
+	}
+
+	configMu.Lock()
+	for _, f := range AppConfig.Preferences.WatchedFolders {
+		if filepath.Clean(f) == folder {
+			configMu.Unlock()
+			return nil
+		}
+	}
+	AppConfig.Preferences.WatchedFolders = append(AppConfig.Preferences.WatchedFolders, folder)
+	err = saveAppConfigLocked()
+	configMu.Unlock()
+
+	SyncFolderWatcher()
+	return err
+}
+
+func (g *ConfigManager) RemoveWatchedFolder(folder string) error {
+	folder = filepath.Clean(strings.TrimSpace(folder))
+	configMu.Lock()
+	var updated []string
+	for _, f := range AppConfig.Preferences.WatchedFolders {
+		if filepath.Clean(f) != folder {
+			updated = append(updated, f)
+		}
+	}
+	AppConfig.Preferences.WatchedFolders = updated
+	err := saveAppConfigLocked()
+	configMu.Unlock()
+
+	SyncFolderWatcher()
+	return err
+}
+
+var FolderPickerFunc func() (string, error)
+
+func (g *ConfigManager) PickWatchedFolder() (string, error) {
+	if FolderPickerFunc != nil {
+		return FolderPickerFunc()
+	}
+	return "", nil
+}
+
+func (g *ConfigManager) GetRecentAlbums() []string {
+	configMu.RLock()
+	defer configMu.RUnlock()
+	return append([]string(nil), AppConfig.Preferences.RecentAlbums...)
+}
+
+func (g *ConfigManager) AddRecentAlbum(name string) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return
+	}
+	updateAppConfig(func(config *Config) {
+		var updated []string
+		updated = append(updated, name)
+		for _, a := range config.Preferences.RecentAlbums {
+			if !strings.EqualFold(a, name) {
+				updated = append(updated, a)
+			}
+		}
+		if len(updated) > 10 {
+			updated = updated[:10]
+		}
+		config.Preferences.RecentAlbums = updated
+	})
+}
+
+func (g *ConfigManager) RemoveRecentAlbum(name string) {
+	name = strings.TrimSpace(name)
+	updateAppConfig(func(config *Config) {
+		var updated []string
+		for _, a := range config.Preferences.RecentAlbums {
+			if !strings.EqualFold(a, name) {
+				updated = append(updated, a)
+			}
+		}
+		config.Preferences.RecentAlbums = updated
+	})
 }
 
 func (g *ConfigManager) AddCredentials(newAuthString string) error {
@@ -673,7 +850,9 @@ func (g *ConfigManager) SessionUploadOptions() UploadOptions {
 	ensureConfigLoaded()
 	configMu.RLock()
 	defer configMu.RUnlock()
-	return AppConfig.Preferences.UploadOptions()
+	opts := AppConfig.Preferences.UploadOptions()
+	opts.AccountEmail = AppConfig.Account.Selected
+	return opts
 }
 
 func (g *ConfigManager) GetAccounts() AccountsState {
@@ -734,6 +913,9 @@ func loadConfigLocked() error {
 		AppConfig = loadAppConfig()
 		_ = os.Chmod(ConfigPath, 0o600)
 	}
+
+	dbPath := filepath.Join(filepath.Dir(ConfigPath), "hash_cache.db")
+	_, _ = InitGlobalHashCache(dbPath)
 
 	return nil
 }
@@ -821,6 +1003,21 @@ func loadAppConfig() Config {
 		c.Preferences.UploadThreads = DefaultPreferences.UploadThreads
 	}
 
+	if !k.Exists("preferences.use_local_hash_cache") {
+		c.Preferences.UseLocalHashCache = DefaultPreferences.UseLocalHashCache
+	}
+
+	if !k.Exists("preferences.notify_on_complete") {
+		c.Preferences.NotifyOnComplete = DefaultPreferences.NotifyOnComplete
+	}
+
+	if c.Preferences.WatchedFolders == nil {
+		c.Preferences.WatchedFolders = []string{}
+	}
+	if c.Preferences.RecentAlbums == nil {
+		c.Preferences.RecentAlbums = []string{}
+	}
+
 	return c
 }
 
@@ -851,6 +1048,14 @@ func migrateLegacyConfig(k *koanf.Koanf) Config {
 	c := legacy.toConfig()
 	if c.Preferences.UploadThreads < 1 {
 		c.Preferences.UploadThreads = DefaultPreferences.UploadThreads
+	}
+
+	if !k.Exists("preferences.use_local_hash_cache") {
+		c.Preferences.UseLocalHashCache = DefaultPreferences.UseLocalHashCache
+	}
+
+	if !k.Exists("preferences.notify_on_complete") {
+		c.Preferences.NotifyOnComplete = DefaultPreferences.NotifyOnComplete
 	}
 	previous := AppConfig
 	AppConfig = c

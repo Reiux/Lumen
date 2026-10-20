@@ -21,8 +21,20 @@ export function AddGoogleAccount(oauthToken: string): $CancellablePromise<string
     return $Call.ByID(1193706598, oauthToken);
 }
 
+export function AddRecentAlbum(name: string): $CancellablePromise<void> {
+    return $Call.ByID(2928290294, name);
+}
+
 export function AddTokenBindingAliasFromADB(email: string): $CancellablePromise<void> {
     return $Call.ByID(3043740547, email);
+}
+
+export function AddWatchedFolder(folder: string): $CancellablePromise<void> {
+    return $Call.ByID(586195750, folder);
+}
+
+export function ClearHashCache(): $CancellablePromise<number> {
+    return $Call.ByID(305047140);
 }
 
 export function CredentialNeedsTokenBinding(authString: string): $CancellablePromise<boolean> {
@@ -47,14 +59,42 @@ export function GetExcludePattern(): $CancellablePromise<string> {
     return $Call.ByID(913035763);
 }
 
-export function GetSettings(): $CancellablePromise<$models.Preferences> {
-    return $Call.ByID(4032120730).then(($result: any) => {
+export function GetHashCacheCount(): $CancellablePromise<number> {
+    return $Call.ByID(792493146);
+}
+
+export function GetRecentAlbums(): $CancellablePromise<string[]> {
+    return $Call.ByID(2303587648).then(($result: any) => {
         return $$createType1($result);
     });
 }
 
+export function GetSettings(): $CancellablePromise<$models.Preferences> {
+    return $Call.ByID(4032120730).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
+export function GetWatchedFolders(): $CancellablePromise<string[]> {
+    return $Call.ByID(2559290152).then(($result: any) => {
+        return $$createType1($result);
+    });
+}
+
+export function PickWatchedFolder(): $CancellablePromise<string> {
+    return $Call.ByID(1038435738);
+}
+
 export function RemoveCredentials(email: string): $CancellablePromise<void> {
     return $Call.ByID(741429753, email);
+}
+
+export function RemoveRecentAlbum(name: string): $CancellablePromise<void> {
+    return $Call.ByID(1574320421, name);
+}
+
+export function RemoveWatchedFolder(folder: string): $CancellablePromise<void> {
+    return $Call.ByID(1498661169, folder);
 }
 
 export function SetAlbumAutoMode(autoMode: boolean): $CancellablePromise<void> {
@@ -79,6 +119,14 @@ export function SetExcludePattern(pattern: string): $CancellablePromise<void> {
 
 export function SetForceUpload(forceUpload: boolean): $CancellablePromise<void> {
     return $Call.ByID(700800787, forceUpload);
+}
+
+export function SetMinimizeToTray(v: boolean): $CancellablePromise<void> {
+    return $Call.ByID(929239970, v);
+}
+
+export function SetNotifyOnComplete(v: boolean): $CancellablePromise<void> {
+    return $Call.ByID(538645092, v);
 }
 
 export function SetPairLivePhotos(pairLivePhotos: boolean): $CancellablePromise<void> {
@@ -113,14 +161,27 @@ export function SetUpdateExistingPhotosToLive(updateExistingPhotosToLive: boolea
     return $Call.ByID(3924507429, updateExistingPhotosToLive);
 }
 
+export function SetUploadSpeedLimitKBps(v: number): $CancellablePromise<void> {
+    return $Call.ByID(3500207888, v);
+}
+
 export function SetUploadThreads(uploadThreads: number): $CancellablePromise<void> {
     return $Call.ByID(783059171, uploadThreads);
+}
+
+export function SetUseLocalHashCache(v: boolean): $CancellablePromise<void> {
+    return $Call.ByID(1733221253, v);
 }
 
 export function SetUseQuota(useQuota: boolean): $CancellablePromise<void> {
     return $Call.ByID(1540354890, useQuota);
 }
 
+export function SetWatchFoldersEnabled(v: boolean): $CancellablePromise<void> {
+    return $Call.ByID(1568031248, v);
+}
+
 // Private type creation functions
 const $$createType0 = $models.AccountsState.createFrom;
-const $$createType1 = $models.Preferences.createFrom;
+const $$createType1 = $Create.Array($Create.Any);
+const $$createType2 = $models.Preferences.createFrom;

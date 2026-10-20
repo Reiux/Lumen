@@ -21,6 +21,9 @@ type LivePhotoUploadOptions struct {
 	DeleteFromHost             bool
 	SetDateFromFilename        bool
 	UpdateExistingPhotosToLive bool
+	UseLocalHashCache          bool
+	AccountEmail               string
+	ForceUpload                bool
 }
 
 func uploadLivePhotoWithCallback(
@@ -65,13 +68,34 @@ func uploadLivePhotoWithCallback(
 		FileName: displayName,
 		Message:  "Checking both Live Photo components...",
 	})
-	photoRemoteKey, photoCheckErr := api.FindRemoteMediaByHash(photoSHA1)
-	videoRemoteKey, videoCheckErr := api.FindRemoteMediaByHash(videoSHA1)
-	if photoCheckErr != nil {
-		return "", false, fmt.Errorf("check Live Photo still deduplication: %w", photoCheckErr)
+
+	var photoRemoteKey, videoRemoteKey string
+	var photoCheckErr, videoCheckErr error
+
+	if !options.ForceUpload && options.UseLocalHashCache && options.AccountEmail != "" {
+		if cache := GetGlobalHashCache(); cache != nil {
+			photoB64 := base64.StdEncoding.EncodeToString(photoSHA1)
+			videoB64 := base64.StdEncoding.EncodeToString(videoSHA1)
+			if key, ok, _ := cache.Get(options.AccountEmail, photoB64, photoInfo.Size()); ok && key != "" {
+				photoRemoteKey = key
+			}
+			if key, ok, _ := cache.Get(options.AccountEmail, videoB64, videoInfo.Size()); ok && key != "" {
+				videoRemoteKey = key
+			}
+		}
 	}
-	if videoCheckErr != nil {
-		return "", false, fmt.Errorf("check Live Photo video deduplication: %w", videoCheckErr)
+
+	if photoRemoteKey == "" {
+		photoRemoteKey, photoCheckErr = api.FindRemoteMediaByHash(photoSHA1)
+		if photoCheckErr != nil {
+			return "", false, fmt.Errorf("check Live Photo still deduplication: %w", photoCheckErr)
+		}
+	}
+	if videoRemoteKey == "" {
+		videoRemoteKey, videoCheckErr = api.FindRemoteMediaByHash(videoSHA1)
+		if videoCheckErr != nil {
+			return "", false, fmt.Errorf("check Live Photo video deduplication: %w", videoCheckErr)
+		}
 	}
 	if photoRemoteKey != "" {
 		if options.UpdateExistingPhotosToLive {
@@ -154,6 +178,15 @@ func uploadLivePhotoWithCallback(
 	}
 	if mediaKey == "" {
 		return "", false, fmt.Errorf("Live Photo media key not received")
+	}
+
+	if options.UseLocalHashCache && options.AccountEmail != "" {
+		if cache := GetGlobalHashCache(); cache != nil {
+			photoB64 := base64.StdEncoding.EncodeToString(photoSHA1)
+			videoB64 := base64.StdEncoding.EncodeToString(videoSHA1)
+			_ = cache.Put(options.AccountEmail, photoB64, mediaKey, photoInfo.Size(), photoInfo.ModTime().Unix())
+			_ = cache.Put(options.AccountEmail, videoB64, mediaKey, videoInfo.Size(), videoInfo.ModTime().Unix())
+		}
 	}
 
 	if options.DeleteFromHost {

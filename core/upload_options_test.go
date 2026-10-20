@@ -19,12 +19,14 @@ func TestSessionUploadOptionsCapturePreferences(t *testing.T) {
 	manager.SetPairLivePhotos(true)
 	manager.SetSkipIncompleteLivePhotos(false)
 	manager.SetUpdateExistingPhotosToLive(true)
+	manager.SetUseLocalHashCache(true)
 	manager.SetAlbumName("Holiday")
 
 	want := UploadOptions{
 		Api:     ApiOptions{Proxy: "http://proxy.example:8080", Saver: true, UseQuota: true},
 		Threads: 7, PairLivePhotos: true, UpdateExistingPhotosToLive: true,
-		AlbumName: "Holiday",
+		UseLocalHashCache: true,
+		AlbumName:         "Holiday",
 	}
 	captured := manager.SessionUploadOptions()
 	if !reflect.DeepEqual(captured, want) {

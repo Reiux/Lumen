@@ -1,12 +1,19 @@
 <script setup lang="ts">
-import { nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import {
   AlertTriangle,
+  Bell,
+  Database,
   Flame,
+  Folder,
+  FolderSync,
+  Gauge,
   Globe,
   HardDrive,
   Info,
+  Plus,
   Sliders,
+  Trash2,
 } from '@lucide/vue'
 import { ConfigManager } from '../bindings/app/core'
 import M3Switch from './components/ui/M3Switch.vue'
@@ -31,6 +38,12 @@ interface Settings {
   disableUnsupportedFilesFilter: boolean
   setDateFromFilename: boolean
   uploadThreads: number
+  minimizeToTray: boolean
+  notifyOnComplete: boolean
+  useLocalHashCache: boolean
+  uploadSpeedLimitKBps: number
+  watchFoldersEnabled: boolean
+  watchedFolders: string[]
 }
 
 const settings = ref<Settings>({
@@ -46,10 +59,29 @@ const settings = ref<Settings>({
   disableUnsupportedFilesFilter: false,
   setDateFromFilename: false,
   uploadThreads: 1,
+  minimizeToTray: false,
+  notifyOnComplete: true,
+  useLocalHashCache: false,
+  uploadSpeedLimitKBps: 0,
+  watchFoldersEnabled: false,
+  watchedFolders: [],
 })
 
 const isHydrating = ref(true)
 const showDeleteConfirm = ref(false)
+const hashCacheCount = ref(0)
+const isClearingCache = ref(false)
+const isAddingFolder = ref(false)
+
+const speedLimitDisplay = computed(() => {
+  const kbps = settings.value.uploadSpeedLimitKBps
+  if (!kbps || kbps <= 0) return 'Unlimited'
+  if (kbps >= 1024) {
+    const mb = (kbps / 1024).toFixed(1).replace(/\.0$/, '')
+    return `${mb} MB/s`
+  }
+  return `${kbps} KB/s`
+})
 
 function onToggleDelete(targetValue: boolean) {
   if (targetValue) {
@@ -69,6 +101,34 @@ function cancelDeleteFromHost() {
   showDeleteConfirm.value = false
 }
 
+async function addWatchedFolder() {
+  try {
+    isAddingFolder.value = true
+    const selected = await ConfigManager.PickWatchedFolder()
+    if (selected && selected.trim()) {
+      await ConfigManager.AddWatchedFolder(selected.trim())
+      settings.value.watchedFolders = await ConfigManager.GetWatchedFolders()
+    }
+  } finally {
+    isAddingFolder.value = false
+  }
+}
+
+async function removeWatchedFolder(folderPath: string) {
+  await ConfigManager.RemoveWatchedFolder(folderPath)
+  settings.value.watchedFolders = await ConfigManager.GetWatchedFolders()
+}
+
+async function clearHashCache() {
+  try {
+    isClearingCache.value = true
+    await ConfigManager.ClearHashCache()
+    hashCacheCount.value = 0
+  } finally {
+    isClearingCache.value = false
+  }
+}
+
 onMounted(async () => {
   try {
     const config = await ConfigManager.GetSettings()
@@ -85,7 +145,14 @@ onMounted(async () => {
       disableUnsupportedFilesFilter: config.disableUnsupportedFilesFilter || false,
       setDateFromFilename: config.setDateFromFilename || false,
       uploadThreads: config.uploadThreads || 4,
+      minimizeToTray: config.minimizeToTray || false,
+      notifyOnComplete: config.notifyOnComplete ?? true,
+      useLocalHashCache: config.useLocalHashCache ?? false,
+      uploadSpeedLimitKBps: config.uploadSpeedLimitKBps || 0,
+      watchFoldersEnabled: config.watchFoldersEnabled || false,
+      watchedFolders: config.watchedFolders || [],
     }
+    hashCacheCount.value = await ConfigManager.GetHashCacheCount()
   } finally {
     await nextTick()
     isHydrating.value = false
@@ -159,6 +226,31 @@ watch(() => settings.value.uploadThreads, async (newValue) => {
     await ConfigManager.SetUploadThreads(newValue)
   }
 })
+
+watch(() => settings.value.minimizeToTray, async (newValue) => {
+  if (isHydrating.value) return
+  await ConfigManager.SetMinimizeToTray(newValue)
+})
+
+watch(() => settings.value.notifyOnComplete, async (newValue) => {
+  if (isHydrating.value) return
+  await ConfigManager.SetNotifyOnComplete(newValue)
+})
+
+watch(() => settings.value.useLocalHashCache, async (newValue) => {
+  if (isHydrating.value) return
+  await ConfigManager.SetUseLocalHashCache(newValue)
+})
+
+watch(() => settings.value.uploadSpeedLimitKBps, async (newValue) => {
+  if (isHydrating.value) return
+  await ConfigManager.SetUploadSpeedLimitKBps(newValue)
+})
+
+watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
+  if (isHydrating.value) return
+  await ConfigManager.SetWatchFoldersEnabled(newValue)
+})
 </script>
 
 <template>
@@ -169,7 +261,7 @@ watch(() => settings.value.uploadThreads, async (newValue) => {
         Settings
       </h1>
       <p class="text-xs text-[var(--md-sys-color-on-surface-variant)]">
-        Configure upload quality, concurrency, behavior, and network options.
+        Configure upload quality, concurrency, background automation, and system integration.
       </p>
     </div>
 
@@ -177,6 +269,58 @@ watch(() => settings.value.uploadThreads, async (newValue) => {
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
       <!-- COLUMN 1 -->
       <div class="flex flex-col gap-5">
+        <!-- Card: System & Notifications -->
+        <div class="flex flex-col gap-5 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-6 shadow-xs">
+          <div class="flex items-center gap-2.5 text-[var(--md-sys-color-primary)]">
+            <Bell class="size-5" />
+            <h2 class="text-base font-semibold text-[var(--md-sys-color-on-surface)]">
+              System & Notifications
+            </h2>
+          </div>
+
+          <!-- Minimize to Tray on Close -->
+          <div class="flex items-start justify-between gap-4 pt-1">
+            <div class="flex flex-col">
+              <label
+                for="tray-minimize-switch"
+                class="text-sm font-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
+              >
+                Minimize to Tray on Close
+              </label>
+              <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5">
+                Keep Lumen running in the system tray when closing the window.
+              </span>
+            </div>
+            <M3Switch
+              id="tray-minimize-switch"
+              v-model="settings.minimizeToTray"
+              aria-label="Minimize to tray toggle"
+            />
+          </div>
+
+          <div class="h-px w-full bg-[var(--md-sys-color-outline-variant)]/30" />
+
+          <!-- Desktop Notifications -->
+          <div class="flex items-start justify-between gap-4">
+            <div class="flex flex-col">
+              <label
+                for="desktop-notifications-switch"
+                class="text-sm font-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
+              >
+                Desktop Notifications
+              </label>
+              <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5">
+                Display system desktop notification when upload batches finish.
+              </span>
+            </div>
+            <M3Switch
+              id="desktop-notifications-switch"
+              v-model="settings.notifyOnComplete"
+              aria-label="Desktop notifications toggle"
+            />
+          </div>
+        </div>
+
         <!-- Card: Performance & Network -->
         <div class="flex flex-col gap-5 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-6 shadow-xs">
           <div class="flex items-center gap-2.5 text-[var(--md-sys-color-primary)]">
@@ -209,8 +353,39 @@ watch(() => settings.value.uploadThreads, async (newValue) => {
             </div>
           </div>
 
+          <div class="h-px w-full bg-[var(--md-sys-color-outline-variant)]/30" />
+
+          <!-- Upload Speed Limiter -->
+          <div class="flex flex-col gap-2">
+            <div class="flex items-center justify-between">
+              <div class="flex flex-col">
+                <div class="flex items-center gap-1.5">
+                  <Gauge class="size-4 text-[var(--md-sys-color-primary)]" />
+                  <span class="text-sm font-medium text-[var(--md-sys-color-on-surface)]">Bandwidth Limit</span>
+                </div>
+                <span class="text-xs text-[var(--md-sys-color-on-surface-variant)]">Pace upload speed to prevent network saturation</span>
+              </div>
+              <span class="inline-flex items-center justify-center rounded-full bg-[var(--md-sys-color-secondary-container)] px-3 py-0.5 text-xs font-bold text-[var(--md-sys-color-on-secondary-container)] shadow-xs">
+                {{ speedLimitDisplay }}
+              </span>
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)]">Unlimited</span>
+              <M3Slider
+                v-model="settings.uploadSpeedLimitKBps"
+                :min="0"
+                :max="51200"
+                :step="512"
+                aria-label="Upload Speed Limit slider"
+              />
+              <span class="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)]">50 MB/s</span>
+            </div>
+          </div>
+
+          <div class="h-px w-full bg-[var(--md-sys-color-outline-variant)]/30" />
+
           <!-- Proxy URL with Floating Label -->
-          <div class="relative pt-2">
+          <div class="relative pt-1">
             <div class="m3-outlined-field relative rounded-2xl border border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container-low)] transition-colors duration-150 focus-within:border-2 focus-within:border-[var(--md-sys-color-primary)]">
               <input
                 id="proxy-input"
@@ -232,6 +407,97 @@ watch(() => settings.value.uploadThreads, async (newValue) => {
           </div>
         </div>
 
+        <!-- Card: Auto-Backup (Folder Watcher) -->
+        <div class="flex flex-col gap-4 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-6 shadow-xs">
+          <div class="flex items-center gap-2.5 text-[var(--md-sys-color-primary)]">
+            <FolderSync class="size-5" />
+            <h2 class="text-base font-semibold text-[var(--md-sys-color-on-surface)]">
+              Auto-Backup (Folder Watcher)
+            </h2>
+          </div>
+
+          <div class="flex items-start justify-between gap-4 pt-1">
+            <div class="flex flex-col">
+              <label
+                for="watch-folders-switch"
+                class="text-sm font-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
+              >
+                Auto-Watch Folders
+              </label>
+              <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5">
+                Automatically monitor local directories and queue new photos and videos for upload.
+              </span>
+            </div>
+            <M3Switch
+              id="watch-folders-switch"
+              v-model="settings.watchFoldersEnabled"
+              aria-label="Auto-Watch Folders toggle"
+            />
+          </div>
+
+          <!-- Watched Folders List & Picker -->
+          <div
+            v-if="settings.watchFoldersEnabled"
+            class="flex flex-col gap-3 rounded-2xl bg-[var(--md-sys-color-surface-container-high)]/60 p-3.5 border border-[var(--md-sys-color-outline-variant)]/30 mt-1"
+          >
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-[var(--md-sys-color-on-surface)]">
+                Monitored Directories ({{ settings.watchedFolders.length }})
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                class="h-7 text-xs rounded-full px-3 gap-1 cursor-pointer select-none"
+                :disabled="isAddingFolder"
+                @click="addWatchedFolder"
+              >
+                <Plus class="size-3" />
+                <span>{{ isAddingFolder ? 'Selecting...' : 'Add Folder' }}</span>
+              </Button>
+            </div>
+
+            <div
+              v-if="settings.watchedFolders.length === 0"
+              class="flex flex-col items-center justify-center py-4 text-center text-xs text-[var(--md-sys-color-on-surface-variant)]"
+            >
+              <Folder class="size-6 text-[var(--md-sys-color-on-surface-variant)]/40 mb-1" />
+              <span>No folders added yet. Click Add Folder to begin monitoring.</span>
+            </div>
+
+            <div
+              v-else
+              class="flex flex-col gap-1.5 max-h-40 overflow-y-auto"
+            >
+              <div
+                v-for="folder in settings.watchedFolders"
+                :key="folder"
+                class="flex items-center justify-between gap-2 rounded-xl bg-[var(--md-sys-color-surface-container-highest)]/60 px-3 py-1.5 text-xs border border-[var(--md-sys-color-outline-variant)]/20"
+              >
+                <div class="flex items-center gap-2 truncate flex-1 min-w-0">
+                  <Folder class="size-3.5 shrink-0 text-[var(--md-sys-color-primary)]" />
+                  <span
+                    class="truncate font-mono text-[11px] text-[var(--md-sys-color-on-surface)]"
+                    :title="folder"
+                  >
+                    {{ folder }}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  class="rounded-full p-1 text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-error)] transition-colors cursor-pointer"
+                  title="Remove folder"
+                  @click="removeWatchedFolder(folder)"
+                >
+                  <Trash2 class="size-3.5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- COLUMN 2 -->
+      <div class="flex flex-col gap-5">
         <!-- Card: Quality & Quota -->
         <div class="flex flex-col gap-4 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-6 shadow-xs">
           <div class="flex items-center gap-2.5 text-[var(--md-sys-color-primary)]">
@@ -282,11 +548,55 @@ watch(() => settings.value.uploadThreads, async (newValue) => {
               aria-label="Storage Saver Quality toggle"
             />
           </div>
-        </div>
-      </div>
 
-      <!-- COLUMN 2 -->
-      <div class="flex flex-col gap-5">
+          <div class="h-px w-full bg-[var(--md-sys-color-outline-variant)]/30" />
+
+          <!-- Local Hash Cache -->
+          <div class="flex items-start justify-between gap-4">
+            <div class="flex flex-col">
+              <div class="flex items-center gap-1.5">
+                <Database class="size-4 text-[var(--md-sys-color-primary)]" />
+                <label
+                  for="local-hash-cache-switch"
+                  class="text-sm font-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
+                >
+                  Local Hash Cache
+                </label>
+              </div>
+              <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5">
+                Deduplicate media locally by file hash to avoid querying Google Photos. Files deleted from Google Photos won't re-upload while cached.
+              </span>
+            </div>
+            <M3Switch
+              id="local-hash-cache-switch"
+              v-model="settings.useLocalHashCache"
+              aria-label="Local Hash Cache toggle"
+            />
+          </div>
+
+          <!-- Hash Cache Status & Clear Button -->
+          <div
+            v-if="settings.useLocalHashCache"
+            class="flex items-center justify-between rounded-2xl bg-[var(--md-sys-color-surface-container-high)]/60 px-4 py-2.5 border border-[var(--md-sys-color-outline-variant)]/30"
+          >
+            <div class="flex items-center gap-2 text-xs text-[var(--md-sys-color-on-surface)]">
+              <span class="font-medium">Active account:</span>
+              <span class="font-bold text-[var(--md-sys-color-primary)]">
+                {{ hashCacheCount.toLocaleString() }} {{ hashCacheCount === 1 ? 'file' : 'files' }} cached
+              </span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              class="h-7 text-xs rounded-full px-3 cursor-pointer select-none"
+              :disabled="isClearingCache || hashCacheCount === 0"
+              @click="clearHashCache"
+            >
+              {{ isClearingCache ? 'Clearing...' : 'Clear Cache' }}
+            </Button>
+          </div>
+        </div>
+
         <!-- Card: Behavior -->
         <div class="flex flex-col gap-4 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-6 shadow-xs">
           <div class="flex items-center gap-2.5 text-[var(--md-sys-color-primary)]">

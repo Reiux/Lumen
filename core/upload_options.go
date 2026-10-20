@@ -21,6 +21,10 @@ type UploadOptions struct {
 	// Apple content identifiers. It is never persisted.
 	IgnoreAppleMetadata bool
 
+	UseLocalHashCache    bool
+	UploadSpeedLimitKBps int
+	AccountEmail         string
+
 	// AlbumName is a name or album key to add uploads to. Ignored when
 	// AlbumAutoMode is set, which creates one album per source directory.
 	AlbumName     string
@@ -31,9 +35,10 @@ type UploadOptions struct {
 func (c Preferences) UploadOptions() UploadOptions {
 	return UploadOptions{
 		Api: ApiOptions{
-			Proxy:    c.Proxy,
-			Saver:    c.Saver,
-			UseQuota: c.UseQuota,
+			Proxy:          c.Proxy,
+			Saver:          c.Saver,
+			UseQuota:       c.UseQuota,
+			SpeedLimitKBps: c.UploadSpeedLimitKBps,
 		},
 		Recursive:                     c.Recursive,
 		ExcludePattern:                c.ExcludePattern,
@@ -45,6 +50,8 @@ func (c Preferences) UploadOptions() UploadOptions {
 		PairLivePhotos:                c.PairLivePhotos,
 		SkipIncompleteLivePhotos:      c.SkipIncompleteLivePhotos,
 		UpdateExistingPhotosToLive:    c.UpdateExistingPhotosToLive,
+		UseLocalHashCache:             c.UseLocalHashCache,
+		UploadSpeedLimitKBps:          c.UploadSpeedLimitKBps,
 		AlbumName:                     c.AlbumName,
 		AlbumAutoMode:                 c.AlbumAutoMode,
 	}

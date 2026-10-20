@@ -542,12 +542,14 @@ func uploadSingleFile(ctx context.Context, api *Api, filePath string, opts Uploa
 	fileName := filepath.Base(filePath)
 	mediakey := ""
 
+	fileInfo, err := os.Stat(filePath)
+	if err != nil {
+		return "", fmt.Errorf("error getting file info: %w", err)
+	}
+
 	// Determine the timestamp to use for the upload.
 	// Default to file mtime, but allow filename-based timestamp to take precedence if enabled.
-	var uploadTimestamp int64
-	if info, err := os.Stat(filePath); err == nil {
-		uploadTimestamp = info.ModTime().Unix()
-	}
+	uploadTimestamp := fileInfo.ModTime().Unix()
 	if opts.SetDateFromFilename {
 		if t, ok := parseTimestampFromFilename(filePath); ok {
 			uploadTimestamp = t.Unix()
@@ -569,6 +571,27 @@ func uploadSingleFile(ctx context.Context, api *Api, filePath string, opts Uploa
 	}
 
 	sha1_hash_b64 := base64.StdEncoding.EncodeToString([]byte(sha1_hash_bytes))
+
+	// Stage 1.5: Checking local hash cache
+	if !opts.ForceUpload && opts.UseLocalHashCache && opts.AccountEmail != "" {
+		if cache := GetGlobalHashCache(); cache != nil {
+			if cachedKey, ok, _ := cache.Get(opts.AccountEmail, sha1_hash_b64, fileInfo.Size()); ok && cachedKey != "" {
+				reporter.ThreadStatus(ThreadStatus{
+					WorkerID: workerID,
+					Status:   "completed",
+					FilePath: filePath,
+					FileName: fileName,
+					Message:  "Already in library (cached)",
+				})
+				if opts.DeleteFromHost {
+					if err := os.Remove(filePath); err != nil {
+						return cachedKey, fmt.Errorf("file exists in library but failed to delete local copy: %w", err)
+					}
+				}
+				return cachedKey, nil
+			}
+		}
+	}
 
 	// Stage 2: Checking if exists in library
 	if !opts.ForceUpload {
@@ -592,6 +615,11 @@ func uploadSingleFile(ctx context.Context, api *Api, filePath string, opts Uploa
 			})
 		}
 		if len(mediakey) > 0 {
+			if opts.UseLocalHashCache && opts.AccountEmail != "" {
+				if cache := GetGlobalHashCache(); cache != nil {
+					_ = cache.Put(opts.AccountEmail, sha1_hash_b64, mediakey, fileInfo.Size(), fileInfo.ModTime().Unix())
+				}
+			}
 			reporter.ThreadStatus(ThreadStatus{
 				WorkerID: workerID,
 				Status:   "completed",
@@ -606,11 +634,6 @@ func uploadSingleFile(ctx context.Context, api *Api, filePath string, opts Uploa
 			}
 			return mediakey, nil
 		}
-	}
-
-	fileInfo, err := os.Stat(filePath)
-	if err != nil {
-		return "", fmt.Errorf("error getting file info: %w", err)
 	}
 
 	// Stage 3: Uploading
@@ -673,6 +696,12 @@ func uploadSingleFile(ctx context.Context, api *Api, filePath string, opts Uploa
 
 	if len(mediaKey) == 0 {
 		return "", fmt.Errorf("media key not received")
+	}
+
+	if opts.UseLocalHashCache && opts.AccountEmail != "" {
+		if cache := GetGlobalHashCache(); cache != nil {
+			_ = cache.Put(opts.AccountEmail, sha1_hash_b64, mediaKey, fileInfo.Size(), fileInfo.ModTime().Unix())
+		}
 	}
 
 	if opts.DeleteFromHost {
@@ -814,6 +843,9 @@ func uploadWorkItem(ctx context.Context, api *Api, item UploadWorkItem, opts Upl
 			DeleteFromHost:             opts.DeleteFromHost,
 			SetDateFromFilename:        opts.SetDateFromFilename,
 			UpdateExistingPhotosToLive: opts.UpdateExistingPhotosToLive,
+			UseLocalHashCache:          opts.UseLocalHashCache,
+			AccountEmail:               opts.AccountEmail,
+			ForceUpload:                opts.ForceUpload,
 		}, workerID, reporter)
 	default:
 		return "", false, fmt.Errorf("unsupported upload work kind %q", item.Kind)

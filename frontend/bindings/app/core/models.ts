@@ -238,6 +238,13 @@ export class Preferences {
     "disableUnsupportedFilesFilter": boolean;
     "setDateFromFilename": boolean;
     "excludePattern": string;
+    "minimizeToTray": boolean;
+    "notifyOnComplete": boolean;
+    "useLocalHashCache": boolean;
+    "uploadSpeedLimitKBps": number;
+    "watchFoldersEnabled": boolean;
+    "watchedFolders": string[];
+    "recentAlbums": string[];
 
     /**
      * AlbumName and AlbumAutoMode are per-session choices and are never persisted.
@@ -286,6 +293,27 @@ export class Preferences {
         if (!("excludePattern" in $$source)) {
             this["excludePattern"] = "";
         }
+        if (!("minimizeToTray" in $$source)) {
+            this["minimizeToTray"] = false;
+        }
+        if (!("notifyOnComplete" in $$source)) {
+            this["notifyOnComplete"] = false;
+        }
+        if (!("useLocalHashCache" in $$source)) {
+            this["useLocalHashCache"] = false;
+        }
+        if (!("uploadSpeedLimitKBps" in $$source)) {
+            this["uploadSpeedLimitKBps"] = 0;
+        }
+        if (!("watchFoldersEnabled" in $$source)) {
+            this["watchFoldersEnabled"] = false;
+        }
+        if (!("watchedFolders" in $$source)) {
+            this["watchedFolders"] = [];
+        }
+        if (!("recentAlbums" in $$source)) {
+            this["recentAlbums"] = [];
+        }
         if (!("albumName" in $$source)) {
             this["albumName"] = "";
         }
@@ -300,7 +328,15 @@ export class Preferences {
      * Creates a new Preferences instance from a string or object.
      */
     static createFrom($$source: any = {}): Preferences {
+        const $$createField18_0 = $$createType2;
+        const $$createField19_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("watchedFolders" in $$parsedSource) {
+            $$parsedSource["watchedFolders"] = $$createField18_0($$parsedSource["watchedFolders"]);
+        }
+        if ("recentAlbums" in $$parsedSource) {
+            $$parsedSource["recentAlbums"] = $$createField19_0($$parsedSource["recentAlbums"]);
+        }
         return new Preferences($$parsedSource as Partial<Preferences>);
     }
 }

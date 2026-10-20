@@ -90,7 +90,7 @@ async function prepareWindow() {
   try {
     await Window.SetResizable(true)
     await Window.SetMinSize(800, 560)
-    await Window.SetSize(1000, 680)
+    await Window.Center()
     await Window.SetTitle('Lumen')
   } catch {
     // Non-Wails/mock environment or already set
