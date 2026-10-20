@@ -281,7 +281,7 @@ async function addRawCredential() {
               <!-- Outlined Token Field with Floating Label & Paste Action -->
               <div class="flex flex-col gap-1">
                 <div
-                  class="m3-outlined-field relative rounded-2xl border bg-[var(--md-sys-color-surface-container-low)] transition-all focus-within:border-2"
+                  class="m3-outlined-field relative flex h-[56px] w-full items-center rounded-2xl border bg-[var(--md-sys-color-surface-container-low)] transition-all focus-within:border-2"
                   :class="[
                     tokenError
                       ? 'border-[var(--md-sys-color-error)] focus-within:border-[var(--md-sys-color-error)] m3-field-error'
@@ -295,13 +295,13 @@ async function addRawCredential() {
                     autocomplete="off"
                     spellcheck="false"
                     placeholder=" "
-                    class="peer w-full rounded-2xl bg-transparent px-4 pt-5 pb-2 pr-12 text-sm text-[var(--md-sys-color-on-surface)] outline-none"
+                    class="peer h-full w-full flex-1 rounded-2xl bg-transparent pl-4 pr-[52px] pt-4 pb-1 text-sm text-[var(--md-sys-color-on-surface)] border-0 outline-none shadow-none focus:outline-none focus:ring-0"
                     :disabled="isConnecting"
                     @keydown.enter="connectAccount"
                   >
                   <label
                     for="google-oauth-token"
-                    class="pointer-events-none absolute left-4 top-2 text-[11px] font-medium transition-all peer-placeholder-shown:top-3.5 peer-placeholder-shown:text-xs peer-focus:top-2 peer-focus:text-[11px]"
+                    class="pointer-events-none absolute left-4 text-[11px] font-medium transition-all peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:text-sm peer-focus:top-2 peer-focus:translate-y-0 peer-focus:text-[11px] top-2 translate-y-0 select-none"
                     :class="tokenError
                       ? 'text-[var(--md-sys-color-error)]'
                       : 'text-[var(--md-sys-color-primary)] peer-placeholder-shown:text-[var(--md-sys-color-on-surface-variant)]'"
@@ -309,15 +309,15 @@ async function addRawCredential() {
                     oauth_token Cookie Value
                   </label>
 
-                  <!-- Paste Action Icon Button -->
+                  <!-- Paste Action Icon Button (40x40 trailing icon) -->
                   <button
                     type="button"
-                    class="absolute right-2.5 top-2.5 flex size-8 cursor-pointer items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-on-surface)]"
-                    aria-label="Paste token from clipboard"
+                    class="m3-interactive absolute right-1.5 top-1/2 -translate-y-1/2 flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-on-surface)]"
+                    aria-label="Paste oauth_token from clipboard"
                     title="Paste from clipboard"
                     @click="pasteToken"
                   >
-                    <ClipboardPaste class="size-4" />
+                    <ClipboardPaste class="size-5" />
                   </button>
                 </div>
 
@@ -378,9 +378,9 @@ async function addRawCredential() {
               class="mt-4 flex flex-col gap-3"
             >
               <div
-                class="relative rounded-2xl border bg-[var(--md-sys-color-surface-container-low)] transition-all focus-within:border-2"
+                class="m3-outlined-field relative flex h-[56px] w-full items-center rounded-2xl border bg-[var(--md-sys-color-surface-container-low)] transition-all focus-within:border-2"
                 :class="rawCredentialError
-                  ? 'border-[var(--md-sys-color-error)] focus-within:border-[var(--md-sys-color-error)]'
+                  ? 'border-[var(--md-sys-color-error)] focus-within:border-[var(--md-sys-color-error)] m3-field-error'
                   : 'border-[var(--md-sys-color-outline)] focus-within:border-[var(--md-sys-color-primary)]'"
               >
                 <input
@@ -390,13 +390,13 @@ async function addRawCredential() {
                   autocomplete="off"
                   spellcheck="false"
                   placeholder=" "
-                  class="peer w-full rounded-2xl bg-transparent px-4 pt-5 pb-2 pr-12 text-sm text-[var(--md-sys-color-on-surface)] outline-none"
+                  class="peer h-full w-full flex-1 rounded-2xl bg-transparent pl-4 pr-[52px] pt-4 pb-1 text-sm text-[var(--md-sys-color-on-surface)] border-0 outline-none shadow-none focus:outline-none focus:ring-0"
                   :disabled="isAddingRawCredential"
                   @keydown.enter="addRawCredential"
                 >
                 <label
                   for="google-raw-credential"
-                  class="pointer-events-none absolute left-4 top-2 text-[11px] font-medium transition-all peer-placeholder-shown:top-3.5 peer-placeholder-shown:text-xs peer-focus:top-2 peer-focus:text-[11px]"
+                  class="pointer-events-none absolute left-4 text-[11px] font-medium transition-all peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:text-sm peer-focus:top-2 peer-focus:translate-y-0 peer-focus:text-[11px] top-2 translate-y-0 select-none"
                   :class="rawCredentialError
                     ? 'text-[var(--md-sys-color-error)]'
                     : 'text-[var(--md-sys-color-primary)] peer-placeholder-shown:text-[var(--md-sys-color-on-surface-variant)]'"
@@ -406,12 +406,12 @@ async function addRawCredential() {
 
                 <button
                   type="button"
-                  class="absolute right-2.5 top-2.5 flex size-8 cursor-pointer items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-on-surface)]"
+                  class="m3-interactive absolute right-1.5 top-1/2 -translate-y-1/2 flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-on-surface)]"
                   aria-label="Paste raw credential from clipboard"
                   title="Paste from clipboard"
                   @click="pasteRawCredential"
                 >
-                  <ClipboardPaste class="size-4" />
+                  <ClipboardPaste class="size-5" />
                 </button>
               </div>
 
