@@ -209,10 +209,13 @@ func runGUI() {
 		watchMu.Unlock()
 
 		if configManager.GetSettings().NotifyOnComplete {
-			_ = notificationService.SendNotification(notifications.NotificationOptions{
+			// Send one summary notification per finished batch without filenames. Fail quietly if daemon unavailable.
+			if err := notificationService.SendNotification(notifications.NotificationOptions{
 				Title: "Lumen",
 				Body:  "Upload batch complete",
-			})
+			}); err != nil {
+				wailsApp.Logger.Debug("Notification daemon unavailable or failed quietly", "err", err)
+			}
 		}
 	})
 
