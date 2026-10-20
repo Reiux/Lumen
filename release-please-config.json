@@ -3,7 +3,6 @@
   "packages": {
     ".": {
       "release-type": "go",
-      "release-as": "0.12.0-m3e.0",
       "prerelease": true,
       "prerelease-type": "m3e",
       "versioning": "prerelease",
