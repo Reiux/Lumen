@@ -38,7 +38,7 @@ const emit = defineEmits<{
       <md-button
         variant="tonal"
         size="m"
-        icon="create_new_folder"
+        icon="folder"
         :disabled="disabled || loading || undefined"
         aria-label="Choose folder to upload"
         @click="emit('pick-folder')"
@@ -55,7 +55,6 @@ const emit = defineEmits<{
   align-items: center;
   filter: drop-shadow(0 8px 18px oklch(0.70 0.22 250 / 25%));
   transition: transform var(--md-sys-motion-duration-spatial-fast) var(--md-sys-motion-easing-spatial);
-  will-change: transform;
 }
 .m3e-fab-container:hover {
   transform: translateY(-2px);

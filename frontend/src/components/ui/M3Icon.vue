@@ -21,6 +21,7 @@ const sizeStyle = computed(() => {
     fontSize: s,
     width: s,
     height: s,
+    fontFamily: "'Material Symbols Rounded', sans-serif",
     fontVariationSettings: `'FILL' ${props.filled ? 1 : 0}, 'wght' 400, 'GRAD' 0, 'opsz' ${opsz}`,
   }
 })
@@ -28,7 +29,7 @@ const sizeStyle = computed(() => {
 
 <template>
   <span
-    class="m-icon inline-flex items-center justify-center shrink-0 leading-none select-none"
+    class="m-icon material-symbols-rounded inline-flex items-center justify-center shrink-0 leading-none select-none overflow-hidden"
     :class="{ 'm-icon-filled': filled }"
     :style="sizeStyle"
     aria-hidden="true"
