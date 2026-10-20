@@ -513,22 +513,22 @@ button.rounded-full:active:not(:disabled),
 @keyframes m3-dialog-enter {
   from {
     opacity: 0;
-    transform: translateZ(0) scale(0.94);
+    transform: scale(0.92);
   }
   to {
     opacity: 1;
-    transform: translateZ(0) scale(1);
+    transform: scale(1);
   }
 }
 
 @keyframes m3-dialog-exit {
   from {
     opacity: 1;
-    transform: translateZ(0) scale(1);
+    transform: scale(1);
   }
   to {
     opacity: 0;
-    transform: translateZ(0) scale(0.96);
+    transform: scale(0.95);
   }
 }
 
@@ -552,22 +552,22 @@ button.rounded-full:active:not(:disabled),
 @keyframes m3-dialog-card-enter {
   from {
     opacity: 0;
-    transform: translateZ(0) scale(0.94);
+    transform: scale(0.92);
   }
   to {
     opacity: 1;
-    transform: translateZ(0) scale(1);
+    transform: scale(1);
   }
 }
 
 @keyframes m3-dialog-card-exit {
   from {
     opacity: 1;
-    transform: translateZ(0) scale(1);
+    transform: scale(1);
   }
   to {
     opacity: 0;
-    transform: translateZ(0) scale(0.96);
+    transform: scale(0.95);
   }
 }
 
@@ -712,17 +712,17 @@ button.rounded-full:active:not(:disabled),
 @keyframes m3-card-stagger-in {
   from {
     opacity: 0;
-    transform: translateZ(0) translateY(14px) scale(0.96);
+    transform: translateY(16px) scale(0.95);
   }
   to {
     opacity: 1;
-    transform: translateZ(0) translateY(0) scale(1);
+    transform: translateY(0) scale(1);
   }
 }
 
 /* M3 Pane Fade-Through Transition */
 .m3-fade-through-enter-active {
-  animation: m3-fade-through-in 220ms var(--md-sys-motion-easing-spatial);
+  animation: m3-fade-through-in 300ms var(--md-sys-motion-easing-spatial);
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
   transform: translateZ(0);
@@ -730,7 +730,7 @@ button.rounded-full:active:not(:disabled),
 }
 
 .m3-fade-through-leave-active {
-  animation: m3-fade-through-out 120ms var(--md-sys-motion-easing-effects) forwards;
+  animation: m3-fade-through-out 150ms var(--md-sys-motion-easing-effects) forwards;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
   transform: translateZ(0);
@@ -740,22 +740,22 @@ button.rounded-full:active:not(:disabled),
 @keyframes m3-fade-through-in {
   from {
     opacity: 0;
-    transform: translateZ(0) translateY(6px);
+    transform: scale(0.96) translateY(6px);
   }
   to {
     opacity: 1;
-    transform: translateZ(0) translateY(0);
+    transform: scale(1) translateY(0);
   }
 }
 
 @keyframes m3-fade-through-out {
   from {
     opacity: 1;
-    transform: translateZ(0) translateY(0);
+    transform: scale(1);
   }
   to {
     opacity: 0;
-    transform: translateZ(0) translateY(-4px);
+    transform: scale(0.96);
   }
 }
 
@@ -774,11 +774,11 @@ button.rounded-full:active:not(:disabled),
 @keyframes m3-thread-enter {
   from {
     opacity: 0;
-    transform: translateZ(0) translateY(12px) scale(0.96);
+    transform: translateY(12px) scale(0.96);
   }
   to {
     opacity: 1;
-    transform: translateZ(0) translateY(0) scale(1);
+    transform: translateY(0) scale(1);
   }
 }
 
@@ -803,11 +803,11 @@ button.rounded-full:active:not(:disabled),
 @keyframes m3-stat-card-in {
   from {
     opacity: 0;
-    transform: translateZ(0) translateY(14px) scale(0.96);
+    transform: translateY(14px) scale(0.95);
   }
   to {
     opacity: 1;
-    transform: translateZ(0) translateY(0) scale(1);
+    transform: translateY(0) scale(1);
   }
 }
 
