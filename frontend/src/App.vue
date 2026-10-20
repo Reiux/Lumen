@@ -17,6 +17,7 @@ import DevMockBar from './components/DevMockBar.vue'
 import Toaster from './components/ui/sonner/Sonner.vue'
 import AppLaunchSplash from './components/AppLaunchSplash.vue'
 import M3Icon from './components/ui/M3Icon.vue'
+import M3ExtendedFab from './components/ui/M3ExtendedFab.vue'
 import { launchReplayTrigger } from './utils/launchState'
 import { uploadManager } from './utils/UploadManager'
 import { mockState } from './utils/mockMode'
@@ -357,6 +358,54 @@ async function onUploadFolderFromSettings(folderPath: string) {
   activeTab.value = 'upload'
   uploadManager.resetUploadResults()
   await Events.Emit('startUpload', { files: [folderPath] })
+}
+
+const isPickingMedia = ref(false)
+
+async function handlePickFiles() {
+  if (isPickingMedia.value) return
+  isPickingMedia.value = true
+  try {
+    if (import.meta.env.DEV && mockState.enabled) {
+      mockState.currentView = 'uploading'
+      uploadManager.state.isUploading = true
+      return
+    }
+    const files = await ConfigManager.PickUploadFiles()
+    if (files && files.length > 0) {
+      uploadManager.resetUploadResults()
+      await ConfigManager.SetAlbumName('')
+      await ConfigManager.SetAlbumAutoMode(false)
+      await Events.Emit('startUpload', { files })
+    }
+  } catch (err) {
+    console.error('Failed to pick files:', err)
+  } finally {
+    isPickingMedia.value = false
+  }
+}
+
+async function handlePickFolder() {
+  if (isPickingMedia.value) return
+  isPickingMedia.value = true
+  try {
+    if (import.meta.env.DEV && mockState.enabled) {
+      mockState.currentView = 'uploading'
+      uploadManager.state.isUploading = true
+      return
+    }
+    const folder = await ConfigManager.PickUploadFolder()
+    if (folder) {
+      uploadManager.resetUploadResults()
+      await ConfigManager.SetAlbumName('')
+      await ConfigManager.SetAlbumAutoMode(false)
+      await Events.Emit('startUpload', { files: [folder] })
+    }
+  } catch (err) {
+    console.error('Failed to pick folder:', err)
+  } finally {
+    isPickingMedia.value = false
+  }
 }
 
 const albumErrorHandler = (e: Event) => {
@@ -834,7 +883,7 @@ onUnmounted(() => {
           <!-- Normal Drop View (with account connected) -->
           <div
             v-else
-            class="flex h-full w-full flex-1 flex-col gap-4 min-h-0"
+            class="relative flex h-full w-full flex-1 flex-col gap-4 min-h-0"
           >
             <!-- Token binding alert banner if needed -->
             <div
@@ -886,6 +935,18 @@ onUnmounted(() => {
                   Auto Album by Folder
                 </span>
               </div>
+            </div>
+
+            <!-- Floating Extended FAB for File & Folder Selection -->
+            <div
+              class="absolute bottom-4 right-4 md:bottom-6 md:right-6 z-20"
+              style="--wails-draggable: none"
+            >
+              <M3ExtendedFab
+                :disabled="isPickingMedia"
+                @pick-files="handlePickFiles"
+                @pick-folder="handlePickFolder"
+              />
             </div>
 
             <!-- Upload Results Summary -->

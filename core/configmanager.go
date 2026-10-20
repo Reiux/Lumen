@@ -508,8 +508,23 @@ func (g *ConfigManager) GetAccountForPath(filePath string) string {
 }
 
 var FolderPickerFunc func() (string, error)
+var FilePickerFunc func() ([]string, error)
 
 func (g *ConfigManager) PickWatchedFolder() (string, error) {
+	if FolderPickerFunc != nil {
+		return FolderPickerFunc()
+	}
+	return "", nil
+}
+
+func (g *ConfigManager) PickUploadFiles() ([]string, error) {
+	if FilePickerFunc != nil {
+		return FilePickerFunc()
+	}
+	return nil, nil
+}
+
+func (g *ConfigManager) PickUploadFolder() (string, error) {
 	if FolderPickerFunc != nil {
 		return FolderPickerFunc()
 	}
