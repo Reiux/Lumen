@@ -49,7 +49,7 @@ watch(isOpen, (open) => {
     connectionError.value = ''
     rawCredentialError.value = ''
     if (openerElement && typeof openerElement.focus === 'function') {
-      openerElement.focus()
+      openerElement.focus({ preventScroll: true })
     }
     openerElement = null
   }

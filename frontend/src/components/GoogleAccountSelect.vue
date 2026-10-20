@@ -36,6 +36,15 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<Emits>()
 const isOpen = ref(false)
 const selectedValue = ref(props.modelValue)
+const triggerRef = ref<{ $el?: HTMLElement } | HTMLElement | null>(null)
+
+function onRestoreFocus(e: Event) {
+  e.preventDefault()
+  const el = (triggerRef.value && '$el' in triggerRef.value && triggerRef.value.$el)
+    ? triggerRef.value.$el
+    : (triggerRef.value as HTMLElement | null)
+  el?.focus({ preventScroll: true })
+}
 
 watch(() => props.modelValue, (newValue) => {
   if (newValue !== selectedValue.value) {
@@ -59,8 +68,9 @@ const selectedInitial = computed(() => {
     v-model:open="isOpen"
   >
     <SelectTriggerPrimitive
+      ref="triggerRef"
       v-ripple
-      class="m3-interactive m3-chip inline-flex h-9 max-w-[240px] items-center gap-2 rounded-full border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] pl-1.5 pr-3 text-xs font-medium text-[var(--md-sys-color-on-surface)] shadow-xs outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)] select-none cursor-pointer"
+      class="m3-interactive m3-chip inline-flex h-9 max-w-[240px] items-center gap-2 rounded-full border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] pl-1.5 pr-3 text-xs font-medium text-[var(--md-sys-color-on-surface)] shadow-xs outline-none transition-all select-none cursor-pointer"
       style="--wails-draggable: none"
     >
       <div
@@ -94,6 +104,7 @@ const selectedInitial = computed(() => {
       align="center"
       class="min-w-[220px] max-w-[min(18rem,calc(100vw-3rem))] rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container-high)] p-1.5 shadow-2xl backdrop-blur-md"
       style="--wails-draggable: none"
+      @close-auto-focus="onRestoreFocus"
     >
       <SelectGroup>
         <div
@@ -103,7 +114,7 @@ const selectedInitial = computed(() => {
         >
           <SelectItemPrimitive
             :value="option"
-            class="relative flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-xl py-2 pr-8 pl-2.5 text-xs text-[var(--md-sys-color-on-surface)] outline-none select-none transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)] focus:bg-[var(--md-sys-color-surface-container-highest)]"
+            class="m3-interactive m3-menu-item relative flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-xl py-2 pr-8 pl-2.5 text-xs text-[var(--md-sys-color-on-surface)] outline-none select-none transition-colors"
           >
             <div class="flex size-6 shrink-0 items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)] text-[11px] font-semibold text-[var(--md-sys-color-on-primary-container)]">
               {{ option.charAt(0).toUpperCase() }}
