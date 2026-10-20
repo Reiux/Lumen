@@ -176,15 +176,20 @@
     font-optical-sizing: auto;
   }
 
-  /* M3 Focus-visible ring: 3px outline with 2px offset in primary color, animated in */
-  :focus-visible {
+  /* Show focus ring only for keyboard input */
+  html[data-input="keyboard"] :focus-visible {
     outline: 3px solid var(--md-sys-color-primary) !important;
     outline-offset: 2px !important;
     transition: outline-offset var(--md-sys-motion-effects-fast), outline-color var(--md-sys-motion-effects-fast);
   }
 
-  :focus:not(:focus-visible) {
+  :focus:not(:focus-visible),
+  html[data-input="pointer"] :focus,
+  html[data-input="pointer"] :focus-visible {
     outline: none !important;
+    --tw-ring-shadow: 0 0 #0000 !important;
+    --tw-ring-offset-shadow: 0 0 #0000 !important;
+    box-shadow: var(--tw-shadow, 0 0 #0000) !important;
   }
 
   /* M3 Disabled state: no hover/press response, 38% content opacity */
@@ -239,9 +244,9 @@ button:not(.no-state-layer):hover:not(:disabled)::before,
   opacity: 0.08;
 }
 
-.m3-interactive:focus-visible:not(:disabled)::before,
-button:not(.no-state-layer):focus-visible:not(:disabled)::before,
-[role="button"]:not(.no-state-layer):focus-visible:not(:disabled)::before {
+html[data-input="keyboard"] .m3-interactive:focus-visible:not(:disabled)::before,
+html[data-input="keyboard"] button:not(.no-state-layer):focus-visible:not(:disabled)::before,
+html[data-input="keyboard"] [role="button"]:not(.no-state-layer):focus-visible:not(:disabled)::before {
   opacity: 0.10;
 }
 
@@ -891,4 +896,43 @@ button.rounded-full:active:not(:disabled),
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* Menu items modality behavior */
+.m3-menu-item {
+  position: relative;
+  overflow: hidden;
+  transition: background-color var(--md-sys-motion-effects-fast);
+}
+
+.m3-menu-item:hover:not(:disabled) {
+  background-color: var(--md-sys-color-surface-container-highest);
+}
+
+/* Mouse-opened menu: do not auto-highlight an item */
+html[data-input="pointer"] .m3-menu-item:not(:hover),
+html[data-input="pointer"] [data-slot="select-content"] [role="option"]:not(:hover) {
+  background-color: transparent !important;
+  outline: none !important;
+}
+
+html[data-input="pointer"] .m3-menu-item:not(:hover)::before,
+html[data-input="pointer"] [data-slot="select-content"] [role="option"]:not(:hover)::before {
+  opacity: 0 !important;
+}
+
+/* Keyboard-opened menu: highlight the item with a state layer and the ring */
+html[data-input="keyboard"] .m3-menu-item:focus-visible,
+html[data-input="keyboard"] .m3-menu-item[data-highlighted],
+html[data-input="keyboard"] [data-slot="select-content"] [role="option"]:focus-visible,
+html[data-input="keyboard"] [data-slot="select-content"] [role="option"][data-highlighted] {
+  outline: 3px solid var(--md-sys-color-primary) !important;
+  outline-offset: -2px !important;
+}
+
+html[data-input="keyboard"] .m3-menu-item:focus-visible::before,
+html[data-input="keyboard"] .m3-menu-item[data-highlighted]::before,
+html[data-input="keyboard"] [data-slot="select-content"] [role="option"]:focus-visible::before,
+html[data-input="keyboard"] [data-slot="select-content"] [role="option"][data-highlighted]::before {
+  opacity: 0.10 !important;
 }
