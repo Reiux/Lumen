@@ -1,8 +1,8 @@
 # Lumen
 
-Unofficial desktop client for Google Photos with a Material 3 Expressive interface. Lumen is a redesign fork of [gotohp](https://github.com/xob0t/gotohp) with tonal color roles, large rounded shapes, and smooth motion. Upload and auth logic are preserved from upstream.
+Lumen is an unofficial desktop client for Google Photos, built with Wails and Vue 3. It's a fork of [gotohp](https://github.com/xob0t/gotohp) with a redesigned Material 3 Expressive interface. Core upload and authentication logic are inherited from upstream.
 
-Lumen lets you back up photo and video libraries to Google Photos directly from your desktop. It supports quota-free uploads, Apple Live Photo pairing, background folder synchronization, upload bandwidth throttling, and local deduplication.
+![Lumen Demo](readme_assets/app_demo.gif)
 
 > **Disclaimer:** Unofficial client. Not affiliated with, endorsed by, or supported by Google LLC. Google Photos is a trademark of Google LLC.
 
@@ -10,20 +10,18 @@ Lumen lets you back up photo and video libraries to Google Photos directly from 
 
 ## Features
 
-- **Unlimited Uploads:** Upload original media without consuming your Google storage quota by default (or toggle quota usage when needed).
-- **Material 3 Expressive UI:** Built with Google's Material 3 Expressive design language, featuring saturated color palettes, spatial spring motion curves, and dark theme support.
-- **Continuous Sliding Navigation:** Hardware-accelerated 60fps horizontal viewport track that seamlessly glides between Upload, Settings, and About views with zero style recalculation overhead.
-- **Tablet & Desktop Collapsible Rail:** Responsive navigation rail that expands on wide desktop screens (≥860px) and collapses into a compact 76px icon rail on narrower windows, with manual toggle support.
-- **Tonal Drop Zone & Media Picker:** Single unified drop zone with shape-morphing drag feedback, auto-album organization, and a floating Extended FAB for native file/folder selection.
-- **Apple Live Photos:** Automatically detects and pairs `.heic`/`.jpg` images with their matching `.mov` clips using QuickTime metadata or filename stems.
-- **Account-Keyed Hash Cache:** Deduplicates uploads locally using isolated `(account email, SHA-256 hash, size)` caching, populated strictly upon Google's confirmed upload receipt.
-- **Live Bandwidth Throttling:** Discrete log-scale bandwidth limits (Unlimited, 0.5 to 50 MB/s) applied live across active upload threads.
-- **Folder Watching (Auto-Backup):** Background watcher monitors chosen folders, verifies file write completion, and uploads to bound accounts with backlog confirmation.
-- **System Tray & Desktop Notifications:** Minimizes to the system tray on close with single-instance window focusing, and sends silent batch summary notifications upon completion.
-- **Multi-Account Management:** Store, switch, and remove multiple Google accounts with custom profile avatars and token-binding support for captured Android sessions.
-- **Recent Albums Browser:** Select from recently accessed albums or auto-create albums based on local folder directory names.
-- **Dedicated About View:** Direct access to repository links, build details, architecture overview, and legal disclaimers.
-- **Standalone CLI:** Headless command-line binary (`lumen-cli`) for headless servers, scripts, and cron jobs.
+- **Free storage backup:** Upload photos and videos without counting against your Google storage quota (you can also turn quota usage back on).
+- **Smooth sliding navigation:** The interface slides smoothly between Upload, Settings, and About views.
+- **Collapsible sidebar:** Automatically adapts between an expanded sidebar on larger screens and a compact icon rail on smaller screens (or toggle it manually).
+- **Drag and drop:** Drop files or folders directly into the window, or use the file picker button.
+- **Apple Live Photos:** Automatically pairs `.heic` and `.jpg` photos with their matching `.mov` video clips.
+- **Duplicate skipping:** Caches hashes of uploaded files locally so you don't re-upload photos you've already backed up.
+- **Bandwidth limiter:** Limit upload speeds from 0.5 MB/s up to 50 MB/s, or leave it unlimited.
+- **Folder watcher:** Monitor folders in the background to automatically upload new photos as they are added.
+- **System tray:** Runs in the background when minimized and shows a notification when batch uploads finish.
+- **Multiple accounts:** Add and switch between multiple Google accounts.
+- **Album support:** Upload directly to existing albums or automatically create albums named after your folders.
+- **Standalone CLI:** Includes a headless `lumen-cli` binary for running uploads in scripts, servers, or cron jobs.
 
 ---
 
@@ -35,13 +33,13 @@ Download prebuilt binaries for Linux, macOS, and Windows from the [Releases](htt
 
 ## CLI Usage
 
-The standalone binary `lumen-cli` runs without GUI dependencies. The desktop binary `lumen` also accepts these subcommands directly.
+The standalone binary `lumen-cli` runs without any GUI dependencies. The desktop binary `lumen` also accepts these commands directly.
 
 ```shell
 # Upload photos recursively using 5 threads
 lumen-cli upload /path/to/photos --recursive --threads 5
 
-# Upload directly to an album (creates the album if it does not exist)
+# Upload directly to an album (creates it if it doesn't exist)
 lumen-cli upload /path/to/trip --album "Tokyo 2026"
 
 # Pair Apple Live Photos
@@ -60,7 +58,7 @@ lumen-cli creds list
 lumen-cli creds set user@gmail.com
 ```
 
-The CLI shares stored credentials with the GUI via the user configuration file. All other upload settings (threads, quota, quality, album) are controlled via command-line flags so that automated scripts remain predictable regardless of GUI preferences.
+The CLI shares stored credentials with the GUI through the config file. Upload options (threads, quality, album, etc.) are controlled by command-line flags so scripts run predictably.
 
 Run `lumen-cli --help` or `lumen-cli upload --help` for the full list of options.
 
@@ -68,17 +66,17 @@ Run `lumen-cli --help` or `lumen-cli upload --help` for the full list of options
 
 ## Sign In
 
-### Option 1: Embedded Setup (Recommended)
+### Option 1: Web sign-in (easiest)
 
 1. Open Lumen and click **Connect Account** (or **Add Google account**).
-2. Click **Open Google sign-in** to launch the sign-in prompt in your default browser.
-3. Sign in to your account and click **I agree** on the Google Embedded Setup page. The page may continue loading indefinitely; this is expected.
+2. Click **Open Google sign-in** to open the login page in your default browser.
+3. Sign in to your account and click **I agree** on the Google Embedded Setup page. (If the page keeps loading afterward, that's normal).
 4. Open your browser Developer Tools (`F12` or right-click -> Inspect).
-5. Navigate to **Application** (or **Storage**) -> **Cookies** -> `https://accounts.google.com`.
+5. Go to **Application** (or **Storage**) -> **Cookies** -> `https://accounts.google.com`.
 6. Copy the value of the `oauth_token` cookie.
-7. Paste the token into Lumen and click **Connect account**.
+7. Paste it into Lumen and click **Connect account**.
 
-From the CLI, open the Embedded Setup URL in a browser and add the token:
+From the CLI:
 ```shell
 lumen-cli creds add "<oauth_token value>"
 ```
@@ -117,7 +115,7 @@ lumen-cli creds add "<oauth_token value>"
 <details>
   <summary><strong>View instructions</strong></summary>
 
-1. Ensure you have a rooted Android device or emulator with ADB root access.
+1. Make sure you have a rooted Android device or emulator with ADB root access.
 2. Connect your device via ADB and install [HTTP Toolkit](https://httptoolkit.com).
 3. In HTTP Toolkit, choose **Android Device via ADB** intercept mode.
 4. Filter intercepted traffic using:
@@ -128,7 +126,7 @@ lumen-cli creds add "<oauth_token value>"
 5. Open the official Google Photos app on your device and log in.
 6. When the matching request appears in HTTP Toolkit, copy the request body text.
 7. Paste the body string into Lumen.
-8. If Lumen prompts for a token binding key, keep the device connected with ADB root enabled and click **Read from ADB**. Lumen will read `lstBindingKeyAlias` from the Android AccountManager and attach it to the credential.
+8. If Lumen asks for a token binding key, keep the device connected with ADB root enabled and click **Read from ADB**. Lumen will read `lstBindingKeyAlias` from the Android AccountManager and attach it to the credential.
 
 #### Troubleshooting
 - **No request intercepted:** Log out and log back in, or use HTTP Toolkit's `Android App via Frida` interception method.
@@ -145,11 +143,11 @@ lumen-cli creds add "<oauth_token value>"
 - **Go:** 1.24 or higher
 - **Node.js:** 20.x or higher with `npm`
 - **C Compiler:** `gcc` or `clang`
-- **Linux dependencies (Linux only):** `gtk3` / `gtk4`, `webkit2gtk-4.1` (or `webkit2gtk-4.0`), `pkg-config`
-  - Arch/CachyOS: `sudo pacman -S webkit2gtk-4.1 gtk3 base-devel`
-  - Debian/Ubuntu: `sudo apt-get install libgtk-3-dev libwebkit2gtk-4.1-dev build-essential`
+- **Linux packages (Linux only):** `gtk3`, `webkit2gtk-4.1` (or `webkit2gtk-4.0`), `pkg-config`
+  - Arch / CachyOS: `sudo pacman -S webkit2gtk-4.1 gtk3 base-devel`
+  - Debian / Ubuntu: `sudo apt-get install libgtk-3-dev libwebkit2gtk-4.1-dev build-essential`
   - Fedora: `sudo dnf install gtk3-devel webkit2gtk4.1-devel gcc`
-- **Wails v3 CLI (optional for packaging):**
+- **Wails v3 CLI (optional):**
   ```shell
   go install github.com/wailsapp/wails/v3/cmd/wails3@latest
   ```
@@ -170,7 +168,7 @@ lumen-cli creds add "<oauth_token value>"
    cd ..
    ```
 
-3. **Build the desktop GUI application:**
+3. **Build the desktop GUI:**
    ```shell
    go build -o bin/lumen .
    ```
@@ -180,7 +178,7 @@ lumen-cli creds add "<oauth_token value>"
    go build -tags cli -o bin/lumen-cli .
    ```
 
-Alternatively, if you have [Task](https://taskfile.dev) installed:
+Alternatively, if you use [Task](https://taskfile.dev):
 ```shell
 task build
 ```
@@ -189,17 +187,17 @@ task build
 
 ## Configuration
 
-Lumen stores configuration and saved accounts in your system configuration directory:
+Lumen stores configuration and saved accounts in:
 - **Linux:** `~/.config/gotohp.config`
 - **macOS:** `~/Library/Application Support/gotohp.config`
 - **Windows:** `%APPDATA%\gotohp.config`
 
-To use a portable configuration file next to the binary, create an empty `gotohp.config` file in the same directory as the executable.
+To run portably, place an empty `gotohp.config` file next to the binary.
 
 ---
 
 ## Credits & License
 
-- Original project and upload logic: [gotohp](https://github.com/xob0t/gotohp) by [xob0t](https://github.com/xob0t), released under the MIT License.
-- Redesigned interface & new features: Lumen contributors.
-- Licensed under the [MIT License](LICENSE). Copyright (c) 2024-2026 xob0t and Lumen contributors.
+- Original project and upload logic: [gotohp](https://github.com/xob0t/gotohp) by [xob0t](https://github.com/xob0t).
+- UI redesign & enhancements: [Reiux](https://github.com/Reiux).
+- Licensed under the [MIT License](LICENSE).
