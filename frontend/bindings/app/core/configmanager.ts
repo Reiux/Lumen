@@ -107,6 +107,16 @@ export function IsTrayAvailable(): $CancellablePromise<boolean> {
     return $Call.ByID(2807422592);
 }
 
+export function PickUploadFiles(): $CancellablePromise<string[]> {
+    return $Call.ByID(673148100).then(($result: any) => {
+        return $$createType1($result);
+    });
+}
+
+export function PickUploadFolder(): $CancellablePromise<string> {
+    return $Call.ByID(3916027033);
+}
+
 export function PickWatchedFolder(): $CancellablePromise<string> {
     return $Call.ByID(1038435738);
 }

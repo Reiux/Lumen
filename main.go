@@ -148,14 +148,24 @@ func runGUI() {
 		}
 	})
 
-	// Native folder picker for watching directories
+	// Native folder picker for watching directories and uploads
 	core.FolderPickerFunc = func() (string, error) {
 		return wailsApp.Dialog.OpenFile().
 			CanChooseDirectories(true).
 			CanChooseFiles(false).
 			AttachToWindow(window).
-			SetTitle("Select Folder to Watch").
+			SetTitle("Select Folder").
 			PromptForSingleSelection()
+	}
+
+	// Native multi-file picker for uploads
+	core.FilePickerFunc = func() ([]string, error) {
+		return wailsApp.Dialog.OpenFile().
+			CanChooseDirectories(false).
+			CanChooseFiles(true).
+			AttachToWindow(window).
+			SetTitle("Select Photos & Videos to Upload").
+			PromptForMultipleSelection()
 	}
 
 	uploadManager := core.NewUploadManager(gui.NewWailsReporter(wailsApp), wailsApp.Logger)
