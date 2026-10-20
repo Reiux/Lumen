@@ -12,6 +12,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'copy'): void
   (e: 'clear'): void
+  (e: 'retryAll'): void
+  (e: 'retryItem', path: string): void
 }>()
 
 const showFailedList = ref(false)
@@ -206,51 +208,97 @@ function onCopyClick() {
       </span>
     </div>
 
-    <!-- Expandable Failed List -->
+    <!-- Expandable Failed List with Structured Records & Retry -->
     <div
       v-if="results.fail.length > 0"
       class="flex flex-col rounded-[24px] border border-[var(--md-sys-color-error)]/30 bg-[var(--md-sys-color-surface-container-low)] overflow-hidden"
     >
-      <button
-        type="button"
-        class="flex w-full cursor-pointer items-center justify-between p-4 text-xs font-semibold text-[var(--md-sys-color-error)] hover:bg-[var(--md-sys-color-error-container)]/20 transition-colors"
-        aria-label="Toggle failed items list"
-        @click="showFailedList = !showFailedList"
-      >
-        <div class="flex items-center gap-2">
+      <div class="flex items-center justify-between p-4 bg-[var(--md-sys-color-error-container)]/10">
+        <button
+          type="button"
+          class="flex flex-1 cursor-pointer items-center justify-between text-xs font-semibold text-[var(--md-sys-color-error)] transition-colors pr-2"
+          aria-label="Toggle failed items list"
+          @click="showFailedList = !showFailedList"
+        >
+          <div class="flex items-center gap-2">
+            <M3Icon
+              name="warning"
+              :filled="true"
+              :size="16"
+            />
+            <span>View Failed Items ({{ results.fail.length }})</span>
+          </div>
           <M3Icon
-            name="warning"
-            :filled="true"
-            :size="16"
+            name="expand_more"
+            :size="18"
+            class="transition-transform duration-300 ease-[var(--md-sys-motion-easing-spatial)]"
+            :class="showFailedList && 'rotate-180'"
           />
-          <span>View Failed Items ({{ results.fail.length }})</span>
-        </div>
-        <M3Icon
-          name="expand_more"
-          :size="18"
-          class="transition-transform duration-300 ease-[var(--md-sys-motion-easing-spatial)]"
-          :class="showFailedList && 'rotate-180'"
-        />
-      </button>
+        </button>
+
+        <!-- Batch Retry Button -->
+        <Button
+          size="sm"
+          class="h-7 rounded-full px-3 text-[11px] font-semibold bg-[var(--md-sys-color-error)] text-[var(--md-sys-color-on-error)] hover:bg-[var(--md-sys-color-error)]/90 cursor-pointer shadow-xs shrink-0"
+          aria-label="Retry all failed uploads"
+          @click="emit('retryAll')"
+        >
+          <M3Icon
+            name="replay"
+            :size="13"
+            class="mr-1"
+          />
+          <span>Retry All</span>
+        </Button>
+      </div>
 
       <div
         class="grid transition-[grid-template-rows] duration-300 ease-[var(--md-sys-motion-easing-spatial)]"
         :style="{ gridTemplateRows: showFailedList ? '1fr' : '0fr' }"
       >
         <div class="min-h-0 overflow-hidden">
-          <div class="max-h-60 overflow-y-auto p-4 pt-0 space-y-2 border-t border-[var(--md-sys-color-outline-variant)]/20">
+          <div class="max-h-64 overflow-y-auto p-4 pt-1 space-y-2 border-t border-[var(--md-sys-color-outline-variant)]/20">
             <div
               v-for="(failItem, idx) in results.fail"
               :key="idx"
-              class="flex items-start gap-2.5 rounded-xl bg-[var(--md-sys-color-surface-container-highest)]/50 p-2.5 text-xs text-[var(--md-sys-color-on-surface)]"
+              class="flex items-center justify-between gap-3 rounded-2xl bg-[var(--md-sys-color-surface-container-highest)]/60 p-3 text-xs border border-[var(--md-sys-color-outline-variant)]/20"
             >
-              <M3Icon
-                name="cancel"
-                :filled="true"
-                :size="16"
-                class="shrink-0 text-[var(--md-sys-color-error)] mt-0.5"
-              />
-              <span class="break-all font-mono text-[11px] leading-relaxed">{{ failItem }}</span>
+              <div class="flex items-start gap-2.5 min-w-0 flex-1">
+                <M3Icon
+                  name="cancel"
+                  :filled="true"
+                  :size="16"
+                  class="shrink-0 text-[var(--md-sys-color-error)] mt-0.5"
+                />
+                <div class="flex flex-col min-w-0">
+                  <span
+                    class="font-mono text-xs font-semibold text-[var(--md-sys-color-on-surface)] truncate"
+                    :title="typeof failItem === 'string' ? failItem : failItem.path"
+                  >
+                    {{ typeof failItem === 'string' ? failItem : failItem.path }}
+                  </span>
+                  <span
+                    v-if="typeof failItem !== 'string' && failItem.error"
+                    class="text-[11px] text-[var(--md-sys-color-error)] mt-0.5 leading-relaxed"
+                  >
+                    {{ failItem.error }}
+                  </span>
+                </div>
+              </div>
+
+              <!-- Actionable Per-Item Retry Button -->
+              <button
+                type="button"
+                class="inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-primary-container)] hover:text-[var(--md-sys-color-on-primary-container)] transition-colors"
+                title="Retry this file"
+                :aria-label="`Retry upload for ${typeof failItem === 'string' ? failItem : failItem.path}`"
+                @click="emit('retryItem', typeof failItem === 'string' ? failItem : failItem.path)"
+              >
+                <M3Icon
+                  name="replay"
+                  :size="16"
+                />
+              </button>
             </div>
           </div>
         </div>

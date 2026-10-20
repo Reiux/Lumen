@@ -284,6 +284,20 @@ class UploadManager {
     this.state.results.warnings = [];
   }
 
+  public async upload(paths: string[]) {
+    if (!paths || paths.length === 0) return;
+    this.resetUploadResults();
+    await Events.Emit("startUpload", { files: paths });
+  }
+
+  public async retryFailed(paths?: string[]) {
+    const toRetry = paths && paths.length > 0
+      ? paths
+      : this.state.results.fail.map((f) => (typeof f === "string" ? f : f.path));
+    if (toRetry.length === 0) return;
+    await this.upload(toRetry);
+  }
+
   public cancelUpload() {
     Events.Emit("uploadCancel");
   }
