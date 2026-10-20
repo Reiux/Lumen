@@ -456,7 +456,7 @@ onUnmounted(() => {
     <!-- Navigation Rail / Side Panel (~280px) -->
     <aside
       class="flex h-full w-[280px] shrink-0 flex-col justify-between border-r border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-low)] p-4 select-none"
-      style="--wails-draggable: drag"
+      style="--wails-draggable: drag; contain: layout paint"
     >
       <div
         class="flex flex-col gap-4"
@@ -481,7 +481,7 @@ onUnmounted(() => {
         <div
           class="relative flex flex-col items-center rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-4 text-center shadow-xs"
           :class="isSettling && 'm3-launch-settle'"
-          :style="isSettling ? { '--settle-index': 0, '--launch-stagger': settleStagger + 'ms' } : undefined"
+          :style="isSettling ? { '--settle-index': 0, '--launch-stagger': settleStagger + 'ms', contain: 'layout paint' } : { contain: 'layout paint' }"
         >
           <input
             ref="avatarFileInput"
@@ -638,7 +638,7 @@ onUnmounted(() => {
     <section
       class="relative flex flex-1 h-full min-w-0 flex-col overflow-y-auto bg-[var(--md-sys-color-surface)] p-6"
       :class="isSettling && 'm3-launch-settle'"
-      :style="isSettling ? { '--settle-index': 2, '--launch-stagger': settleStagger + 'ms', '--wails-draggable': 'drag' } : '--wails-draggable: drag'"
+      :style="isSettling ? { '--settle-index': 2, '--launch-stagger': settleStagger + 'ms', '--wails-draggable': 'drag', contain: 'layout paint' } : { '--wails-draggable': 'drag', contain: 'layout paint' }"
     >
       <Transition
         name="m3-fade-through"

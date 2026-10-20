@@ -21,7 +21,9 @@ export const vRipple: Directive<RippleElement> = {
       if (getComputedStyle(el).position === 'static') {
         el.style.position = 'relative'
       }
-      el.style.overflow = 'hidden'
+      if (getComputedStyle(el).overflow !== 'hidden') {
+        el.style.overflow = 'hidden'
+      }
 
       // Radius to furthest corner
       const maxDistX = Math.max(x, rect.width - x)
