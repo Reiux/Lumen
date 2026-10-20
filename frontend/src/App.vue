@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useColorMode } from '@vueuse/core'
+import { useColorMode, useWindowSize } from '@vueuse/core'
 import { toast } from 'vue-sonner'
 import { Events } from '@wailsio/runtime'
 import { ConfigManager } from '../bindings/app/core'
 import M3Button from './components/ui/M3Button.vue'
+import M3NavigationRail from './components/ui/M3NavigationRail.vue'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -22,8 +23,6 @@ import { launchReplayTrigger } from './utils/launchState'
 import { uploadManager } from './utils/UploadManager'
 import { mockState } from './utils/mockMode'
 import {
-  displayNameFromEmail,
-  getAvatarColor,
   getCustomAvatar,
   getEmailInitial,
   processImageFile,
@@ -38,6 +37,13 @@ const copyButtonText = ref('Copy as JSON')
 
 // Navigation state
 const activeTab = ref<'upload' | 'settings'>('upload')
+const { width: windowWidth } = useWindowSize()
+const isRailExpanded = computed(() => windowWidth.value >= 900)
+
+const navRailItems = [
+  { id: 'upload', icon: 'cloud_upload', label: 'Upload', ariaLabel: 'Upload view' },
+  { id: 'settings', icon: 'settings', label: 'Settings', ariaLabel: 'Settings view' },
+]
 
 // Drag state for dual drop zones
 const isDraggingFiles = ref(false)
@@ -408,6 +414,29 @@ async function handlePickFolder() {
   }
 }
 
+async function promptPickForAlbum() {
+  if (isPickingMedia.value) return
+  isPickingMedia.value = true
+  try {
+    if (import.meta.env.DEV && mockState.enabled) {
+      pendingFiles.value = ['demo_photo_1.jpg', 'demo_photo_2.jpg']
+      pendingFileCount.value = 2
+      showAlbumInput.value = true
+      return
+    }
+    const files = await ConfigManager.PickUploadFiles()
+    if (files && files.length > 0) {
+      pendingFiles.value = files
+      pendingFileCount.value = files.length
+      showAlbumInput.value = true
+    }
+  } catch (err) {
+    console.error('Failed to pick files for album:', err)
+  } finally {
+    isPickingMedia.value = false
+  }
+}
+
 async function handleRetryAll() {
   if (import.meta.env.DEV && mockState.enabled) {
     mockState.currentView = 'uploading'
@@ -553,445 +582,398 @@ onUnmounted(() => {
 <template>
   <main
     class="relative flex h-screen w-screen overflow-hidden select-none bg-[var(--md-sys-color-surface)] text-[var(--md-sys-color-on-surface)]"
-    style="--wails-draggable: drag"
   >
-    <!-- Navigation Rail / Side Panel (~280px) -->
-    <aside
-      class="flex h-full w-[280px] shrink-0 flex-col justify-between border-r border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-low)] p-4 select-none"
-      style="--wails-draggable: drag"
+    <!-- Navigation Rail (Option A: expands on wider windows >=900px) -->
+    <M3NavigationRail
+      v-model="activeTab"
+      :items="navRailItems"
+      :expanded="isRailExpanded"
     >
-      <div
-        class="flex flex-col gap-4"
-        style="--wails-draggable: none"
-      >
-        <!-- App Header / Branding -->
-        <div class="flex items-center gap-2.5 px-2 pt-1 pb-2">
+      <template #header>
+        <div class="flex items-center gap-3 px-3 py-2 cursor-default select-none">
           <div
             id="sidebar-app-logo"
-            class="flex size-9 items-center justify-center rounded-xl bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] shadow-sm transition-opacity duration-150"
+            class="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] shadow-sm transition-opacity duration-150"
             :class="isSplashActive ? 'opacity-0' : 'opacity-100'"
           >
             <M3Icon
               name="light_mode"
-              :size="20"
+              :size="22"
             />
           </div>
-          <div class="flex flex-col">
-            <span class="text-base font-bold tracking-tight text-[var(--md-sys-color-on-surface)]">Lumen</span>
-            <span class="text-[10px] font-medium uppercase tracking-wider text-[var(--md-sys-color-primary)]">Google Photos</span>
-          </div>
-        </div>
-
-        <!-- Profile Card -->
-        <div
-          class="relative flex flex-col items-center rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-4 text-center shadow-xs"
-          :class="isSettling && 'm3-launch-settle'"
-          :style="isSettling ? { '--settle-index': 0, '--launch-stagger': settleStagger + 'ms' } : undefined"
-        >
-          <input
-            ref="avatarFileInput"
-            type="file"
-            accept="image/*"
-            class="hidden"
-            aria-label="Upload custom profile photo"
-            @change="onAvatarFileSelected"
-          >
-
           <div
-            class="group relative mb-2.5 flex size-16 cursor-pointer items-center justify-center overflow-hidden rounded-full shadow-inner transition-transform hover:scale-105"
-            :style="{
-              backgroundColor: customAvatar ? 'transparent' : getAvatarColor(displaySelectedOption).bg,
-              color: getAvatarColor(displaySelectedOption).text,
-            }"
-            :title="displaySelectedOption ? 'Click to change profile photo' : 'No account'"
-            role="button"
-            tabindex="0"
-            aria-label="Change profile photo"
-            @click="triggerAvatarUpload"
-            @keydown.enter="triggerAvatarUpload"
+            v-if="isRailExpanded"
+            class="flex flex-col min-w-0 transition-opacity duration-200"
           >
-            <img
-              v-if="customAvatar"
-              :src="customAvatar"
-              alt="Profile avatar"
-              class="size-full object-cover"
-            >
-            <span
-              v-else
-              class="text-xl font-bold tracking-tight"
-            >
-              {{ getEmailInitial(displaySelectedOption) }}
-            </span>
-
-            <div
-              v-if="displaySelectedOption"
-              class="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 transition-opacity group-hover:opacity-100"
-            >
-              <M3Icon
-                name="photo_camera"
-                :filled="true"
-                :size="20"
-                class="text-white"
-              />
-            </div>
-          </div>
-
-          <h3 class="max-w-[210px] truncate text-sm font-semibold text-[var(--md-sys-color-on-surface)]">
-            {{ displaySelectedOption ? displayNameFromEmail(displaySelectedOption) : 'No Account' }}
-          </h3>
-          <p class="max-w-[210px] truncate text-xs text-[var(--md-sys-color-on-surface-variant)]">
-            {{ displaySelectedOption || 'Connect an account to upload' }}
-          </p>
-
-          <!-- Account switcher chip -->
-          <div class="mt-3 w-full flex justify-center">
-            <GoogleAccountSelect
-              v-if="displayOptions.length > 0"
-              v-model="displaySelectedOption"
-              :options="displayOptions"
-              :removing-account="removingAccount"
-              @item-removed="removeCredentials"
-              @add="openAccountSetup"
-            />
-            <button
-              v-else
-              type="button"
-              class="inline-flex h-8 items-center gap-1.5 rounded-full bg-[var(--md-sys-color-primary)] px-3.5 text-xs font-medium text-[var(--md-sys-color-on-primary)] shadow-xs hover:bg-[var(--md-sys-color-primary)]/90 cursor-pointer"
-              @click="openAccountSetup"
-            >
-              <M3Icon
-                name="person_add"
-                :size="14"
-              />
-              Connect Account
-            </button>
+            <span class="text-base font-bold tracking-tight text-[var(--md-sys-color-on-surface)]">Lumen</span>
+            <span class="text-[10px] font-semibold uppercase tracking-wider text-[var(--md-sys-color-primary)]">Google Photos</span>
           </div>
         </div>
+      </template>
 
-        <!-- Navigation Items -->
-        <nav
-          class="flex flex-col gap-1.5 pt-1"
-          :class="isSettling && 'm3-launch-settle'"
-          :style="isSettling ? { '--settle-index': 1, '--launch-stagger': settleStagger + 'ms' } : undefined"
-          aria-label="Sidebar Navigation"
+      <!-- Bottom Slot: Quick Account Avatar / Version -->
+      <div class="flex flex-col items-center gap-2 w-full pt-2">
+        <input
+          ref="avatarFileInput"
+          type="file"
+          accept="image/*"
+          class="hidden"
+          aria-label="Upload custom profile photo"
+          @change="onAvatarFileSelected"
         >
-          <button
-            type="button"
-            class="m3-nav-item group relative flex h-11 w-full cursor-pointer items-center gap-3.5 px-4 text-sm font-medium transition-colors"
-            :class="activeTab === 'upload' ? 'is-selected font-semibold' : 'hover:bg-[var(--md-sys-color-surface-container-high)]/60'"
-            aria-label="Upload view"
-            @click="activeTab = 'upload'"
-          >
-            <span
-              class="m3-nav-indicator absolute inset-0 rounded-full bg-[var(--md-sys-color-secondary-container)] shadow-xs pointer-events-none"
-              :class="activeTab === 'upload' ? 'scale-x-100 opacity-100' : 'scale-x-0 opacity-0'"
-            />
-            <M3Icon
-              name="cloud_upload"
-              :filled="activeTab === 'upload'"
-              :size="20"
-              class="relative z-10 size-5 shrink-0 transition-colors duration-200"
-              :class="activeTab === 'upload'
-                ? 'text-[var(--md-sys-color-on-secondary-container)]'
-                : 'text-[var(--md-sys-color-on-surface-variant)] group-hover:text-[var(--md-sys-color-on-surface)]'"
-            />
-            <span
-              class="relative z-10 transition-colors duration-200"
-              :class="activeTab === 'upload'
-                ? 'text-[var(--md-sys-color-on-secondary-container)]'
-                : 'text-[var(--md-sys-color-on-surface-variant)] group-hover:text-[var(--md-sys-color-on-surface)]'"
-            >
-              Upload
-            </span>
-          </button>
 
-          <button
-            type="button"
-            class="m3-nav-item group relative flex h-11 w-full cursor-pointer items-center gap-3.5 px-4 text-sm font-medium transition-colors"
-            :class="activeTab === 'settings' ? 'is-selected font-semibold' : 'hover:bg-[var(--md-sys-color-surface-container-high)]/60'"
-            aria-label="Settings view"
-            @click="activeTab = 'settings'"
+        <button
+          v-if="!isRailExpanded && displaySelectedOption"
+          type="button"
+          class="group relative flex size-10 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] text-xs font-bold text-[var(--md-sys-color-on-surface)] shadow-xs transition-transform hover:scale-105"
+          :title="displaySelectedOption ? `${displaySelectedOption} (click to change photo)` : 'No account'"
+          aria-label="Change profile photo"
+          @click="triggerAvatarUpload"
+        >
+          <img
+            v-if="customAvatar"
+            :src="customAvatar"
+            alt="Profile avatar"
+            class="size-full object-cover"
           >
-            <span
-              class="m3-nav-indicator absolute inset-0 rounded-full bg-[var(--md-sys-color-secondary-container)] shadow-xs pointer-events-none"
-              :class="activeTab === 'settings' ? 'scale-x-100 opacity-100' : 'scale-x-0 opacity-0'"
-            />
-            <M3Icon
-              name="settings"
-              :filled="activeTab === 'settings'"
-              :size="20"
-              class="relative z-10 size-5 shrink-0 transition-colors duration-200"
-              :class="activeTab === 'settings'
-                ? 'text-[var(--md-sys-color-on-secondary-container)]'
-                : 'text-[var(--md-sys-color-on-surface-variant)] group-hover:text-[var(--md-sys-color-on-surface)]'"
-            />
-            <span
-              class="relative z-10 transition-colors duration-200"
-              :class="activeTab === 'settings'
-                ? 'text-[var(--md-sys-color-on-secondary-container)]'
-                : 'text-[var(--md-sys-color-on-surface-variant)] group-hover:text-[var(--md-sys-color-on-surface)]'"
-            >
-              Settings
-            </span>
-          </button>
+          <span v-else>{{ getEmailInitial(displaySelectedOption) }}</span>
+        </button>
 
-          <button
-            type="button"
-            class="m3-nav-item group relative flex h-11 w-full cursor-pointer items-center gap-3.5 px-4 text-sm font-medium text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-on-surface)]"
-            aria-label="Manage accounts"
-            @click="openAccountSetup"
-          >
-            <M3Icon
-              name="person_add"
-              :size="20"
-              class="relative z-10 size-5 shrink-0 transition-transform duration-200"
-            />
-            <span class="relative z-10">Accounts</span>
-          </button>
-        </nav>
+        <div
+          v-if="isRailExpanded"
+          class="w-full px-3 py-1 text-center text-[10px] font-medium text-[var(--md-sys-color-on-surface-variant)]/70 select-none"
+        >
+          Lumen &bull; Google Photos
+        </div>
       </div>
-
-      <!-- Bottom info -->
-      <div class="px-2 text-[11px] text-[var(--md-sys-color-on-surface-variant)]/70 select-none">
-        Lumen &bull; Google Photos Desktop
-      </div>
-    </aside>
+    </M3NavigationRail>
 
     <!-- Main Content Area -->
-    <section
-      class="m3-main-scroll-pane relative flex flex-1 h-full min-w-0 flex-col overflow-hidden bg-[var(--md-sys-color-surface)] p-6"
-      :class="isSettling && 'm3-launch-settle'"
-      :style="isSettling ? { '--settle-index': 2, '--launch-stagger': settleStagger + 'ms', '--wails-draggable': 'drag' } : { '--wails-draggable': 'drag' }"
-    >
-      <Transition
-        name="m3-fade-through"
-        mode="out-in"
-        type="animation"
+    <div class="relative flex flex-1 h-full min-w-0 flex-col overflow-hidden bg-[var(--md-sys-color-surface)]">
+      <!-- Top App Bar & Window Drag Header -->
+      <header
+        class="flex h-16 w-full shrink-0 items-center justify-between border-b border-[var(--md-sys-color-outline-variant)]/20 px-6 select-none bg-[var(--md-sys-color-surface)]"
+        style="--wails-draggable: drag"
       >
-        <!-- View: Upload Tab -->
+        <!-- Title & Status -->
         <div
-          v-if="activeTab === 'upload'"
-          key="upload"
-          class="m3-tab-pane flex h-full w-full flex-1 flex-col min-h-0 overflow-y-auto"
+          class="flex items-center gap-3 min-w-0"
           style="--wails-draggable: none"
         >
-          <!-- If actively uploading, show Upload.vue directly in main area -->
-          <div
-            v-if="uploadState.isUploading"
-            class="h-full w-full"
-            style="--wails-draggable: none"
-          >
-            <Upload />
-          </div>
+          <h1 class="text-lg md:text-xl font-bold tracking-tight text-[var(--md-sys-color-on-surface)]">
+            {{ activeTab === 'upload' ? 'Upload Hub' : 'Settings & Preferences' }}
+          </h1>
+          <span class="hidden sm:inline-flex rounded-full bg-[var(--md-sys-color-surface-container-high)] px-3 py-0.5 text-xs font-medium text-[var(--md-sys-color-on-surface-variant)]">
+            {{ activeTab === 'upload' ? (uploadState.isUploading ? 'Uploading...' : 'Ready') : 'Preferences' }}
+          </span>
+        </div>
 
-          <!-- Dragging files: M3 Expressive responsive drop zones -->
-          <div
-            v-else-if="isDraggingFiles && displayOptions.length > 0"
-            class="grid h-full w-full flex-1 grid-cols-1 md:grid-cols-3 gap-4"
-            style="--wails-draggable: none"
-          >
-            <div
-              data-file-drop-target
-              data-drop-zone="regular"
-              class="drop-zone m3-drop-card flex flex-col items-center justify-center rounded-[32px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] p-6 text-center cursor-pointer shadow-xs"
-              :style="{ '--card-index': 0 }"
-            >
-              <div class="mb-3 flex size-14 items-center justify-center m3-shape-scallop bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)] shadow-sm">
-                <M3Icon
-                  name="upload"
-                  :size="28"
-                />
-              </div>
-              <h2 class="text-base font-semibold text-[var(--md-sys-color-on-surface)] select-none">
-                Upload Only
-              </h2>
-              <p class="mt-1 text-xs text-[var(--md-sys-color-on-surface-variant)] select-none max-w-[200px]">
-                Upload files directly without adding to any album
-              </p>
-            </div>
-
-            <div
-              data-file-drop-target
-              data-drop-zone="album"
-              class="drop-zone m3-drop-card flex flex-col items-center justify-center rounded-[32px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] p-6 text-center cursor-pointer shadow-xs"
-              :style="{ '--card-index': 1 }"
-            >
-              <div class="mb-3 flex size-14 items-center justify-center m3-shape-scallop bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)] shadow-sm">
-                <M3Icon
-                  name="create_new_folder"
-                  :size="28"
-                />
-              </div>
-              <h2 class="text-base font-semibold text-[var(--md-sys-color-on-surface)] select-none">
-                Upload to Album
-              </h2>
-              <p class="mt-1 text-xs text-[var(--md-sys-color-on-surface-variant)] select-none max-w-[200px]">
-                Upload and add to a specific album of your choice
-              </p>
-            </div>
-
-            <div
-              data-file-drop-target
-              data-drop-zone="auto-album"
-              class="drop-zone m3-drop-card flex flex-col items-center justify-center rounded-[32px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] p-6 text-center cursor-pointer shadow-xs"
-              :style="{ '--card-index': 2 }"
-            >
-              <div class="mb-3 flex size-14 items-center justify-center m3-shape-scallop bg-[var(--md-sys-color-tertiary-container)] text-[var(--md-sys-color-on-tertiary-container)] shadow-sm">
-                <M3Icon
-                  name="auto_awesome"
-                  :size="28"
-                />
-              </div>
-              <h2 class="text-base font-semibold text-[var(--md-sys-color-on-surface)] select-none">
-                Auto Album
-              </h2>
-              <p class="mt-1 text-xs text-[var(--md-sys-color-on-surface-variant)] select-none max-w-[200px]">
-                Create albums automatically based on folder names
-              </p>
-            </div>
-          </div>
-
-          <!-- No account connected empty state -->
-          <div
-            v-else-if="displayOptions.length === 0"
-            class="flex h-full w-full flex-1 flex-col items-center justify-center text-center p-8 select-none"
-            style="--wails-draggable: none"
-          >
-            <div class="relative mb-6 flex size-28 items-center justify-center rounded-[36px] border border-[var(--md-sys-color-primary-container)]/60 bg-[var(--md-sys-color-primary-container)]/35 text-[var(--md-sys-color-primary)] shadow-sm transition-transform duration-300 hover:scale-105">
-              <M3Icon
-                name="person_add"
-                :filled="true"
-                :size="56"
-              />
-            </div>
-            <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-[var(--md-sys-color-on-surface)] select-none">
-              Connect Google Photos
-            </h1>
-            <p class="mt-3 text-sm leading-relaxed text-[var(--md-sys-color-on-surface-variant)] select-none max-w-md">
-              Sign in with your Google account to enable unlimited uploads, album synchronization, and Apple Live Photos pairing.
-            </p>
-            <div class="mt-6 flex flex-wrap items-center justify-center gap-2">
-              <span class="rounded-full bg-[var(--md-sys-color-surface-container-high)] px-3.5 py-1 text-xs font-medium text-[var(--md-sys-color-on-surface-variant)] select-none">
-                Fast multithreaded uploads
-              </span>
-              <span class="rounded-full bg-[var(--md-sys-color-surface-container-high)] px-3.5 py-1 text-xs font-medium text-[var(--md-sys-color-on-surface-variant)] select-none">
-                Auto album organization
-              </span>
-              <span class="rounded-full bg-[var(--md-sys-color-surface-container-high)] px-3.5 py-1 text-xs font-medium text-[var(--md-sys-color-on-surface-variant)] select-none">
-                Original & Saver quality
-              </span>
-            </div>
-            <M3Button
-              variant="filled"
-              size="l"
-              icon="person_add"
-              class="mt-8"
-              aria-label="Add Google account"
-              @click="openAccountSetup"
-            >
-              <span>Add Google Account</span>
-            </M3Button>
-            <p class="mt-4 text-[11px] text-[var(--md-sys-color-on-surface-variant)]/60 select-none">
-              Credentials are stored locally in your system configuration.
-            </p>
-          </div>
-
-          <!-- Normal Drop View (with account connected) -->
-          <div
+        <!-- Account Controls & Quick Actions -->
+        <div
+          class="flex items-center gap-3"
+          style="--wails-draggable: none"
+        >
+          <GoogleAccountSelect
+            v-if="displayOptions.length > 0"
+            v-model="displaySelectedOption"
+            :options="displayOptions"
+            :avatar-url="customAvatar"
+            :removing-account="removingAccount"
+            @item-removed="removeCredentials"
+            @add="openAccountSetup"
+          />
+          <M3Button
             v-else
-            class="relative flex h-full w-full flex-1 flex-col gap-4 min-h-0"
+            variant="filled"
+            size="s"
+            icon="person_add"
+            aria-label="Connect Google account"
+            @click="openAccountSetup"
           >
-            <!-- Token binding alert banner if needed -->
+            <span>Connect Account</span>
+          </M3Button>
+        </div>
+      </header>
+
+      <!-- Scrollable Canvas Pane -->
+      <section
+        class="m3-main-scroll-pane relative flex flex-1 h-full min-w-0 flex-col overflow-y-auto p-6 md:p-8"
+        :class="isSettling && 'm3-launch-settle'"
+        :style="isSettling ? { '--settle-index': 2, '--launch-stagger': settleStagger + 'ms' } : undefined"
+      >
+        <Transition
+          name="m3-fade-through"
+          mode="out-in"
+          type="animation"
+        >
+          <!-- Upload Screen -->
+          <div
+            v-if="activeTab === 'upload'"
+            key="upload"
+            class="m3-tab-pane flex flex-col flex-1 w-full gap-6 min-h-0"
+            style="--wails-draggable: none"
+          >
+            <!-- Uploading active progress view -->
             <div
-              v-if="tokenBindingEmail"
-              class="w-full shrink-0 rounded-[24px] border border-amber-500/30 bg-amber-500/10 p-4 flex items-center justify-between gap-4"
-              style="--wails-draggable: none"
+              v-if="uploadState.isUploading"
+              class="h-full w-full"
             >
-              <p class="text-xs text-amber-200">
-                This credential needs a token binding key from the rooted Android device it was captured from.
-              </p>
-              <button
-                type="button"
-                class="inline-flex h-9 shrink-0 items-center justify-center rounded-full bg-amber-400 px-4 text-xs font-semibold text-amber-950 transition-colors hover:bg-amber-300 disabled:opacity-50 cursor-pointer"
-                :disabled="isExtractingTokenBinding"
-                @click="addTokenBindingAliasFromADB"
-              >
-                {{ isExtractingTokenBinding ? 'Reading ADB...' : 'Read from ADB' }}
-              </button>
+              <Upload />
             </div>
 
-            <!-- Large Tonal Drop Zone Card -->
+            <!-- Empty State: No Account Connected -->
             <div
-              data-file-drop-target
-              data-drop-zone="regular"
-              class="drop-zone group relative flex flex-1 w-full min-h-[260px] flex-col items-center justify-center rounded-[32px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] p-8 md:p-10 text-center select-none shadow-xs"
-              style="--wails-draggable: none"
+              v-else-if="displayOptions.length === 0"
+              class="flex h-full w-full flex-1 flex-col items-center justify-center text-center p-8 select-none my-auto"
             >
-              <div class="relative mb-5 flex size-28 items-center justify-center m3-shape-cookie bg-[var(--md-sys-color-primary-container)]/40 text-[var(--md-sys-color-primary)] shadow-xs">
+              <div class="relative mb-6 flex size-28 items-center justify-center m3-shape-cookie bg-[var(--md-sys-color-primary-container)]/40 text-[var(--md-sys-color-primary)] shadow-sm transition-transform duration-300 hover:scale-105">
                 <M3Icon
-                  name="cloud_upload"
-                  :filled="isDraggingFiles"
+                  name="person_add"
+                  :filled="true"
                   :size="56"
                 />
               </div>
-              <h2 class="text-2xl font-bold text-[var(--md-sys-color-on-surface)] select-none m3-headline-medium">
-                Drop files to upload
-              </h2>
-              <p class="mt-2 text-sm text-[var(--md-sys-color-on-surface-variant)] select-none max-w-md m3-body-medium">
-                Drag photos, videos, or complete directories anywhere on this card.
+              <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight text-[var(--md-sys-color-on-surface)] select-none">
+                Connect Google Photos
+              </h1>
+              <p class="mt-3 text-sm leading-relaxed text-[var(--md-sys-color-on-surface-variant)] select-none max-w-md">
+                Sign in with your Google account to enable unlimited multithreaded uploads, album synchronization, and Apple Live Photos pairing.
               </p>
               <div class="mt-6 flex flex-wrap items-center justify-center gap-2">
                 <span class="rounded-full bg-[var(--md-sys-color-surface-container-high)] px-3.5 py-1 text-xs font-medium text-[var(--md-sys-color-on-surface-variant)] select-none">
-                  Apple Live Photos
+                  Fast multithreaded uploads
                 </span>
                 <span class="rounded-full bg-[var(--md-sys-color-surface-container-high)] px-3.5 py-1 text-xs font-medium text-[var(--md-sys-color-on-surface-variant)] select-none">
-                  Original & Saver Quality
+                  Auto album organization
                 </span>
                 <span class="rounded-full bg-[var(--md-sys-color-surface-container-high)] px-3.5 py-1 text-xs font-medium text-[var(--md-sys-color-on-surface-variant)] select-none">
-                  Auto Album by Folder
+                  Original & Saver quality
                 </span>
               </div>
+              <M3Button
+                variant="filled"
+                size="l"
+                icon="person_add"
+                class="mt-8"
+                aria-label="Add Google account"
+                @click="openAccountSetup"
+              >
+                <span>Add Google Account</span>
+              </M3Button>
+              <p class="mt-4 text-[11px] text-[var(--md-sys-color-on-surface-variant)]/60 select-none">
+                Credentials are stored locally in your system configuration.
+              </p>
             </div>
 
-            <!-- Floating Extended FAB for File & Folder Selection -->
+            <!-- Normal Upload Hub with 3-Card Drop Targets -->
             <div
-              class="absolute bottom-4 right-4 md:bottom-6 md:right-6 z-20"
-              style="--wails-draggable: none"
+              v-else
+              class="flex flex-col flex-1 w-full gap-6"
             >
-              <M3ExtendedFab
-                :disabled="isPickingMedia"
-                @pick-files="handlePickFiles"
-                @pick-folder="handlePickFolder"
+              <!-- Token binding alert banner if needed -->
+              <div
+                v-if="tokenBindingEmail"
+                class="w-full shrink-0 rounded-[24px] border border-amber-500/30 bg-amber-500/10 p-4 flex items-center justify-between gap-4"
+              >
+                <p class="text-xs text-amber-200">
+                  This credential needs a token binding key from the rooted Android device it was captured from.
+                </p>
+                <button
+                  type="button"
+                  class="inline-flex h-9 shrink-0 items-center justify-center rounded-full bg-amber-400 px-4 text-xs font-semibold text-amber-950 transition-colors hover:bg-amber-300 disabled:opacity-50 cursor-pointer"
+                  :disabled="isExtractingTokenBinding"
+                  @click="addTokenBindingAliasFromADB"
+                >
+                  {{ isExtractingTokenBinding ? 'Reading ADB...' : 'Read from ADB' }}
+                </button>
+              </div>
+
+              <!-- Hub Header & Capability Tags -->
+              <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div>
+                  <h2 class="text-2xl font-bold tracking-tight text-[var(--md-sys-color-on-surface)]">
+                    Upload Photos & Videos
+                  </h2>
+                  <p class="mt-1 text-xs text-[var(--md-sys-color-on-surface-variant)]">
+                    Drag files or directories directly onto any destination card below, or use the action buttons.
+                  </p>
+                </div>
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="rounded-full bg-[var(--md-sys-color-surface-container-high)] px-3 py-1 text-[11px] font-medium text-[var(--md-sys-color-on-surface-variant)]">
+                    Live Photos
+                  </span>
+                  <span class="rounded-full bg-[var(--md-sys-color-surface-container-high)] px-3 py-1 text-[11px] font-medium text-[var(--md-sys-color-on-surface-variant)]">
+                    Hash Deduplication
+                  </span>
+                  <span class="rounded-full bg-[var(--md-sys-color-surface-container-high)] px-3 py-1 text-[11px] font-medium text-[var(--md-sys-color-on-surface-variant)]">
+                    Original / Saver
+                  </span>
+                </div>
+              </div>
+
+              <!-- Three Expressive Drop & Action Cards -->
+              <div class="grid grid-cols-1 md:grid-cols-3 gap-5 flex-1 min-h-[300px]">
+                <!-- Card 1: Direct Library Upload -->
+                <div
+                  data-file-drop-target
+                  data-drop-zone="regular"
+                  class="drop-zone m3-drop-card group relative flex flex-col items-center justify-between rounded-[32px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] p-6 md:p-8 text-center cursor-pointer shadow-xs transition-transform duration-200 hover:-translate-y-1"
+                  :class="isDraggingFiles && 'border-[var(--md-sys-color-primary)] ring-2 ring-[var(--md-sys-color-primary)]/40 bg-[var(--md-sys-color-primary-container)]/20'"
+                  :style="{ '--card-index': 0 }"
+                  @click="handlePickFiles"
+                >
+                  <div class="flex flex-col items-center">
+                    <div class="mb-4 flex size-16 items-center justify-center m3-shape-cookie bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)] shadow-sm">
+                      <M3Icon
+                        name="cloud_upload"
+                        :filled="isDraggingFiles"
+                        :size="32"
+                      />
+                    </div>
+                    <h3 class="text-base font-bold text-[var(--md-sys-color-on-surface)] select-none">
+                      Direct Upload
+                    </h3>
+                    <p class="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)] select-none leading-relaxed max-w-[220px]">
+                      Upload directly to your Google Photos timeline. Live Photos pair automatically.
+                    </p>
+                  </div>
+
+                  <div class="mt-6 flex flex-col items-center gap-2">
+                    <M3Button
+                      variant="filled"
+                      size="s"
+                      icon="add_photo_alternate"
+                      @click.stop="handlePickFiles"
+                    >
+                      Choose Files
+                    </M3Button>
+                    <span class="text-[10px] text-[var(--md-sys-color-on-surface-variant)]/70">
+                      or drop files here
+                    </span>
+                  </div>
+                </div>
+
+                <!-- Card 2: Upload to Album -->
+                <div
+                  data-file-drop-target
+                  data-drop-zone="album"
+                  class="drop-zone m3-drop-card group relative flex flex-col items-center justify-between rounded-[32px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] p-6 md:p-8 text-center cursor-pointer shadow-xs transition-transform duration-200 hover:-translate-y-1"
+                  :class="isDraggingFiles && 'border-[var(--md-sys-color-secondary)] ring-2 ring-[var(--md-sys-color-secondary)]/40 bg-[var(--md-sys-color-secondary-container)]/20'"
+                  :style="{ '--card-index': 1 }"
+                  @click="promptPickForAlbum"
+                >
+                  <div class="flex flex-col items-center">
+                    <div class="mb-4 flex size-16 items-center justify-center m3-shape-scallop bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)] shadow-sm">
+                      <M3Icon
+                        name="create_new_folder"
+                        :filled="isDraggingFiles"
+                        :size="32"
+                      />
+                    </div>
+                    <h3 class="text-base font-bold text-[var(--md-sys-color-on-surface)] select-none">
+                      Upload to Album
+                    </h3>
+                    <p class="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)] select-none leading-relaxed max-w-[220px]">
+                      Add files into a specific Google Photos album of your choice, or create a new one.
+                    </p>
+                  </div>
+
+                  <div class="mt-6 flex flex-col items-center gap-2">
+                    <M3Button
+                      variant="tonal"
+                      size="s"
+                      icon="folder_special"
+                      @click.stop="promptPickForAlbum"
+                    >
+                      Select Album
+                    </M3Button>
+                    <span class="text-[10px] text-[var(--md-sys-color-on-surface-variant)]/70">
+                      or drop files here
+                    </span>
+                  </div>
+                </div>
+
+                <!-- Card 3: Smart Folder Sync -->
+                <div
+                  data-file-drop-target
+                  data-drop-zone="auto-album"
+                  class="drop-zone m3-drop-card group relative flex flex-col items-center justify-between rounded-[32px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] p-6 md:p-8 text-center cursor-pointer shadow-xs transition-transform duration-200 hover:-translate-y-1"
+                  :class="isDraggingFiles && 'border-[var(--md-sys-color-tertiary)] ring-2 ring-[var(--md-sys-color-tertiary)]/40 bg-[var(--md-sys-color-tertiary-container)]/20'"
+                  :style="{ '--card-index': 2 }"
+                  @click="handlePickFolder"
+                >
+                  <div class="flex flex-col items-center">
+                    <div class="mb-4 flex size-16 items-center justify-center m3-shape-squircle bg-[var(--md-sys-color-tertiary-container)] text-[var(--md-sys-color-on-tertiary-container)] shadow-sm">
+                      <M3Icon
+                        name="auto_awesome"
+                        :filled="isDraggingFiles"
+                        :size="32"
+                      />
+                    </div>
+                    <h3 class="text-base font-bold text-[var(--md-sys-color-on-surface)] select-none">
+                      Auto Album by Folder
+                    </h3>
+                    <p class="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)] select-none leading-relaxed max-w-[220px]">
+                      Upload entire directories. Albums will be generated automatically based on folder names.
+                    </p>
+                  </div>
+
+                  <div class="mt-6 flex flex-col items-center gap-2">
+                    <M3Button
+                      variant="outlined"
+                      size="s"
+                      icon="folder_copy"
+                      @click.stop="handlePickFolder"
+                    >
+                      Choose Folder
+                    </M3Button>
+                    <span class="text-[10px] text-[var(--md-sys-color-on-surface-variant)]/70">
+                      or drop folders here
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Floating Extended FAB -->
+              <div
+                class="fixed bottom-6 right-8 z-30"
+                style="--wails-draggable: none"
+              >
+                <M3ExtendedFab
+                  :disabled="isPickingMedia"
+                  @pick-files="handlePickFiles"
+                  @pick-folder="handlePickFolder"
+                />
+              </div>
+
+              <!-- Upload Results Summary if present -->
+              <UploadResultsCard
+                v-if="uploadState.uploadedFiles > 0 || uploadState.results.fail.length > 0"
+                :results="uploadState.results"
+                class="shrink-0 mt-2"
+                style="--wails-draggable: none"
+                @copy="handleCopyClick"
+                @clear="() => uploadManager.resetUploadResults()"
+                @retry-all="handleRetryAll"
+                @retry-item="handleRetryItem"
               />
             </div>
-
-            <!-- Upload Results Summary -->
-            <UploadResultsCard
-              v-if="uploadState.uploadedFiles > 0 || uploadState.results.fail.length > 0"
-              :results="uploadState.results"
-              class="shrink-0"
-              style="--wails-draggable: none"
-              @copy="handleCopyClick"
-              @clear="() => uploadManager.resetUploadResults()"
-              @retry-all="handleRetryAll"
-              @retry-item="handleRetryItem"
-            />
           </div>
-        </div>
 
-        <!-- View: Settings Tab -->
-        <div
-          v-else-if="activeTab === 'settings'"
-          key="settings"
-          class="m3-tab-pane flex h-full w-full flex-1 flex-col min-h-0 overflow-y-auto"
-          style="--wails-draggable: none"
-        >
-          <TooltipProvider disable-hoverable-content>
-            <SettingsPanel @upload-folder="onUploadFolderFromSettings" />
-          </TooltipProvider>
-        </div>
-      </Transition>
-    </section>
+          <!-- Settings Screen -->
+          <div
+            v-else-if="activeTab === 'settings'"
+            key="settings"
+            class="m3-tab-pane flex flex-col flex-1 w-full min-h-0"
+            style="--wails-draggable: none"
+          >
+            <TooltipProvider disable-hoverable-content>
+              <SettingsPanel @upload-folder="onUploadFolderFromSettings" />
+            </TooltipProvider>
+          </div>
+        </Transition>
+      </section>
+    </div>
 
     <!-- Add Account Dialog -->
     <GoogleAuthSetup
