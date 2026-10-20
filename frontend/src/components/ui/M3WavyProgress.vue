@@ -73,8 +73,13 @@ const clampedPercent = computed(() => {
   100% { transform: translateX(-100px); }
 }
 
+.wavy-track {
+  contain: strict;
+}
+
 .animate-wavy-slide {
   animation: wavySlide 2s linear infinite;
+  will-change: transform;
 }
 
 :global(html[data-nowave]) .wavy-track {
