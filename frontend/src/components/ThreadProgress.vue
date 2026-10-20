@@ -22,15 +22,15 @@ const statusConfig = computed(() => {
       }
     case 'skipped':
       return {
-        color: 'text-amber-200',
-        bg: 'bg-amber-500/20',
+        color: 'text-[var(--md-sys-color-on-surface-variant)]',
+        bg: 'bg-[var(--md-sys-color-surface-container-highest)]',
         label: 'Skipped',
       }
     case 'uploading':
       if (props.thread.Attempt > 1) {
         return {
-          color: 'text-orange-200',
-          bg: 'bg-orange-500/20',
+          color: 'text-[var(--md-sys-color-on-secondary-container)]',
+          bg: 'bg-[var(--md-sys-color-secondary-container)]',
           label: `Retry #${props.thread.Attempt - 1}`,
         }
       }
@@ -41,20 +41,20 @@ const statusConfig = computed(() => {
       }
     case 'hashing':
       return {
-        color: 'text-cyan-200',
-        bg: 'bg-cyan-500/20',
+        color: 'text-[var(--md-sys-color-on-secondary-container)]',
+        bg: 'bg-[var(--md-sys-color-secondary-container)]',
         label: 'Hashing',
       }
     case 'checking':
       return {
-        color: 'text-yellow-200',
-        bg: 'bg-yellow-500/20',
+        color: 'text-[var(--md-sys-color-on-surface-variant)]',
+        bg: 'bg-[var(--md-sys-color-surface-container-high)]',
         label: 'Checking',
       }
     case 'finalizing':
       return {
-        color: 'text-purple-200',
-        bg: 'bg-purple-500/20',
+        color: 'text-[var(--md-sys-color-on-tertiary-container)]',
+        bg: 'bg-[var(--md-sys-color-tertiary-container)]',
         label: 'Finalizing',
       }
     default:

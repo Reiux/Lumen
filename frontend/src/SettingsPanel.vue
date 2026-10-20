@@ -7,6 +7,9 @@ import M3Slider from './components/ui/M3Slider.vue'
 import M3Button from './components/ui/M3Button.vue'
 import M3Icon from './components/ui/M3Icon.vue'
 import M3LoadingIndicator from './components/ui/M3LoadingIndicator.vue'
+import M3TextField from './components/ui/M3TextField.vue'
+import M3ColorPalettePicker from './components/ui/M3ColorPalettePicker.vue'
+import { displayNameFromEmail, getCustomDisplayName, saveCustomDisplayName, getEmailInitial } from './utils/avatar'
 import {
   Tooltip,
   TooltipContent,
@@ -68,6 +71,41 @@ const isTrayAvailable = ref(true)
 const watchedConfigs = ref<WatchedFolderConfig[]>([])
 const inotifyError = ref('')
 const pendingBacklog = ref<{ folder: string; count: number; account: string } | null>(null)
+
+const activeAccountEmail = ref('')
+const showSettingsEditName = ref(false)
+const settingsDisplayName = ref('')
+
+async function refreshActiveAccount() {
+  try {
+    const acc = await ConfigManager.GetAccounts()
+    activeAccountEmail.value = acc.selected || ''
+  } catch (e) {
+    console.warn('Failed to load accounts in settings:', e)
+  }
+}
+
+function openSettingsEditName() {
+  if (!activeAccountEmail.value) return
+  settingsDisplayName.value = getCustomDisplayName(activeAccountEmail.value) || displayNameFromEmail(activeAccountEmail.value)
+  showSettingsEditName.value = true
+}
+
+function closeSettingsEditName() {
+  showSettingsEditName.value = false
+}
+
+function saveSettingsDisplayName() {
+  if (!activeAccountEmail.value) return
+  saveCustomDisplayName(activeAccountEmail.value, settingsDisplayName.value.trim())
+  showSettingsEditName.value = false
+}
+
+function resetSettingsDisplayName() {
+  if (!activeAccountEmail.value) return
+  saveCustomDisplayName(activeAccountEmail.value, '')
+  showSettingsEditName.value = false
+}
 
 const SPEED_STEPS = [0, 512, 1024, 2048, 5120, 10240, 20480, 51200]
 
@@ -214,6 +252,7 @@ onMounted(async () => {
     if (!isTrayAvailable.value) {
       settings.value.minimizeToTray = false
     }
+    await refreshActiveAccount()
   } finally {
     await nextTick()
     isHydrating.value = false
@@ -316,12 +355,12 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
 
 <template>
   <div class="flex flex-col gap-6 p-2 max-w-5xl mx-auto w-full select-none">
-    <!-- Header -->
+    <!-- Header with emphasized typography -->
     <div class="flex flex-col gap-1">
-      <h1 class="text-2xl font-bold tracking-tight text-[var(--md-sys-color-on-surface)]">
+      <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight text-[var(--md-sys-color-on-surface)]">
         Settings
       </h1>
-      <p class="text-xs text-[var(--md-sys-color-on-surface-variant)]">
+      <p class="text-xs text-[var(--md-sys-color-on-surface-variant)] leading-relaxed">
         Configure upload quality, concurrency, background automation, and system integration.
       </p>
     </div>
@@ -330,177 +369,231 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
       <!-- COLUMN 1 -->
       <div class="flex flex-col gap-5">
-        <!-- Card: System & Notifications -->
-        <div class="flex flex-col gap-5 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-6 shadow-xs">
-          <div class="flex items-center gap-2.5 text-[var(--md-sys-color-primary)]">
+        <!-- Section: Appearance & Dynamic Color (Material You Color Picker) -->
+        <div class="flex flex-col gap-3.5 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-5 shadow-xs overflow-visible">
+          <div class="flex items-center gap-2.5 px-1 text-[var(--md-sys-color-primary)]">
+            <M3Icon
+              name="palette"
+              :size="20"
+            />
+            <h2 class="text-sm font-bold text-[var(--md-sys-color-on-surface)]">
+              Appearance & Theme Color
+            </h2>
+          </div>
+
+          <div class="rounded-[20px] bg-[var(--md-sys-color-surface-container-low)] p-4 overflow-visible">
+            <M3ColorPalettePicker />
+          </div>
+        </div>
+
+        <!-- Section: Account & Display Name -->
+        <div
+          v-if="activeAccountEmail"
+          class="flex flex-col gap-3.5 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-5 shadow-xs"
+        >
+          <div class="flex items-center gap-2.5 px-1 text-[var(--md-sys-color-primary)]">
+            <M3Icon
+              name="badge"
+              :size="20"
+            />
+            <h2 class="text-sm font-bold text-[var(--md-sys-color-on-surface)]">
+              Account & Profile
+            </h2>
+          </div>
+
+          <div class="flex items-center justify-between gap-4 rounded-[20px] bg-[var(--md-sys-color-surface-container-low)] p-4">
+            <div class="flex items-center gap-3 min-w-0">
+              <div
+                class="flex size-11 shrink-0 items-center justify-center rounded-full text-sm font-bold text-[var(--md-sys-color-on-primary-container)] bg-[var(--md-sys-color-primary-container)]"
+              >
+                {{ getEmailInitial(activeAccountEmail) }}
+              </div>
+              <div class="flex flex-col min-w-0">
+                <span class="text-sm font-semibold text-[var(--md-sys-color-on-surface)] truncate">
+                  {{ displayNameFromEmail(activeAccountEmail) }}
+                </span>
+                <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] truncate">
+                  {{ activeAccountEmail }}
+                </span>
+              </div>
+            </div>
+
+            <M3Button
+              variant="tonal"
+              size="s"
+              @click="openSettingsEditName"
+            >
+              <M3Icon
+                name="edit"
+                :size="16"
+              />
+              <span>Change Name</span>
+            </M3Button>
+          </div>
+        </div>
+
+        <!-- Section: System & Notifications -->
+        <div class="flex flex-col gap-3 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-5 shadow-xs">
+          <div class="flex items-center gap-2.5 px-1 text-[var(--md-sys-color-primary)]">
             <M3Icon
               name="notifications"
               :size="20"
             />
-            <h2 class="text-base font-semibold text-[var(--md-sys-color-on-surface)]">
+            <h2 class="text-sm font-bold text-[var(--md-sys-color-on-surface)]">
               System & Notifications
             </h2>
           </div>
 
-          <!-- Minimize to Tray on Close -->
-          <div class="flex items-start justify-between gap-4 pt-1">
-            <div class="flex flex-col">
-              <label
-                for="tray-minimize-switch"
-                class="text-sm font-medium text-[var(--md-sys-color-on-surface)]"
-                :class="{ 'opacity-50 cursor-not-allowed': !isTrayAvailable, 'cursor-pointer': isTrayAvailable }"
-              >
-                Minimize to Tray on Close
-              </label>
-              <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5">
-                {{ isTrayAvailable ? 'Keep Lumen running in the system tray when closing the window.' : 'System tray host not detected on this desktop.' }}
-              </span>
+          <!-- Grouped segmented list items (4dp gap, 16-20px corners, varied surface levels) -->
+          <div class="flex flex-col gap-1.5">
+            <!-- Minimize to Tray on Close -->
+            <div class="flex items-center justify-between gap-4 rounded-[20px] bg-[var(--md-sys-color-surface-container-low)] p-4 transition-colors hover:bg-[var(--md-sys-color-surface-container-high)]/60">
+              <div class="flex flex-col min-w-0 pr-2">
+                <label
+                  for="tray-minimize-switch"
+                  class="text-sm font-medium text-[var(--md-sys-color-on-surface)]"
+                  :class="{ 'opacity-50 cursor-not-allowed': !isTrayAvailable, 'cursor-pointer': isTrayAvailable }"
+                >
+                  Minimize to Tray on Close
+                </label>
+                <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5 leading-relaxed">
+                  {{ isTrayAvailable ? 'Keep Lumen running in the system tray when closing the window.' : 'System tray host not detected on this desktop.' }}
+                </span>
+              </div>
+              <M3Switch
+                id="tray-minimize-switch"
+                v-model="settings.minimizeToTray"
+                :disabled="!isTrayAvailable"
+                aria-label="Minimize to tray toggle"
+              />
             </div>
-            <M3Switch
-              id="tray-minimize-switch"
-              v-model="settings.minimizeToTray"
-              :disabled="!isTrayAvailable"
-              aria-label="Minimize to tray toggle"
-            />
-          </div>
 
-          <div class="h-px w-full bg-[var(--md-sys-color-outline-variant)]/30" />
-
-          <!-- Desktop Notifications -->
-          <div class="flex items-start justify-between gap-4">
-            <div class="flex flex-col">
-              <label
-                for="desktop-notifications-switch"
-                class="text-sm font-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
-              >
-                Desktop Notifications
-              </label>
-              <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5">
-                Display system desktop notification when upload batches finish.
-              </span>
+            <!-- Desktop Notifications -->
+            <div class="flex items-center justify-between gap-4 rounded-[20px] bg-[var(--md-sys-color-surface-container-low)] p-4 transition-colors hover:bg-[var(--md-sys-color-surface-container-high)]/60">
+              <div class="flex flex-col min-w-0 pr-2">
+                <label
+                  for="desktop-notifications-switch"
+                  class="text-sm font-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
+                >
+                  Desktop Notifications
+                </label>
+                <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5 leading-relaxed">
+                  Display system desktop notification when upload batches finish.
+                </span>
+              </div>
+              <M3Switch
+                id="desktop-notifications-switch"
+                v-model="settings.notifyOnComplete"
+                aria-label="Desktop notifications toggle"
+              />
             </div>
-            <M3Switch
-              id="desktop-notifications-switch"
-              v-model="settings.notifyOnComplete"
-              aria-label="Desktop notifications toggle"
-            />
           </div>
         </div>
 
-        <!-- Card: Performance & Network -->
-        <div class="flex flex-col gap-5 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-6 shadow-xs">
-          <div class="flex items-center gap-2.5 text-[var(--md-sys-color-primary)]">
+        <!-- Section: Performance & Network -->
+        <div class="flex flex-col gap-3 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-5 shadow-xs">
+          <div class="flex items-center gap-2.5 px-1 text-[var(--md-sys-color-primary)]">
             <M3Icon
               name="tune"
               :size="20"
             />
-            <h2 class="text-base font-semibold text-[var(--md-sys-color-on-surface)]">
+            <h2 class="text-sm font-bold text-[var(--md-sys-color-on-surface)]">
               Performance & Network
             </h2>
           </div>
 
-          <!-- Upload Threads Slider -->
-          <div class="flex flex-col gap-2 pt-1">
-            <div class="flex items-center justify-between">
-              <div class="flex flex-col">
-                <span class="text-sm font-medium text-[var(--md-sys-color-on-surface)]">Upload Threads</span>
-                <span class="text-xs text-[var(--md-sys-color-on-surface-variant)]">Concurrent upload workers</span>
-              </div>
-              <span class="inline-flex items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)] px-3 py-0.5 text-xs font-bold text-[var(--md-sys-color-on-primary-container)] shadow-xs">
-                {{ settings.uploadThreads }} {{ settings.uploadThreads === 1 ? 'thread' : 'threads' }}
-              </span>
-            </div>
-            <div class="flex items-center gap-3">
-              <span class="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)]">1</span>
-              <M3Slider
-                v-model="settings.uploadThreads"
-                :min="1"
-                :max="20"
-                aria-label="Upload Threads slider"
-              />
-              <span class="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)]">20</span>
-            </div>
-          </div>
-
-          <div class="h-px w-full bg-[var(--md-sys-color-outline-variant)]/30" />
-
-          <!-- Upload Speed Limiter -->
           <div class="flex flex-col gap-2">
-            <div class="flex items-center justify-between">
-              <div class="flex flex-col">
-                <div class="flex items-center gap-1.5">
-                  <M3Icon
-                    name="speed"
-                    :size="16"
-                    class="text-[var(--md-sys-color-primary)]"
-                  />
-                  <span class="text-sm font-medium text-[var(--md-sys-color-on-surface)]">Bandwidth Limit</span>
+            <!-- Upload Threads Slider (Grouped item) -->
+            <div class="flex flex-col gap-3 rounded-[20px] bg-[var(--md-sys-color-surface-container-low)] p-4">
+              <div class="flex items-center justify-between">
+                <div class="flex flex-col">
+                  <span class="text-sm font-medium text-[var(--md-sys-color-on-surface)]">Upload Threads</span>
+                  <span class="text-xs text-[var(--md-sys-color-on-surface-variant)]">Concurrent upload workers</span>
                 </div>
-                <span class="text-xs text-[var(--md-sys-color-on-surface-variant)]">Pace upload speed to prevent network saturation</span>
+                <span class="inline-flex items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)] px-3 py-0.5 text-xs font-bold text-[var(--md-sys-color-on-primary-container)] shadow-xs">
+                  {{ settings.uploadThreads }} {{ settings.uploadThreads === 1 ? 'thread' : 'threads' }}
+                </span>
               </div>
-              <span class="inline-flex items-center justify-center rounded-full bg-[var(--md-sys-color-secondary-container)] px-3 py-0.5 text-xs font-bold text-[var(--md-sys-color-on-secondary-container)] shadow-xs shrink-0 whitespace-nowrap">
-                {{ speedLimitDisplay }}
-              </span>
+              <div class="flex items-center gap-3 pt-1">
+                <span class="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)]">1</span>
+                <M3Slider
+                  v-model="settings.uploadThreads"
+                  :min="1"
+                  :max="20"
+                  aria-label="Upload Threads slider"
+                />
+                <span class="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)]">20</span>
+              </div>
             </div>
-            <div class="flex items-center gap-3">
-              <span class="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)] shrink-0 select-none">Unlimited</span>
-              <M3Slider
-                v-model="speedStepIndex"
-                :min="0"
-                :max="SPEED_STEPS.length - 1"
-                :step="1"
-                aria-label="Upload Speed Limit slider"
-              />
-              <span class="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)] shrink-0 whitespace-nowrap select-none">50 MB/s</span>
+
+            <!-- Upload Speed Limiter (Grouped item) -->
+            <div class="flex flex-col gap-3 rounded-[20px] bg-[var(--md-sys-color-surface-container-low)] p-4">
+              <div class="flex items-center justify-between">
+                <div class="flex flex-col">
+                  <div class="flex items-center gap-1.5">
+                    <M3Icon
+                      name="speed"
+                      :size="16"
+                      class="text-[var(--md-sys-color-primary)]"
+                    />
+                    <span class="text-sm font-medium text-[var(--md-sys-color-on-surface)]">Bandwidth Limit</span>
+                  </div>
+                  <span class="text-xs text-[var(--md-sys-color-on-surface-variant)]">Pace upload speed to prevent network saturation</span>
+                </div>
+                <span class="inline-flex items-center justify-center rounded-full bg-[var(--md-sys-color-secondary-container)] px-3 py-0.5 text-xs font-bold text-[var(--md-sys-color-on-secondary-container)] shadow-xs shrink-0 whitespace-nowrap">
+                  {{ speedLimitDisplay }}
+                </span>
+              </div>
+              <div class="flex items-center gap-3 pt-1">
+                <span class="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)] shrink-0 select-none">Unlimited</span>
+                <M3Slider
+                  v-model="speedStepIndex"
+                  :min="0"
+                  :max="SPEED_STEPS.length - 1"
+                  :step="1"
+                  aria-label="Upload Speed Limit slider"
+                />
+                <span class="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)] shrink-0 whitespace-nowrap select-none">50 MB/s</span>
+              </div>
             </div>
-          </div>
 
-          <div class="h-px w-full bg-[var(--md-sys-color-outline-variant)]/30" />
-
-          <!-- Proxy URL with Floating Label -->
-          <div class="relative pt-1">
-            <div class="m3-outlined-field relative rounded-2xl border border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container-low)] transition-colors duration-150 focus-within:border-2 focus-within:border-[var(--md-sys-color-primary)]">
-              <input
+            <!-- Proxy URL with authentic M3 Outlined Text Field (4dp corners & floating label) -->
+            <div class="rounded-[20px] bg-[var(--md-sys-color-surface-container-low)] p-4">
+              <M3TextField
                 id="proxy-input"
                 v-model="settings.proxy"
-                type="text"
-                placeholder=" "
-                class="peer w-full rounded-2xl bg-transparent px-4 pt-5 pb-2 text-sm text-[var(--md-sys-color-on-surface)] outline-none"
-              >
-              <label
-                for="proxy-input"
-                class="pointer-events-none absolute left-4 top-2 text-[11px] font-medium text-[var(--md-sys-color-primary)] transition-[top,font-size,color] duration-150 peer-placeholder-shown:top-3.5 peer-placeholder-shown:text-xs peer-placeholder-shown:text-[var(--md-sys-color-on-surface-variant)] peer-focus:top-2 peer-focus:text-[11px] peer-focus:text-[var(--md-sys-color-primary)]"
-              >
-                Proxy URL (optional)
-              </label>
+                label="Proxy URL (optional)"
+                placeholder="http://127.0.0.1:7890"
+                supporting-text="Optional HTTP, HTTPS, or SOCKS5 proxy"
+                variant="outlined"
+                leading-icon="vpn_lock"
+              />
             </div>
-            <p class="mt-1.5 px-1 text-[11px] text-[var(--md-sys-color-on-surface-variant)]">
-              Optional HTTP, HTTPS, or SOCKS5 proxy (e.g. http://127.0.0.1:7890)
-            </p>
           </div>
         </div>
 
-        <!-- Card: Auto-Backup (Folder Watcher) -->
-        <div class="flex flex-col gap-4 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-6 shadow-xs">
-          <div class="flex items-center gap-2.5 text-[var(--md-sys-color-primary)]">
+        <!-- Section: Auto-Backup (Folder Watcher) -->
+        <div class="flex flex-col gap-3 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-5 shadow-xs">
+          <div class="flex items-center gap-2.5 px-1 text-[var(--md-sys-color-primary)]">
             <M3Icon
               name="sync_saved_locally"
               :size="20"
             />
-            <h2 class="text-base font-semibold text-[var(--md-sys-color-on-surface)]">
+            <h2 class="text-sm font-bold text-[var(--md-sys-color-on-surface)]">
               Auto-Backup (Folder Watcher)
             </h2>
           </div>
 
-          <div class="flex items-start justify-between gap-4 pt-1">
-            <div class="flex flex-col">
+          <!-- Watch Folders Switch Item -->
+          <div class="flex items-center justify-between gap-4 rounded-[20px] bg-[var(--md-sys-color-surface-container-low)] p-4 transition-colors hover:bg-[var(--md-sys-color-surface-container-high)]/60">
+            <div class="flex flex-col min-w-0 pr-2">
               <label
                 for="watch-folders-switch"
                 class="text-sm font-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
               >
                 Auto-Watch Folders
               </label>
-              <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5">
+              <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5 leading-relaxed">
                 Automatically monitor local directories and queue new photos and videos for upload.
               </span>
             </div>
@@ -514,7 +607,7 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
           <!-- Watched Folders List & Picker -->
           <div
             v-if="settings.watchFoldersEnabled"
-            class="flex flex-col gap-3 rounded-2xl bg-[var(--md-sys-color-surface-container-high)]/60 p-3.5 border border-[var(--md-sys-color-outline-variant)]/30 mt-1"
+            class="flex flex-col gap-3 rounded-[20px] bg-[var(--md-sys-color-surface-container-high)]/60 p-4 border border-[var(--md-sys-color-outline-variant)]/30"
           >
             <!-- Inotify Limit Alert -->
             <div
@@ -536,7 +629,7 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
             <!-- Delete From Host Safety Notice -->
             <div
               v-if="settings.deleteFromHost"
-              class="flex items-center gap-2 rounded-xl bg-[var(--md-sys-color-surface-container-highest)]/80 px-3 py-2 text-[11px] text-[var(--md-sys-color-on-surface-variant)] border border-[var(--md-sys-color-outline-variant)]/30"
+              class="flex items-center gap-2 rounded-xl bg-[var(--md-sys-color-surface-container-highest)] px-3 py-2 text-[11px] text-[var(--md-sys-color-on-surface-variant)] border border-[var(--md-sys-color-outline-variant)]/30"
             >
               <M3Icon
                 name="info"
@@ -613,15 +706,17 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                     </span>
                   </div>
                 </div>
+                <!-- Remove folder icon button with state layer -->
                 <button
                   type="button"
-                  class="rounded-full p-1.5 text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-error)] transition-colors cursor-pointer shrink-0"
+                  class="m3-interactive flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-error-container)] hover:text-[var(--md-sys-color-on-error-container)] transition-colors"
                   title="Remove folder"
+                  aria-label="Remove watched folder"
                   @click="removeWatchedFolder(item.path)"
                 >
                   <M3Icon
                     name="delete"
-                    :size="14"
+                    :size="15"
                   />
                 </button>
               </div>
@@ -632,347 +727,348 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
 
       <!-- COLUMN 2 -->
       <div class="flex flex-col gap-5">
-        <!-- Card: Quality & Quota -->
-        <div class="flex flex-col gap-4 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-6 shadow-xs">
-          <div class="flex items-center gap-2.5 text-[var(--md-sys-color-primary)]">
+        <!-- Section: Quality & Storage -->
+        <div class="flex flex-col gap-3 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-5 shadow-xs">
+          <div class="flex items-center gap-2.5 px-1 text-[var(--md-sys-color-primary)]">
             <M3Icon
               name="storage"
               :size="20"
             />
-            <h2 class="text-base font-semibold text-[var(--md-sys-color-on-surface)]">
+            <h2 class="text-sm font-bold text-[var(--md-sys-color-on-surface)]">
               Quality & Storage
             </h2>
           </div>
 
-          <!-- Use Quota -->
-          <div class="flex items-start justify-between gap-4 pt-1">
-            <div class="flex flex-col">
-              <label
-                for="use-quota-switch"
-                class="text-sm font-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
-              >
-                Use Quota
-              </label>
-              <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5">
-                Uploads in original quality that count against your Google Drive storage limit.
-              </span>
-            </div>
-            <M3Switch
-              id="use-quota-switch"
-              v-model="settings.useQuota"
-              aria-label="Use Quota toggle"
-            />
-          </div>
-
-          <div class="h-px w-full bg-[var(--md-sys-color-outline-variant)]/30" />
-
-          <!-- Storage Saver Quality -->
-          <div class="flex items-start justify-between gap-4">
-            <div class="flex flex-col">
-              <label
-                for="saver-mode-switch"
-                class="text-sm font-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
-              >
-                Storage Saver Quality
-              </label>
-              <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5">
-                Compress photos and videos slightly to save storage space without noticeable loss.
-              </span>
-            </div>
-            <M3Switch
-              id="saver-mode-switch"
-              v-model="settings.saver"
-              aria-label="Storage Saver Quality toggle"
-            />
-          </div>
-
-          <div class="h-px w-full bg-[var(--md-sys-color-outline-variant)]/30" />
-
-          <!-- Local Hash Cache -->
-          <div class="flex items-start justify-between gap-4">
-            <div class="flex flex-col">
-              <div class="flex items-center gap-1.5">
-                <M3Icon
-                  name="database"
-                  :filled="true"
-                  :size="16"
-                  class="text-[var(--md-sys-color-primary)]"
-                />
+          <div class="flex flex-col gap-1.5">
+            <!-- Use Quota -->
+            <div class="flex items-center justify-between gap-4 rounded-[20px] bg-[var(--md-sys-color-surface-container-low)] p-4 transition-colors hover:bg-[var(--md-sys-color-surface-container-high)]/60">
+              <div class="flex flex-col min-w-0 pr-2">
                 <label
-                  for="local-hash-cache-switch"
+                  for="use-quota-switch"
                   class="text-sm font-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
                 >
-                  Local Hash Cache
+                  Use Quota
                 </label>
+                <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5 leading-relaxed">
+                  Uploads in original quality that count against your Google Drive storage limit.
+                </span>
               </div>
-              <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5">
-                Deduplicate media locally by file hash to avoid querying Google Photos. Files deleted from Google Photos won't re-upload while cached.
-              </span>
-            </div>
-            <M3Switch
-              id="local-hash-cache-switch"
-              v-model="settings.useLocalHashCache"
-              aria-label="Local Hash Cache toggle"
-            />
-          </div>
-
-          <!-- Hash Cache Status & Clear Button -->
-          <div
-            v-if="settings.useLocalHashCache"
-            class="flex items-center justify-between rounded-2xl bg-[var(--md-sys-color-surface-container-high)]/60 px-4 py-2.5 border border-[var(--md-sys-color-outline-variant)]/30"
-          >
-            <div class="flex items-center gap-2 text-xs text-[var(--md-sys-color-on-surface)]">
-              <span class="font-medium">Active account:</span>
-              <span class="font-bold text-[var(--md-sys-color-primary)]">
-                {{ hashCacheCount.toLocaleString() }} {{ hashCacheCount === 1 ? 'file' : 'files' }} cached
-              </span>
-            </div>
-            <M3Button
-              variant="outlined"
-              size="xs"
-              :disabled="isClearingCache || hashCacheCount === 0"
-              @click="clearHashCache"
-            >
-              <M3LoadingIndicator
-                v-if="isClearingCache"
-                size="xs"
-                color="var(--md-sys-color-primary)"
+              <M3Switch
+                id="use-quota-switch"
+                v-model="settings.useQuota"
+                aria-label="Use Quota toggle"
               />
-              <span>{{ isClearingCache ? 'Clearing...' : 'Clear Cache' }}</span>
-            </M3Button>
+            </div>
+
+            <!-- Storage Saver Quality -->
+            <div class="flex items-center justify-between gap-4 rounded-[20px] bg-[var(--md-sys-color-surface-container-low)] p-4 transition-colors hover:bg-[var(--md-sys-color-surface-container-high)]/60">
+              <div class="flex flex-col min-w-0 pr-2">
+                <label
+                  for="saver-mode-switch"
+                  class="text-sm font-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
+                >
+                  Storage Saver Quality
+                </label>
+                <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5 leading-relaxed">
+                  Compress photos and videos slightly to save storage space without noticeable loss.
+                </span>
+              </div>
+              <M3Switch
+                id="saver-mode-switch"
+                v-model="settings.saver"
+                aria-label="Storage Saver Quality toggle"
+              />
+            </div>
+
+            <!-- Local Hash Cache -->
+            <div class="flex flex-col gap-3 rounded-[20px] bg-[var(--md-sys-color-surface-container-low)] p-4">
+              <div class="flex items-center justify-between gap-4">
+                <div class="flex flex-col min-w-0 pr-2">
+                  <div class="flex items-center gap-1.5">
+                    <M3Icon
+                      name="database"
+                      :filled="true"
+                      :size="16"
+                      class="text-[var(--md-sys-color-primary)]"
+                    />
+                    <label
+                      for="local-hash-cache-switch"
+                      class="text-sm font-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
+                    >
+                      Local Hash Cache
+                    </label>
+                  </div>
+                  <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5 leading-relaxed">
+                    Deduplicate media locally by file hash to avoid querying Google Photos.
+                  </span>
+                </div>
+                <M3Switch
+                  id="local-hash-cache-switch"
+                  v-model="settings.useLocalHashCache"
+                  aria-label="Local Hash Cache toggle"
+                />
+              </div>
+
+              <!-- Hash Cache Status & Clear Button -->
+              <div
+                v-if="settings.useLocalHashCache"
+                class="flex items-center justify-between rounded-xl bg-[var(--md-sys-color-surface-container-high)]/70 px-3.5 py-2 border border-[var(--md-sys-color-outline-variant)]/30"
+              >
+                <div class="flex items-center gap-2 text-xs text-[var(--md-sys-color-on-surface)]">
+                  <span class="font-medium">Active account:</span>
+                  <span class="font-bold text-[var(--md-sys-color-primary)]">
+                    {{ hashCacheCount.toLocaleString() }} {{ hashCacheCount === 1 ? 'file' : 'files' }} cached
+                  </span>
+                </div>
+                <M3Button
+                  variant="outlined"
+                  destructive
+                  size="xs"
+                  :disabled="isClearingCache || hashCacheCount === 0"
+                  @click="clearHashCache"
+                >
+                  <M3LoadingIndicator
+                    v-if="isClearingCache"
+                    size="xs"
+                    color="var(--md-sys-color-error)"
+                  />
+                  <span>{{ isClearingCache ? 'Clearing...' : 'Clear Cache' }}</span>
+                </M3Button>
+              </div>
+            </div>
           </div>
         </div>
 
-        <!-- Card: Behavior -->
-        <div class="flex flex-col gap-4 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-6 shadow-xs">
-          <div class="flex items-center gap-2.5 text-[var(--md-sys-color-primary)]">
+        <!-- Section: Upload Behavior -->
+        <div class="flex flex-col gap-3 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-5 shadow-xs">
+          <div class="flex items-center gap-2.5 px-1 text-[var(--md-sys-color-primary)]">
             <M3Icon
               name="language"
               :size="20"
             />
-            <h2 class="text-base font-semibold text-[var(--md-sys-color-on-surface)]">
+            <h2 class="text-sm font-bold text-[var(--md-sys-color-on-surface)]">
               Upload Behavior
             </h2>
           </div>
 
-          <!-- Recursive Directory Upload -->
-          <div class="flex items-start justify-between gap-4 pt-1">
-            <div class="flex flex-col">
-              <label
-                for="recursive-switch"
-                class="text-sm font-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
-              >
-                Recursive Directory Upload
-              </label>
-              <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5">
-                Recursively discover and upload all media inside subfolders.
-              </span>
-            </div>
-            <M3Switch
-              id="recursive-switch"
-              v-model="settings.recursive"
-              aria-label="Recursive Directory Upload toggle"
-            />
-          </div>
-
-          <div class="h-px w-full bg-[var(--md-sys-color-outline-variant)]/30" />
-
-          <!-- Force Upload -->
-          <div class="flex items-start justify-between gap-4">
-            <div class="flex flex-col">
-              <div class="flex items-center gap-1.5">
+          <div class="flex flex-col gap-1.5">
+            <!-- Recursive Directory Upload -->
+            <div class="flex items-center justify-between gap-4 rounded-[20px] bg-[var(--md-sys-color-surface-container-low)] p-4 transition-colors hover:bg-[var(--md-sys-color-surface-container-high)]/60">
+              <div class="flex flex-col min-w-0 pr-2">
                 <label
-                  for="force-upload-switch"
+                  for="recursive-switch"
                   class="text-sm font-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
                 >
-                  Force Upload
+                  Recursive Directory Upload
                 </label>
-                <Tooltip>
-                  <TooltipTrigger as-child>
-                    <button
-                      type="button"
-                      class="inline-flex size-4 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]"
-                      aria-label="More information about Force Upload"
-                    >
-                      <M3Icon
-                        name="info"
-                        :size="14"
-                      />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent class="max-w-72 rounded-xl bg-[var(--md-sys-color-surface-container-highest)] p-2.5 text-xs text-[var(--md-sys-color-on-surface)]">
-                    Applies to single files. Live Photo pairs always check both components for duplicates.
-                  </TooltipContent>
-                </Tooltip>
+                <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5 leading-relaxed">
+                  Recursively discover and upload all media inside subfolders.
+                </span>
               </div>
-              <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5">
-                Bypasses cloud duplicate checks and uploads every file again.
-              </span>
-            </div>
-            <M3Switch
-              id="force-upload-switch"
-              v-model="settings.forceUpload"
-              aria-label="Force Upload toggle"
-            />
-          </div>
-
-          <div class="h-px w-full bg-[var(--md-sys-color-outline-variant)]/30" />
-
-          <!-- Disable Unsupported Files Filter -->
-          <div class="flex items-start justify-between gap-4">
-            <div class="flex flex-col">
-              <label
-                for="filter-unsupported-switch"
-                class="text-sm font-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
-              >
-                Disable Unsupported Files Filter
-              </label>
-              <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5">
-                Attempts upload on all selected files even if the format isn't recognized.
-              </span>
-            </div>
-            <M3Switch
-              id="filter-unsupported-switch"
-              v-model="settings.disableUnsupportedFilesFilter"
-              aria-label="Disable Unsupported Files Filter toggle"
-            />
-          </div>
-
-          <div class="h-px w-full bg-[var(--md-sys-color-outline-variant)]/30" />
-
-          <!-- Pair Apple Live Photos -->
-          <div class="flex items-start justify-between gap-4">
-            <div class="flex flex-col">
-              <label
-                for="pair-live-photos-switch"
-                class="text-sm font-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
-              >
-                Pair Apple Live Photos
-              </label>
-              <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5">
-                Identify Apple Live Photo image and MOV pairs via metadata and upload them as one item.
-              </span>
-            </div>
-            <M3Switch
-              id="pair-live-photos-switch"
-              v-model="settings.pairLivePhotos"
-              aria-label="Pair Apple Live Photos toggle"
-            />
-          </div>
-
-          <!-- Live Photo Sub-options (indented card when enabled) -->
-          <div
-            v-if="settings.pairLivePhotos"
-            class="flex flex-col gap-3 rounded-2xl bg-[var(--md-sys-color-surface-container-high)]/60 p-3.5 border border-[var(--md-sys-color-outline-variant)]/30"
-          >
-            <div class="flex items-center justify-between gap-3">
-              <span class="text-xs text-[var(--md-sys-color-on-surface)] font-medium">Skip Incomplete Live Photos</span>
               <M3Switch
-                v-model="settings.skipIncompleteLivePhotos"
-                aria-label="Skip Incomplete Live Photos toggle"
+                id="recursive-switch"
+                v-model="settings.recursive"
+                aria-label="Recursive Directory Upload toggle"
               />
             </div>
-            <div class="flex items-center justify-between gap-3">
-              <span class="text-xs text-[var(--md-sys-color-on-surface)] font-medium">Update Existing to Live</span>
+
+            <!-- Force Upload -->
+            <div class="flex items-center justify-between gap-4 rounded-[20px] bg-[var(--md-sys-color-surface-container-low)] p-4 transition-colors hover:bg-[var(--md-sys-color-surface-container-high)]/60">
+              <div class="flex flex-col min-w-0 pr-2">
+                <div class="flex items-center gap-1.5">
+                  <label
+                    for="force-upload-switch"
+                    class="text-sm font-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
+                  >
+                    Force Upload
+                  </label>
+                  <Tooltip>
+                    <TooltipTrigger as-child>
+                      <button
+                        type="button"
+                        class="inline-flex size-4 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]"
+                        aria-label="More information about Force Upload"
+                      >
+                        <M3Icon
+                          name="info"
+                          :size="14"
+                        />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent class="max-w-72 rounded-xl bg-[var(--md-sys-color-surface-container-highest)] p-2.5 text-xs text-[var(--md-sys-color-on-surface)]">
+                      Applies to single files. Live Photo pairs always check both components for duplicates.
+                    </TooltipContent>
+                  </Tooltip>
+                </div>
+                <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5 leading-relaxed">
+                  Bypasses cloud duplicate checks and uploads every file again.
+                </span>
+              </div>
               <M3Switch
-                v-model="settings.updateExistingPhotosToLive"
-                aria-label="Update Existing Photos to Live toggle"
+                id="force-upload-switch"
+                v-model="settings.forceUpload"
+                aria-label="Force Upload toggle"
               />
             </div>
-          </div>
 
-          <div class="h-px w-full bg-[var(--md-sys-color-outline-variant)]/30" />
-
-          <!-- Set Upload Date from Filename -->
-          <div class="flex items-start justify-between gap-4">
-            <div class="flex flex-col">
-              <label
-                for="set-date-switch"
-                class="text-sm font-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
-              >
-                Set Upload Date from Filename
-              </label>
-              <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5">
-                Parses timestamp directly from the filename to set the photo creation date.
-              </span>
+            <!-- Disable Unsupported Files Filter -->
+            <div class="flex items-center justify-between gap-4 rounded-[20px] bg-[var(--md-sys-color-surface-container-low)] p-4 transition-colors hover:bg-[var(--md-sys-color-surface-container-high)]/60">
+              <div class="flex flex-col min-w-0 pr-2">
+                <label
+                  for="filter-unsupported-switch"
+                  class="text-sm font-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
+                >
+                  Disable Unsupported Files Filter
+                </label>
+                <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5 leading-relaxed">
+                  Attempts upload on all selected files even if the format isn't recognized.
+                </span>
+              </div>
+              <M3Switch
+                id="filter-unsupported-switch"
+                v-model="settings.disableUnsupportedFilesFilter"
+                aria-label="Disable Unsupported Files Filter toggle"
+              />
             </div>
-            <M3Switch
-              id="set-date-switch"
-              v-model="settings.setDateFromFilename"
-              aria-label="Set Upload Date from Filename toggle"
-            />
+
+            <!-- Pair Apple Live Photos -->
+            <div class="flex flex-col gap-3 rounded-[20px] bg-[var(--md-sys-color-surface-container-low)] p-4">
+              <div class="flex items-center justify-between gap-4">
+                <div class="flex flex-col min-w-0 pr-2">
+                  <label
+                    for="pair-live-photos-switch"
+                    class="text-sm font-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
+                  >
+                    Pair Apple Live Photos
+                  </label>
+                  <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5 leading-relaxed">
+                    Identify Apple Live Photo image and MOV pairs via metadata and upload them as one item.
+                  </span>
+                </div>
+                <M3Switch
+                  id="pair-live-photos-switch"
+                  v-model="settings.pairLivePhotos"
+                  aria-label="Pair Apple Live Photos toggle"
+                />
+              </div>
+
+              <!-- Live Photo Sub-options (indented card when enabled) -->
+              <div
+                v-if="settings.pairLivePhotos"
+                class="flex flex-col gap-2 rounded-xl bg-[var(--md-sys-color-surface-container-high)]/70 p-3 border border-[var(--md-sys-color-outline-variant)]/30 mt-1"
+              >
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-xs text-[var(--md-sys-color-on-surface)] font-medium">Skip Incomplete Live Photos</span>
+                  <M3Switch
+                    v-model="settings.skipIncompleteLivePhotos"
+                    aria-label="Skip Incomplete Live Photos toggle"
+                  />
+                </div>
+                <div class="flex items-center justify-between gap-3">
+                  <span class="text-xs text-[var(--md-sys-color-on-surface)] font-medium">Update Existing to Live</span>
+                  <M3Switch
+                    v-model="settings.updateExistingPhotosToLive"
+                    aria-label="Update Existing Photos to Live toggle"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <!-- Set Upload Date from Filename -->
+            <div class="flex items-center justify-between gap-4 rounded-[20px] bg-[var(--md-sys-color-surface-container-low)] p-4 transition-colors hover:bg-[var(--md-sys-color-surface-container-high)]/60">
+              <div class="flex flex-col min-w-0 pr-2">
+                <label
+                  for="set-date-switch"
+                  class="text-sm font-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
+                >
+                  Set Upload Date from Filename
+                </label>
+                <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5 leading-relaxed">
+                  Parses timestamp directly from the filename to set the photo creation date.
+                </span>
+              </div>
+              <M3Switch
+                id="set-date-switch"
+                v-model="settings.setDateFromFilename"
+                aria-label="Set Upload Date from Filename toggle"
+              />
+            </div>
           </div>
         </div>
 
-        <!-- Card: Danger Zone -->
-        <div class="flex flex-col gap-4 rounded-[28px] border border-[var(--md-sys-color-error)]/40 bg-[var(--md-sys-color-error-container)]/15 p-6 shadow-xs">
-          <div class="flex items-center gap-2.5 text-[var(--md-sys-color-error)]">
+        <!-- Section: Danger Zone -->
+        <div class="flex flex-col gap-3 rounded-[28px] border border-[var(--md-sys-color-error)]/40 bg-[var(--md-sys-color-error-container)]/15 p-5 shadow-xs">
+          <div class="flex items-center gap-2.5 px-1 text-[var(--md-sys-color-error)]">
             <M3Icon
               name="local_fire_department"
               :filled="true"
               :size="20"
             />
-            <h2 class="text-base font-semibold text-[var(--md-sys-color-error)]">
+            <h2 class="text-sm font-bold text-[var(--md-sys-color-error)]">
               Danger Zone
             </h2>
           </div>
 
-          <div class="flex items-start justify-between gap-4 pt-1">
-            <div class="flex flex-col">
-              <label
-                for="delete-host-switch"
-                class="text-sm font-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
-              >
-                Delete From Host After Upload
-              </label>
-              <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5">
-                Permanently delete source files from your local storage immediately after successful upload.
-              </span>
-            </div>
-            <M3Switch
-              id="delete-host-switch"
-              :model-value="settings.deleteFromHost"
-              variant="danger"
-              aria-label="Delete From Host After Upload toggle"
-              @update:model-value="onToggleDelete"
-            />
-          </div>
-
-          <!-- Confirm Dialog / Banner -->
-          <div
-            v-if="showDeleteConfirm"
-            class="mt-2 flex flex-col gap-3 rounded-2xl border border-[var(--md-sys-color-error)]/60 bg-[var(--md-sys-color-error-container)]/40 p-4"
-          >
-            <div class="flex items-start gap-2.5 text-[var(--md-sys-color-error)]">
-              <M3Icon
-                name="warning"
-                :filled="true"
-                :size="20"
-                class="shrink-0 mt-0.5"
-              />
-              <div class="flex flex-col gap-1">
-                <span class="text-xs font-bold text-[var(--md-sys-color-on-error-container)]">Confirm Local File Deletion</span>
-                <p class="text-[11px] leading-relaxed text-[var(--md-sys-color-on-error-container)]/90">
-                  Are you absolutely sure? All files successfully uploaded to Google Photos will be permanently deleted from your local hard drive. This cannot be undone.
-                </p>
+          <div class="flex flex-col gap-2">
+            <div class="flex items-center justify-between gap-4 rounded-[20px] bg-[var(--md-sys-color-surface-container-low)] p-4">
+              <div class="flex flex-col min-w-0 pr-2">
+                <label
+                  for="delete-host-switch"
+                  class="text-sm font-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
+                >
+                  Delete From Host After Upload
+                </label>
+                <span class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5 leading-relaxed">
+                  Permanently delete source files from your local storage immediately after successful upload.
+                </span>
               </div>
+              <M3Switch
+                id="delete-host-switch"
+                :model-value="settings.deleteFromHost"
+                variant="danger"
+                aria-label="Delete From Host After Upload toggle"
+                @update:model-value="onToggleDelete"
+              />
             </div>
-            <div class="flex justify-end gap-2.5 pt-1">
-              <M3Button
-                variant="outlined"
-                size="s"
-                @click="cancelDeleteFromHost"
-              >
-                Cancel
-              </M3Button>
-              <M3Button
-                variant="filled"
-                size="s"
-                class="m3e-btn-danger"
-                @click="confirmDeleteFromHost"
-              >
-                Yes, Enable Deletion
-              </M3Button>
+
+            <!-- Confirm Dialog / Banner -->
+            <div
+              v-if="showDeleteConfirm"
+              class="flex flex-col gap-3 rounded-2xl border border-[var(--md-sys-color-error)]/60 bg-[var(--md-sys-color-error-container)]/40 p-4"
+            >
+              <div class="flex items-start gap-2.5 text-[var(--md-sys-color-error)]">
+                <M3Icon
+                  name="warning"
+                  :filled="true"
+                  :size="20"
+                  class="shrink-0 mt-0.5"
+                />
+                <div class="flex flex-col gap-1">
+                  <span class="text-xs font-bold text-[var(--md-sys-color-on-error-container)]">Confirm Local File Deletion</span>
+                  <p class="text-[11px] leading-relaxed text-[var(--md-sys-color-on-error-container)]/90">
+                    Are you absolutely sure? All files successfully uploaded to Google Photos will be permanently deleted from your local hard drive. This cannot be undone.
+                  </p>
+                </div>
+              </div>
+              <div class="flex justify-end gap-2.5 pt-1">
+                <M3Button
+                  variant="outlined"
+                  destructive
+                  size="s"
+                  @click="cancelDeleteFromHost"
+                >
+                  Cancel
+                </M3Button>
+                <M3Button
+                  variant="filled"
+                  destructive
+                  size="s"
+                  class="m3e-btn-danger"
+                  @click="confirmDeleteFromHost"
+                >
+                  Yes, Enable Deletion
+                </M3Button>
+              </div>
             </div>
           </div>
         </div>
@@ -980,7 +1076,7 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
     </div>
   </div>
 
-  <!-- Backlog Confirmation Modal -->
+  <!-- Backlog Confirmation Modal (28dp corners, surface-container-high) -->
   <Teleport to="body">
     <Transition name="m3-dialog-modal">
       <div
@@ -1011,6 +1107,7 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
           <div class="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2">
             <M3Button
               variant="outlined"
+              destructive
               size="s"
               class="w-full sm:w-auto"
               @click="cancelBacklog"
@@ -1033,6 +1130,86 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
             >
               Upload Backlog & Watch
             </M3Button>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
+  <!-- Edit Display Name Modal Dialog -->
+  <Teleport to="body">
+    <Transition name="m3-dialog-modal">
+      <div
+        v-if="showSettingsEditName"
+        class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 select-none overflow-y-auto"
+        style="--wails-draggable: none"
+        @click.self="closeSettingsEditName"
+      >
+        <div
+          class="m3-dialog-card relative flex w-full max-w-md flex-col items-center justify-center gap-5 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container-high)] p-8 text-center shadow-2xl"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="settings-edit-name-title"
+        >
+          <div class="flex size-16 items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
+            <M3Icon
+              name="badge"
+              :filled="true"
+              :size="32"
+            />
+          </div>
+          <div class="flex flex-col gap-1">
+            <h2
+              id="settings-edit-name-title"
+              class="text-xl font-bold text-[var(--md-sys-color-on-surface)] select-none"
+            >
+              Change Display Name
+            </h2>
+            <p class="text-xs text-[var(--md-sys-color-on-surface-variant)] select-none">
+              For account <strong class="text-[var(--md-sys-color-on-surface)]">{{ activeAccountEmail }}</strong>
+            </p>
+          </div>
+
+          <div class="w-full text-left flex flex-col gap-1.5">
+            <M3TextField
+              id="settings-edit-name-input"
+              v-model="settingsDisplayName"
+              label="Display Name"
+              placeholder="e.g. Alex"
+              variant="outlined"
+              leading-icon="person"
+              autofocus
+              @keydown.enter="saveSettingsDisplayName"
+            />
+            <span class="text-[11px] text-[var(--md-sys-color-on-surface-variant)] px-1">
+              Saved locally on this device since login credentials only include an OAuth token.
+            </span>
+          </div>
+
+          <div class="flex w-full items-center justify-between gap-3 mt-1">
+            <button
+              type="button"
+              class="m3-interactive text-xs font-medium text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-error)] transition-colors px-2.5 py-1.5 rounded-full cursor-pointer hover:bg-[var(--md-sys-color-surface-container-highest)]"
+              @click="resetSettingsDisplayName"
+            >
+              Reset to default
+            </button>
+            <div class="flex items-center gap-2">
+              <M3Button
+                variant="outlined"
+                destructive
+                size="s"
+                @click="closeSettingsEditName"
+              >
+                Cancel
+              </M3Button>
+              <M3Button
+                variant="filled"
+                size="s"
+                @click="saveSettingsDisplayName"
+              >
+                Save
+              </M3Button>
+            </div>
           </div>
         </div>
       </div>

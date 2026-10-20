@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import M3Icon from './ui/M3Icon.vue'
+import { displayNameFromEmail } from '../utils/avatar'
 import {
   SelectItem as SelectItemPrimitive,
   SelectItemIndicator,
@@ -98,7 +99,7 @@ const selectedInitial = computed(() => {
       </div>
 
       <span class="truncate text-xs font-medium">
-        {{ selectedValue || 'Select account' }}
+        {{ selectedValue ? displayNameFromEmail(selectedValue) : 'Select account' }}
       </span>
 
       <M3Icon
@@ -128,15 +129,23 @@ const selectedInitial = computed(() => {
         >
           <SelectItemPrimitive
             :value="option"
-            class="m3-interactive m3-menu-item flex flex-1 min-w-0 items-center min-h-[48px] gap-2.5 rounded-2xl pl-2.5 pr-1 py-1.5 text-xs text-[var(--md-sys-color-on-surface)] outline-none select-none cursor-pointer"
+            class="m3-interactive m3-menu-item flex flex-1 min-w-0 items-center min-h-[48px] gap-2.5 rounded-2xl pl-2.5 pr-1 py-1.5 text-xs text-[var(--md-sys-color-on-surface)] data-[state=checked]:bg-[var(--md-sys-color-secondary-container)] data-[state=checked]:text-[var(--md-sys-color-on-secondary-container)] data-[state=checked]:font-semibold outline-none select-none cursor-pointer transition-colors"
           >
-            <div class="flex size-7 shrink-0 items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)] text-xs font-semibold text-[var(--md-sys-color-on-primary-container)]">
+            <div
+              class="flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors"
+              :class="option === selectedValue
+                ? 'bg-[var(--md-sys-color-on-secondary-container)] text-[var(--md-sys-color-secondary-container)]'
+                : 'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]'"
+            >
               {{ option.charAt(0).toUpperCase() }}
             </div>
             <SelectItemText class="min-w-0 flex-1 truncate">
-              <span class="block truncate text-xs font-medium">{{ option }}</span>
+              <div class="flex flex-col min-w-0 text-left">
+                <span class="block truncate text-xs font-semibold leading-tight">{{ displayNameFromEmail(option) }}</span>
+                <span class="block truncate text-[10px] text-[var(--md-sys-color-on-surface-variant)] leading-tight">{{ option }}</span>
+              </div>
             </SelectItemText>
-            <SelectItemIndicator class="shrink-0 text-[var(--md-sys-color-primary)] mx-0.5">
+            <SelectItemIndicator class="shrink-0 text-[var(--md-sys-color-on-secondary-container)] mx-0.5">
               <M3Icon
                 name="check"
                 :size="16"

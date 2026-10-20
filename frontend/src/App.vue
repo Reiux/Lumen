@@ -5,8 +5,7 @@ import { toast } from 'vue-sonner'
 import { Events } from '@wailsio/runtime'
 import { ConfigManager } from '../bindings/app/core'
 import M3Button from './components/ui/M3Button.vue'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
+import M3TextField from './components/ui/M3TextField.vue'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import GoogleAccountSelect from './components/GoogleAccountSelect.vue'
 import GoogleAuthSetup from './components/GoogleAuthSetup.vue'
@@ -22,13 +21,16 @@ import M3ExtendedFab from './components/ui/M3ExtendedFab.vue'
 import { launchReplayTrigger } from './utils/launchState'
 import { uploadManager } from './utils/UploadManager'
 import { mockState } from './utils/mockMode'
+import { cycleNextTheme, themePulseCounter } from './utils/theme'
 import {
   displayNameFromEmail,
   getAvatarColor,
   getCustomAvatar,
+  getCustomDisplayName,
   getEmailInitial,
   processImageFile,
   saveCustomAvatar,
+  saveCustomDisplayName,
 } from './utils/avatar'
 import './index.css'
 
@@ -80,10 +82,47 @@ const recentAlbums = ref<string[]>([])
 const tokenBindingEmail = ref('')
 const isExtractingTokenBinding = ref(false)
 const isAccountSetupOpen = ref(false)
+const showEditNameDialog = ref(false)
+const editingDisplayName = ref('')
+
+function openEditNameDialog() {
+  if (!displaySelectedOption.value) return
+  editingDisplayName.value = getCustomDisplayName(displaySelectedOption.value) || displayNameFromEmail(displaySelectedOption.value)
+  showEditNameDialog.value = true
+}
+
+function closeEditNameDialog() {
+  showEditNameDialog.value = false
+}
+
+function saveNewDisplayName() {
+  if (!displaySelectedOption.value) return
+  saveCustomDisplayName(displaySelectedOption.value, editingDisplayName.value.trim())
+  showEditNameDialog.value = false
+  toast.success('Display name updated')
+}
+
+function resetDisplayName() {
+  if (!displaySelectedOption.value) return
+  saveCustomDisplayName(displaySelectedOption.value, '')
+  showEditNameDialog.value = false
+  toast.success('Display name reset to default')
+}
 const removingAccount = ref('')
 const isSettling = ref(false)
 const settleStagger = ref(40)
 const isSplashActive = ref(typeof window !== 'undefined' && !(window as unknown as { __LUMEN_LAUNCHED__?: boolean }).__LUMEN_LAUNCHED__)
+
+const isLogoPulsing = ref(false)
+let logoPulseTimeout: ReturnType<typeof setTimeout> | null = null
+
+watch(themePulseCounter, () => {
+  isLogoPulsing.value = true
+  if (logoPulseTimeout) clearTimeout(logoPulseTimeout)
+  logoPulseTimeout = setTimeout(() => {
+    isLogoPulsing.value = false
+  }, 500)
+})
 
 function onLaunchStart() {
   isSplashActive.value = true
@@ -519,9 +558,16 @@ onMounted(async () => {
   window.addEventListener('uploadError', uploadErrorHandler)
 
   onGlobalKeydown = (e: KeyboardEvent) => {
-    if (e.key === 'Escape' && showAlbumInput.value) {
-      e.stopPropagation()
-      cancelAlbumUpload()
+    if (e.key === 'Escape') {
+      if (showEditNameDialog.value) {
+        e.stopPropagation()
+        closeEditNameDialog()
+        return
+      }
+      if (showAlbumInput.value) {
+        e.stopPropagation()
+        cancelAlbumUpload()
+      }
     }
   }
   window.addEventListener('keydown', onGlobalKeydown)
@@ -598,8 +644,11 @@ onUnmounted(() => {
           <div class="flex items-center gap-2.5">
             <div
               id="sidebar-app-logo"
-              class="flex size-9 shrink-0 items-center justify-center rounded-xl bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] shadow-sm transition-opacity duration-150"
-              :class="isSplashActive ? 'opacity-0' : 'opacity-100'"
+              class="flex size-9 shrink-0 items-center justify-center rounded-[14px] bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] shadow-sm transition-all duration-300 hover:scale-105"
+              :class="[
+                isSplashActive ? 'opacity-0' : 'opacity-100',
+                isLogoPulsing ? 'scale-125 rotate-12 !rounded-[22px] shadow-lg shadow-[var(--md-sys-color-primary)]/50 ring-2 ring-[var(--md-sys-color-on-primary)]' : '',
+              ]"
             >
               <M3Icon
                 name="light_mode"
@@ -615,25 +664,44 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- Collapse/Expand Toggle Button -->
-          <button
-            type="button"
-            class="inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-on-surface)] transition-colors"
-            :title="isSidebarExpanded ? 'Collapse navigation' : 'Expand navigation'"
-            :aria-label="isSidebarExpanded ? 'Collapse navigation' : 'Expand navigation'"
-            @click="toggleSidebar"
+          <div
+            class="flex items-center gap-1"
+            :class="!isSidebarExpanded && 'flex-col'"
           >
-            <M3Icon
-              :name="isSidebarExpanded ? 'menu_open' : 'menu'"
-              :size="18"
-            />
-          </button>
+            <!-- Quick Theme Palette Cycle Button -->
+            <button
+              type="button"
+              class="inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-[var(--md-sys-color-primary)] hover:bg-[var(--md-sys-color-primary-container)]/50 transition-colors"
+              title="Cycle theme color palette"
+              aria-label="Cycle theme color palette"
+              @click="cycleNextTheme"
+            >
+              <M3Icon
+                name="palette"
+                :size="18"
+              />
+            </button>
+
+            <!-- Collapse/Expand Toggle Button -->
+            <button
+              type="button"
+              class="inline-flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-on-surface)] transition-colors"
+              :title="isSidebarExpanded ? 'Collapse navigation' : 'Expand navigation'"
+              :aria-label="isSidebarExpanded ? 'Collapse navigation' : 'Expand navigation'"
+              @click="toggleSidebar"
+            >
+              <M3Icon
+                :name="isSidebarExpanded ? 'menu_open' : 'menu'"
+                :size="18"
+              />
+            </button>
+          </div>
         </div>
 
         <!-- Profile Card (Expanded View) -->
         <div
           v-if="isSidebarExpanded"
-          class="relative flex flex-col items-center rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-4 text-center shadow-xs"
+          class="relative flex flex-col items-center rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-4 text-center shadow-xs"
           :class="isSettling && 'm3-launch-settle'"
           :style="isSettling ? { '--settle-index': 0, '--launch-stagger': settleStagger + 'ms' } : undefined"
         >
@@ -647,7 +715,7 @@ onUnmounted(() => {
           >
 
           <div
-            class="group relative mb-2.5 flex size-16 cursor-pointer items-center justify-center overflow-hidden rounded-full shadow-inner transition-transform hover:scale-105"
+            class="group relative mb-2.5 flex size-16 cursor-pointer items-center justify-center overflow-hidden rounded-[22px] shadow-inner transition-all duration-200 hover:scale-105 hover:rounded-[16px]"
             :style="{
               backgroundColor: customAvatar ? 'transparent' : getAvatarColor(displaySelectedOption).bg,
               color: getAvatarColor(displaySelectedOption).text,
@@ -685,9 +753,29 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <h3 class="max-w-[210px] truncate text-sm font-semibold text-[var(--md-sys-color-on-surface)]">
-            {{ displaySelectedOption ? displayNameFromEmail(displaySelectedOption) : 'No Account' }}
-          </h3>
+          <div class="flex items-center justify-center gap-1.5 max-w-[210px] group/name">
+            <h3
+              class="truncate text-sm font-semibold text-[var(--md-sys-color-on-surface)] transition-colors"
+              :class="displaySelectedOption && 'cursor-pointer hover:text-[var(--md-sys-color-primary)]'"
+              :title="displaySelectedOption ? 'Click to change display name' : undefined"
+              @click="displaySelectedOption && openEditNameDialog()"
+            >
+              {{ displaySelectedOption ? displayNameFromEmail(displaySelectedOption) : 'No Account' }}
+            </h3>
+            <button
+              v-if="displaySelectedOption"
+              type="button"
+              class="flex size-6 shrink-0 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] transition-all hover:bg-[var(--md-sys-color-primary-container)]/50 hover:text-[var(--md-sys-color-primary)] hover:scale-110 active:scale-95 cursor-pointer"
+              title="Change display name"
+              aria-label="Change display name"
+              @click="openEditNameDialog"
+            >
+              <M3Icon
+                name="edit"
+                :size="13"
+              />
+            </button>
+          </div>
           <p class="max-w-[210px] truncate text-xs text-[var(--md-sys-color-on-surface-variant)]">
             {{ displaySelectedOption || 'Connect an account to upload' }}
           </p>
@@ -724,7 +812,7 @@ onUnmounted(() => {
           class="flex flex-col items-center py-1"
         >
           <div
-            class="group relative flex size-10 cursor-pointer items-center justify-center overflow-hidden rounded-full shadow-inner transition-transform hover:scale-105 border border-[var(--md-sys-color-outline-variant)]/40"
+            class="group relative flex size-10 cursor-pointer items-center justify-center overflow-hidden rounded-[14px] shadow-inner transition-all hover:scale-105 hover:rounded-[10px] border border-[var(--md-sys-color-outline-variant)]/40"
             :style="{
               backgroundColor: customAvatar ? 'transparent' : getAvatarColor(displaySelectedOption).bg,
               color: getAvatarColor(displaySelectedOption).text,
@@ -1214,7 +1302,7 @@ onUnmounted(() => {
           @click.self="cancelAlbumUpload"
         >
           <div
-            class="m3-dialog-card relative flex w-full max-w-md flex-col items-center justify-center gap-5 rounded-[32px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container)] p-8 text-center shadow-2xl"
+            class="m3-dialog-card relative flex w-full max-w-md flex-col items-center justify-center gap-5 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container-high)] p-8 text-center shadow-2xl"
             role="dialog"
             aria-modal="true"
             aria-labelledby="album-dialog-title"
@@ -1238,19 +1326,15 @@ onUnmounted(() => {
               </p>
             </div>
 
-            <div class="flex w-full flex-col gap-2 text-left">
-              <Label
-                for="album-input"
-                class="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)]"
-              >
-                Album name or key
-              </Label>
-              <Input
+            <div class="w-full text-left">
+              <M3TextField
                 id="album-input"
                 v-model="albumNameOrKey"
+                label="Album name or key"
                 placeholder="e.g. Vacation 2026 or AF1Qip... key"
+                variant="outlined"
+                leading-icon="folder"
                 autofocus
-                class="h-11 rounded-2xl bg-[var(--md-sys-color-surface-container-high)] px-4 text-sm border-[var(--md-sys-color-outline-variant)]"
                 @keydown.enter="confirmAlbumUpload"
               />
             </div>
@@ -1296,6 +1380,7 @@ onUnmounted(() => {
             <div class="flex gap-3 mt-1">
               <M3Button
                 variant="outlined"
+                destructive
                 size="s"
                 @click="cancelAlbumUpload"
               >
@@ -1309,6 +1394,87 @@ onUnmounted(() => {
               >
                 Start Upload
               </M3Button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Edit Display Name Dialog (Modal Dialog with Scrim & Spatial Spring) -->
+    <Teleport to="body">
+      <Transition name="m3-dialog-modal">
+        <div
+          v-if="showEditNameDialog"
+          class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 select-none overflow-y-auto"
+          style="--wails-draggable: none"
+          @click.self="closeEditNameDialog"
+        >
+          <div
+            class="m3-dialog-card relative flex w-full max-w-md flex-col items-center justify-center gap-5 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container-high)] p-8 text-center shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="edit-name-dialog-title"
+          >
+            <div class="flex size-16 items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
+              <M3Icon
+                name="badge"
+                :filled="true"
+                :size="32"
+              />
+            </div>
+            <div class="flex flex-col gap-1">
+              <h2
+                id="edit-name-dialog-title"
+                class="text-xl font-bold text-[var(--md-sys-color-on-surface)] select-none"
+              >
+                Change Display Name
+              </h2>
+              <p class="text-xs text-[var(--md-sys-color-on-surface-variant)] select-none">
+                For account <strong class="text-[var(--md-sys-color-on-surface)]">{{ displaySelectedOption }}</strong>
+              </p>
+            </div>
+
+            <div class="w-full text-left flex flex-col gap-1.5">
+              <M3TextField
+                id="edit-name-input"
+                v-model="editingDisplayName"
+                label="Display Name"
+                placeholder="e.g. Alex"
+                variant="outlined"
+                leading-icon="person"
+                autofocus
+                @keydown.enter="saveNewDisplayName"
+              />
+              <span class="text-[11px] text-[var(--md-sys-color-on-surface-variant)] px-1">
+                Saved locally on this device since login credentials only include an OAuth token.
+              </span>
+            </div>
+
+            <div class="flex w-full items-center justify-between gap-3 mt-1">
+              <button
+                type="button"
+                class="m3-interactive text-xs font-medium text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-error)] transition-colors px-2.5 py-1.5 rounded-full cursor-pointer hover:bg-[var(--md-sys-color-surface-container-highest)]"
+                @click="resetDisplayName"
+              >
+                Reset to default
+              </button>
+              <div class="flex items-center gap-2">
+                <M3Button
+                  variant="outlined"
+                  destructive
+                  size="s"
+                  @click="closeEditNameDialog"
+                >
+                  Cancel
+                </M3Button>
+                <M3Button
+                  variant="filled"
+                  size="s"
+                  @click="saveNewDisplayName"
+                >
+                  Save
+                </M3Button>
+              </div>
             </div>
           </div>
         </div>

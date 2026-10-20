@@ -1,10 +1,10 @@
 <script lang="ts">
 export const TIMING = {
-  fadeIn: 250,  // 0-250ms: fade in, scale 0.85 -> 0.92 (effects spring)
-  settle: 500,  // 250-750ms: scale to 1.0 with spatial spring
-  hold: 300,    // 750-1050ms: hold still (deliberate fixed duration)
-  handoff: 450, // 1050-1500ms: FLIP glide to #sidebar-app-logo (splash fades in last 150ms)
-  stagger: 40,  // UI settle stagger between card, nav items, and main pane
+  fadeIn: 280,  // 0-280ms: smooth fade in with scale 0.85 -> 0.94 (effects spring)
+  settle: 360,  // 280-640ms: graceful spatial spring settling into 1.0
+  hold: 240,    // 640-880ms: deliberate hold so the logo is clearly visible
+  handoff: 420, // 880-1300ms: smooth cinematic FLIP glide and corner morph to #sidebar-app-logo
+  stagger: 45,  // UI settle stagger between card, nav items, and main pane
 }
 
 export function getLaunchMultiplier(): number {
@@ -45,7 +45,8 @@ const isVisible = ref(true)
 const splashOpacity = ref(1)
 const splashTransition = ref('none')
 const logoOpacity = ref(0)
-const logoTransform = ref('scale(0.85)')
+const logoTransform = ref('scale(0.88)')
+const logoBorderRadius = ref('32px')
 const logoTransition = ref('none')
 const splashLogoEl = ref<HTMLElement | null>(null)
 
@@ -111,7 +112,8 @@ async function startSequence(isReplay = false) {
   splashOpacity.value = 1
   splashTransition.value = 'none'
   logoOpacity.value = 0
-  logoTransform.value = 'scale(0.85)'
+  logoTransform.value = 'scale(0.88)'
+  logoBorderRadius.value = '32px'
   logoTransition.value = 'none'
 
   emit('start')
@@ -143,23 +145,23 @@ async function startSequence(isReplay = false) {
   const dHold = TIMING.hold * mult
   const dHandoff = TIMING.handoff * mult
   const dStagger = TIMING.stagger * mult
-  const dSplashFade = 150 * mult
+  const dSplashFade = 180 * mult
 
-  // Timeline:
-  // Step 1 (0 to 250ms): fade in + scale 0.85 -> 0.92 (effects spring)
+  // Timeline (smooth, deliberate ~1s cold-start):
+  // Step 1: fade in + scale 0.85 -> 0.94 (effects spring)
   requestAnimationFrame(() => {
     logoTransition.value = `opacity ${dFadeIn}ms var(--md-sys-motion-easing-effects), transform ${dFadeIn}ms var(--md-sys-motion-easing-effects)`
     logoOpacity.value = 1
-    logoTransform.value = 'scale(0.92)'
+    logoTransform.value = 'scale(0.94)'
 
-    // Step 2 (250 to 750ms): scale to 1.0 with gentle spatial spring (one small overshoot)
+    // Step 2: scale to 1.0 with spatial spring
     schedule(() => {
       logoTransition.value = `transform ${dSettle}ms var(--md-sys-motion-easing-spatial)`
       logoTransform.value = 'scale(1.0)'
 
-      // Step 3 (750 to 1050ms): hold still for dHold ms
+      // Step 3: hold still briefly
       schedule(() => {
-        // Step 4 (1050 to 1500ms): FLIP glide to #sidebar-app-logo (~450ms)
+        // Step 4: FLIP container transform glide to #sidebar-app-logo + corner morph
         const targetEl = document.getElementById(props.targetId)
         if (targetEl && splashLogoEl.value) {
           const fromRect = splashLogoEl.value.getBoundingClientRect()
@@ -169,11 +171,12 @@ async function startSequence(isReplay = false) {
           const dy = (toRect.top + toRect.height / 2) - (fromRect.top + fromRect.height / 2)
           const scale = toRect.width / fromRect.width
 
-          logoTransition.value = `transform ${dHandoff}ms var(--md-sys-motion-easing-spatial)`
+          logoTransition.value = `transform ${dHandoff}ms var(--md-sys-motion-easing-spatial), border-radius ${dHandoff}ms var(--md-sys-motion-easing-spatial)`
           logoTransform.value = `translate(${dx}px, ${dy}px) scale(${scale})`
+          logoBorderRadius.value = '14px'
         }
 
-        // Splash fades out in the last 150ms of the handoff, and UI settles in
+        // Splash background fades out during the handoff
         schedule(() => {
           splashTransition.value = `opacity ${dSplashFade}ms ease-out`
           splashOpacity.value = 0
@@ -233,12 +236,13 @@ onUnmounted(() => {
     >
       <div
         ref="splashLogoEl"
-        class="flex size-24 items-center justify-center rounded-[32px] bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)]"
+        class="flex size-24 items-center justify-center bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] shadow-md"
         :style="{
           opacity: logoOpacity,
           transform: logoTransform,
+          borderRadius: logoBorderRadius,
           transition: logoTransition,
-          willChange: isVisible ? 'transform, opacity' : 'auto',
+          willChange: isVisible ? 'transform, opacity, border-radius' : 'auto',
         }"
       >
         <M3Icon

@@ -5,6 +5,7 @@ import { toast } from 'vue-sonner'
 import { ConfigManager } from '../../bindings/app/core'
 import M3Button from './ui/M3Button.vue'
 import M3Icon from './ui/M3Icon.vue'
+import M3TextField from './ui/M3TextField.vue'
 
 const embeddedSetupURL = 'https://accounts.google.com/EmbeddedSetup'
 
@@ -24,6 +25,7 @@ const tokenError = ref('')
 const connectionError = ref('')
 const rawCredentialError = ref('')
 const dialogBodyRef = ref<HTMLElement | null>(null)
+const tokenFieldRef = ref<{ focus?: () => void } | null>(null)
 
 let openerElement: HTMLElement | null = null
 
@@ -34,11 +36,7 @@ watch(isOpen, (open) => {
       if (dialogBodyRef.value) {
         dialogBodyRef.value.scrollTop = 0
       }
-      const input = document.getElementById('google-oauth-token')
-      if (input) {
-        input.focus({ preventScroll: true })
-        input.scrollIntoView({ block: 'nearest' })
-      }
+      tokenFieldRef.value?.focus?.()
     })
   } else {
     oauthToken.value = ''
@@ -186,16 +184,16 @@ async function addRawCredential() {
         style="--wails-draggable: none"
         @click.self="isOpen = false"
       >
-        <!-- Centered M3 Modal Dialog -->
+        <!-- Centered M3 Modal Dialog (28dp corners, level 3 elevation, surface-container-high) -->
         <div
-          class="m3-dialog-card relative flex flex-col w-full max-w-lg rounded-[32px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container)] shadow-2xl outline-none max-h-[calc(100dvh-32px)] overflow-hidden select-none"
+          class="m3-dialog-card relative flex flex-col w-full max-w-lg rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container-high)] shadow-2xl outline-none max-h-[calc(100dvh-32px)] overflow-hidden select-none"
           role="dialog"
           aria-modal="true"
           aria-labelledby="google-auth-title"
           style="--wails-draggable: none"
         >
           <!-- Sticky Header -->
-          <div class="sticky top-0 z-20 flex shrink-0 items-center justify-between border-b border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container)] px-6 py-4">
+          <div class="sticky top-0 z-20 flex shrink-0 items-center justify-between border-b border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-high)] px-6 py-4">
             <div class="flex items-center gap-3">
               <div class="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
                 <M3Icon
@@ -219,7 +217,7 @@ async function addRawCredential() {
 
             <button
               type="button"
-              class="m3-interactive flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-on-surface)]"
+              class="m3-interactive flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)] hover:text-[var(--md-sys-color-on-surface)]"
               aria-label="Close dialog"
               @click="isOpen = false"
             >
@@ -235,8 +233,8 @@ async function addRawCredential() {
             ref="dialogBodyRef"
             class="m3-dialog-body flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-6"
           >
-            <!-- Step 1: Open Google Sign-in -->
-            <div class="flex flex-col gap-3">
+            <!-- Step 1: Open Google Sign-in (Grouped List Style) -->
+            <div class="flex flex-col gap-3 rounded-2xl bg-[var(--md-sys-color-surface-container)] p-4 border border-[var(--md-sys-color-outline-variant)]/30">
               <div class="flex items-center gap-2.5">
                 <span class="flex size-6 shrink-0 items-center justify-center rounded-full bg-[var(--md-sys-color-primary)] text-xs font-bold text-[var(--md-sys-color-on-primary)] shadow-xs">
                   1
@@ -247,7 +245,7 @@ async function addRawCredential() {
               </div>
 
               <!-- Tonal card instructions -->
-              <div class="m3-instructions-card rounded-2xl border border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-low)] p-4 text-xs leading-relaxed text-[var(--md-sys-color-on-surface-variant)]">
+              <div class="m3-instructions-card rounded-xl border border-[var(--md-sys-color-outline-variant)]/20 bg-[var(--md-sys-color-surface-container-low)] p-3 text-xs leading-relaxed text-[var(--md-sys-color-on-surface-variant)]">
                 <ol class="list-decimal space-y-1.5 pl-4">
                   <li>
                     Click the button below to open Google's Embedded Setup page in your default browser.
@@ -264,8 +262,9 @@ async function addRawCredential() {
                 </ol>
               </div>
 
+              <!-- Tonal secondary button per M3E spec -->
               <M3Button
-                variant="outlined"
+                variant="tonal"
                 size="s"
                 icon="open_in_new"
                 :disabled="isConnecting"
@@ -276,8 +275,8 @@ async function addRawCredential() {
               </M3Button>
             </div>
 
-            <!-- Step 2: Paste Token -->
-            <div class="flex flex-col gap-3">
+            <!-- Step 2: Paste Token (Grouped List Style) -->
+            <div class="flex flex-col gap-3 rounded-2xl bg-[var(--md-sys-color-surface-container)] p-4 border border-[var(--md-sys-color-outline-variant)]/30">
               <div class="flex items-center gap-2.5">
                 <span class="flex size-6 shrink-0 items-center justify-center rounded-full bg-[var(--md-sys-color-primary)] text-xs font-bold text-[var(--md-sys-color-on-primary)] shadow-xs">
                   2
@@ -287,65 +286,40 @@ async function addRawCredential() {
                 </h3>
               </div>
 
-              <!-- Outlined Token Field with Floating Label & Paste Action -->
-              <div class="flex flex-col gap-1">
-                <div
-                  class="m3-outlined-field relative flex h-[56px] w-full items-center rounded-2xl border bg-[var(--md-sys-color-surface-container-low)] transition-colors duration-150 focus-within:border-2"
-                  :class="[
-                    tokenError
-                      ? 'border-[var(--md-sys-color-error)] focus-within:border-[var(--md-sys-color-error)] m3-field-error'
-                      : 'border-[var(--md-sys-color-outline)] focus-within:border-[var(--md-sys-color-primary)]',
-                  ]"
+              <!-- M3 Outlined Text Field with 4dp corners & floating label -->
+              <div class="relative w-full">
+                <M3TextField
+                  id="google-oauth-token"
+                  ref="tokenFieldRef"
+                  v-model="oauthToken"
+                  type="password"
+                  label="oauth_token Cookie Value"
+                  variant="outlined"
+                  leading-icon="key"
+                  :error="!!tokenError"
+                  :error-text="tokenError"
+                  :disabled="isConnecting"
+                  @keydown.enter="connectAccount"
+                />
+                <!-- Paste Action Icon Button overlay on trailing area -->
+                <button
+                  type="button"
+                  class="m3-interactive absolute right-2 top-2.5 flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)] hover:text-[var(--md-sys-color-on-surface)]"
+                  aria-label="Paste oauth_token from clipboard"
+                  title="Paste from clipboard"
+                  @click="pasteToken"
                 >
-                  <input
-                    id="google-oauth-token"
-                    v-model="oauthToken"
-                    type="password"
-                    autocomplete="off"
-                    spellcheck="false"
-                    placeholder=" "
-                    class="peer h-full w-full flex-1 rounded-2xl bg-transparent pl-4 pr-[52px] pt-4 pb-1 text-sm text-[var(--md-sys-color-on-surface)] border-0 outline-none shadow-none focus:outline-none focus:ring-0"
-                    :disabled="isConnecting"
-                    @keydown.enter="connectAccount"
-                  >
-                  <label
-                    for="google-oauth-token"
-                    class="pointer-events-none absolute left-4 text-[11px] font-medium transition-[transform,font-size,color] duration-150 peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:text-sm peer-focus:top-2 peer-focus:translate-y-0 peer-focus:text-[11px] top-2 translate-y-0 select-none"
-                    :class="tokenError
-                      ? 'text-[var(--md-sys-color-error)]'
-                      : 'text-[var(--md-sys-color-primary)] peer-placeholder-shown:text-[var(--md-sys-color-on-surface-variant)]'"
-                  >
-                    oauth_token Cookie Value
-                  </label>
-
-                  <!-- Paste Action Icon Button (40x40 trailing icon) -->
-                  <button
-                    type="button"
-                    class="m3-interactive absolute right-1.5 top-1/2 -translate-y-1/2 flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-on-surface)]"
-                    aria-label="Paste oauth_token from clipboard"
-                    title="Paste from clipboard"
-                    @click="pasteToken"
-                  >
-                    <M3Icon
-                      name="content_paste"
-                      :size="20"
-                    />
-                  </button>
-                </div>
-
-                <!-- Visible validation error -->
-                <p
-                  v-if="tokenError"
-                  class="m3-error-text px-2 text-xs font-medium text-[var(--md-sys-color-error)]"
-                >
-                  {{ tokenError }}
-                </p>
+                  <M3Icon
+                    name="content_paste"
+                    :size="18"
+                  />
+                </button>
               </div>
 
-              <!-- Error-container Snackbar for Server Failures -->
+              <!-- Error-container Banner for Server Failures -->
               <div
                 v-if="connectionError"
-                class="flex items-start gap-2.5 rounded-2xl border border-[var(--md-sys-color-error)]/50 bg-[var(--md-sys-color-error-container)] p-3.5 text-xs text-[var(--md-sys-color-on-error-container)] shadow-xs"
+                class="flex items-start gap-2.5 rounded-xl border border-[var(--md-sys-color-error)]/50 bg-[var(--md-sys-color-error-container)] p-3 text-xs text-[var(--md-sys-color-on-error-container)] shadow-xs"
                 role="alert"
               >
                 <M3Icon
@@ -381,56 +355,34 @@ async function addRawCredential() {
 
               <div
                 v-if="showAdvanced"
-                class="mt-4 flex flex-col gap-3"
+                class="mt-4 flex flex-col gap-3 rounded-2xl bg-[var(--md-sys-color-surface-container)] p-4 border border-[var(--md-sys-color-outline-variant)]/30"
               >
-                <div
-                  class="m3-outlined-field relative flex h-[56px] w-full items-center rounded-2xl border bg-[var(--md-sys-color-surface-container-low)] transition-colors duration-150 focus-within:border-2"
-                  :class="rawCredentialError
-                    ? 'border-[var(--md-sys-color-error)] focus-within:border-[var(--md-sys-color-error)] m3-field-error'
-                    : 'border-[var(--md-sys-color-outline)] focus-within:border-[var(--md-sys-color-primary)]'"
-                >
-                  <input
+                <div class="relative w-full">
+                  <M3TextField
                     id="google-raw-credential"
                     v-model="rawCredential"
                     type="password"
-                    autocomplete="off"
-                    spellcheck="false"
-                    placeholder=" "
-                    class="peer h-full w-full flex-1 rounded-2xl bg-transparent pl-4 pr-[52px] pt-4 pb-1 text-sm text-[var(--md-sys-color-on-surface)] border-0 outline-none shadow-none focus:outline-none focus:ring-0"
+                    label="Captured credential (androidId=...&Email=...)"
+                    variant="outlined"
+                    leading-icon="key"
+                    :error="!!rawCredentialError"
+                    :error-text="rawCredentialError"
                     :disabled="isAddingRawCredential"
                     @keydown.enter="addRawCredential"
-                  >
-                  <label
-                    for="google-raw-credential"
-                    class="pointer-events-none absolute left-4 text-[11px] font-medium transition-[transform,font-size,color] duration-150 peer-placeholder-shown:top-1/2 peer-placeholder-shown:-translate-y-1/2 peer-placeholder-shown:text-sm peer-focus:top-2 peer-focus:translate-y-0 peer-focus:text-[11px] top-2 translate-y-0 select-none"
-                    :class="rawCredentialError
-                      ? 'text-[var(--md-sys-color-error)]'
-                      : 'text-[var(--md-sys-color-primary)] peer-placeholder-shown:text-[var(--md-sys-color-on-surface-variant)]'"
-                  >
-                    Captured credential (androidId=...&Email=...)
-                  </label>
-
+                  />
                   <button
                     type="button"
-                    class="m3-interactive absolute right-1.5 top-1/2 -translate-y-1/2 flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-on-surface)]"
+                    class="m3-interactive absolute right-2 top-2.5 flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)] hover:text-[var(--md-sys-color-on-surface)]"
                     aria-label="Paste raw credential from clipboard"
                     title="Paste from clipboard"
                     @click="pasteRawCredential"
                   >
                     <M3Icon
                       name="content_paste"
-                      :size="20"
+                      :size="18"
                     />
                   </button>
                 </div>
-
-                <!-- Visible raw credential error -->
-                <p
-                  v-if="rawCredentialError"
-                  class="px-2 text-xs font-medium text-[var(--md-sys-color-error)]"
-                >
-                  {{ rawCredentialError }}
-                </p>
 
                 <M3Button
                   variant="outlined"
@@ -446,8 +398,8 @@ async function addRawCredential() {
             </div>
           </div>
 
-          <!-- Sticky Footer with Connect Button -->
-          <div class="sticky bottom-0 z-20 shrink-0 border-t border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container)] px-6 py-4 flex items-center justify-end">
+          <!-- Sticky Footer with Filled Primary Connect Button per M3E spec -->
+          <div class="sticky bottom-0 z-20 shrink-0 border-t border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-high)] px-6 py-4 flex items-center justify-end">
             <M3Button
               variant="filled"
               size="m"
