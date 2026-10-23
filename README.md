@@ -6,6 +6,8 @@ Lumen is an unofficial desktop client for Google Photos, built with Wails and Vu
 
 > **Disclaimer:** Unofficial client. Not affiliated with, endorsed by, or supported by Google LLC. Google Photos is a trademark of Google LLC.
 
+> *Looking for the Android mobile app? Check out **[Lumen for Android](https://github.com/Reiux/lumen-android)**.*
+
 ---
 
 ## Features
