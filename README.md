@@ -3,6 +3,8 @@
 ![Downloads](https://img.shields.io/github/downloads/Reiux/Lumen/total?style=for-the-badge)
 ![License](https://img.shields.io/github/license/Reiux/Lumen?style=for-the-badge)
 
+> ⚠️ **Desktop Preview / Active WIP**: The desktop client is undergoing rapid development and a UI overhaul. Core features are functional, but you may encounter bugs. For daily use, consider checking releases for the latest fixes
+
 Lumen is an unofficial desktop client for Google Photos, built with Wails and Vue 3 **(Currently WIP)**. It's a fork of [gotohp](https://github.com/xob0t/gotohp) with a redesigned Material 3 Expressive interface. Core upload and authentication logic are inherited from upstream.
 
 ![Lumen Demo](readme_assets/app_demo.gif)
