@@ -2221,11 +2221,10 @@ onUnmounted(() => {
 
         <!-- View: Settings Tab (Task 2 & 10: wide screen max-w-[1700px]) -->
         <div
-          v-show="activeTab === 'settings'"
+          v-else-if="activeTab === 'settings'"
           key="settings"
           data-tab="settings"
           class="m3-tab-pane flex h-full w-full flex-1 flex-col overflow-y-auto overflow-x-hidden p-6"
-          :class="{ '!hidden': activeTab !== 'settings' }"
           style="contain: layout style; --wails-draggable: none"
         >
           <div class="w-full max-w-[1700px] mx-auto flex flex-col">
@@ -2240,7 +2239,7 @@ onUnmounted(() => {
 
         <!-- View: About Tab -->
         <div
-          v-if="activeTab === 'about'"
+          v-else-if="activeTab === 'about'"
           key="about"
           data-tab="about"
           class="m3-tab-pane flex h-full w-full flex-1 flex-col overflow-y-auto overflow-x-hidden p-6"
