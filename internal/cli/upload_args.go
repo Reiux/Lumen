@@ -121,6 +121,9 @@ func uploadOptionsFromFlags(f *pflag.FlagSet) core.UploadOptions {
 // validateUploadOptions rejects flags that only make sense with Live Photo
 // pairing enabled.
 func validateUploadOptions(f *pflag.FlagSet, opts core.UploadOptions) error {
+	if opts.Api.UseQuota && opts.Api.Saver {
+		return errors.New("cannot use both --use-quota and --saver together")
+	}
 	if opts.PairLivePhotos {
 		return nil
 	}

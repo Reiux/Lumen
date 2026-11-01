@@ -1,12 +1,168 @@
 import { reactive } from 'vue'
 import { uploadManager } from './UploadManager'
+import { LogEntry } from '../../bindings/app/core/models'
 
 export interface MockState {
   enabled: boolean
-  currentView: 'empty' | 'drop' | 'uploading' | 'results' | 'album'
+  currentView: 'empty' | 'drop' | 'uploading' | 'results' | 'album' | 'indexing'
   account: string
   accounts: string[]
 }
+
+export const devOptionsState = reactive({
+  unlocked: typeof localStorage !== 'undefined' ? localStorage.getItem('lumen_dev_options') === 'true' : false,
+  showMockBar: typeof localStorage !== 'undefined' ? localStorage.getItem('lumen_show_mock_bar') !== 'false' : true,
+})
+
+export function setDevOptionsUnlocked(unlocked: boolean) {
+  devOptionsState.unlocked = unlocked
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem('lumen_dev_options', unlocked ? 'true' : 'false')
+  }
+  if (!unlocked) {
+    mockState.enabled = false
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('lumen_mock_active', 'false')
+    }
+  }
+}
+
+export function setShowMockBar(show: boolean) {
+  devOptionsState.showMockBar = show
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem('lumen_show_mock_bar', show ? 'true' : 'false')
+  }
+}
+
+export interface MockBatchSummary {
+  runId: string
+  name: string
+  timestamp: string
+  totalCount: number
+  uploadedCount: number
+  skippedCount: number
+  failedCount: number
+  duration: string
+  sizeFormatted: string
+}
+
+export const mockBatches: MockBatchSummary[] = [
+  {
+    runId: 'Run 2',
+    name: 'Camera Roll 2026',
+    timestamp: '10 mins ago',
+    totalCount: 48,
+    uploadedCount: 42,
+    skippedCount: 3,
+    failedCount: 3,
+    duration: '18s',
+    sizeFormatted: '142 MB',
+  },
+  {
+    runId: 'Run 1',
+    name: 'Family Vacation',
+    timestamp: '2 hours ago',
+    totalCount: 140,
+    uploadedCount: 128,
+    skippedCount: 12,
+    failedCount: 0,
+    duration: '45s',
+    sizeFormatted: '512 MB',
+  },
+]
+
+export const mockProblems: LogEntry[] = [
+  new LogEntry({
+    id: 'prob_1',
+    timestamp: new Date(Date.now() - 1000 * 60 * 12).toISOString(),
+    level: 'ERROR',
+    category: 'Upload',
+    runId: 'Run 2',
+    fileName: 'Corrupt_Archive.raw',
+    reasonCode: 'FILE_UNREADABLE',
+    userMessage: 'Unrecognized codec header or invalid EXIF stream.',
+    suggestedAction: 'Verify the RAW file is not corrupted and check that your camera format is supported by Google Photos.',
+    rawError: 'os error 22: invalid argument during decode',
+  }),
+  new LogEntry({
+    id: 'prob_2',
+    timestamp: new Date(Date.now() - 1000 * 60 * 11).toISOString(),
+    level: 'ERROR',
+    category: 'Upload',
+    runId: 'Run 2',
+    fileName: 'Video_Exceeds_Quota.mp4',
+    reasonCode: 'RATE_LIMITED',
+    userMessage: 'Google Photos storage quota exceeded for non-saver mode.',
+    suggestedAction: 'Switch to Storage Saver quality in Settings or free up Google Drive/Photos storage.',
+    rawError: 'HTTP 429 quotaExceeded',
+  }),
+  new LogEntry({
+    id: 'prob_3',
+    timestamp: new Date(Date.now() - 1000 * 60 * 10).toISOString(),
+    level: 'WARN',
+    category: 'Upload',
+    runId: 'Run 2',
+    fileName: 'Locked_File.png',
+    reasonCode: 'NETWORK_TIMEOUT',
+    userMessage: 'Resource temporarily locked by another local process.',
+    suggestedAction: 'Close other applications accessing this file and retry.',
+    rawError: 'resource locked (os error 11)',
+  }),
+]
+
+export const mockLogEntries: LogEntry[] = [
+  ...mockProblems,
+  new LogEntry({
+    id: 'log_4',
+    timestamp: new Date(Date.now() - 1000 * 60 * 9).toISOString(),
+    level: 'INFO',
+    category: 'Upload',
+    runId: 'Run 2',
+    fileName: 'DSC_1042.JPG',
+    outcome: 'UPLOADED',
+    sizeBytes: 4200000,
+    durationMs: 320,
+    userMessage: 'Uploaded successfully',
+  }),
+  new LogEntry({
+    id: 'log_5',
+    timestamp: new Date(Date.now() - 1000 * 60 * 9).toISOString(),
+    level: 'INFO',
+    category: 'Upload',
+    runId: 'Run 2',
+    fileName: 'DSC_1041.JPG',
+    outcome: 'UPLOADED',
+    sizeBytes: 3800000,
+    durationMs: 290,
+    userMessage: 'Uploaded successfully',
+  }),
+  new LogEntry({
+    id: 'log_6',
+    timestamp: new Date(Date.now() - 1000 * 60 * 10).toISOString(),
+    level: 'INFO',
+    category: 'Upload',
+    runId: 'Run 2',
+    fileName: 'IMG_9910.JPG',
+    outcome: 'SKIPPED_CACHE',
+    sizeBytes: 2500000,
+    userMessage: 'File checksum matches existing item in Google Photos',
+  }),
+  new LogEntry({
+    id: 'log_7',
+    timestamp: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
+    level: 'INFO',
+    category: 'System',
+    userMessage: 'Upload worker pool initialized (threads: 4)',
+  }),
+  new LogEntry({
+    id: 'log_8',
+    timestamp: new Date(Date.now() - 1000 * 60 * 45).toISOString(),
+    level: 'INFO',
+    category: 'Upload',
+    runId: 'Run 1',
+    userMessage: 'Batch Run 1 completed: 128 uploaded, 12 skipped, 0 failed in 45s',
+  }),
+]
 
 export const mockState = reactive<MockState>({
   enabled: false,
@@ -48,11 +204,21 @@ export function setMockView(view: MockState['currentView']) {
   }
 
   if (view === 'uploading') {
+    uploadManager.state.scanProgress.isScanning = false
     simulateUploadProgress()
   } else if (view === 'results') {
+    uploadManager.state.scanProgress.isScanning = false
     simulateResults()
+  } else if (view === 'indexing') {
+    uploadManager.state.isUploading = false
+    uploadManager.state.scanProgress = {
+      isScanning: true,
+      currentDirectory: '/home/user/Pictures/Summer 2026',
+      filesFound: 342,
+    }
   } else {
     uploadManager.state.isUploading = false
+    uploadManager.state.scanProgress.isScanning = false
     uploadManager.resetUploadResults()
   }
 }
@@ -191,4 +357,35 @@ function simulateResults() {
       reason: 'Live photo image found without matching MOV component',
     },
   ]
+}
+
+export function triggerMockCircuitBreaker(reason: 'SIGN_IN_REQUIRED' | 'ACCOUNT_RESTRICTED' | 'RATE_LIMITED') {
+  uploadManager.state.isUploading = false
+  if (reason === 'RATE_LIMITED') {
+    uploadManager.state.accountBlocked = {
+      isBlocked: true,
+      reason: 'RATE_LIMITED',
+      email: mockState.account,
+      message: 'Google asked Lumen to slow down (HTTP 429)',
+      resumeAt: Date.now() + 15 * 60 * 1000,
+    }
+  } else if (reason === 'ACCOUNT_RESTRICTED') {
+    uploadManager.state.accountBlocked = {
+      isBlocked: true,
+      reason: 'ACCOUNT_RESTRICTED',
+      email: mockState.account,
+      message: 'Google has restricted this account (AccountDisabled)',
+    }
+  } else {
+    uploadManager.state.accountBlocked = {
+      isBlocked: true,
+      reason: 'SIGN_IN_REQUIRED',
+      email: mockState.account,
+      message: 'Google is asking you to sign in again (HTTP 401)',
+    }
+  }
+}
+
+export function clearMockCircuitBreaker() {
+  uploadManager.clearAccountBlocked()
 }

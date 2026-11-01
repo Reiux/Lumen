@@ -19,6 +19,11 @@ export const FileStatus = "FileStatus";
 export const ThreadStatus = "ThreadStatus";
 
 /**
+ * Name of the custom event "account:blocked".
+ */
+export const AccountBlocked = "account:blocked";
+
+/**
  * Name of the custom event "albumComplete".
  */
 export const AlbumComplete = "albumComplete";
@@ -37,6 +42,21 @@ export const AlbumProgress = "albumProgress";
  * Name of the custom event "files-dropped".
  */
 export const FilesDropped = "files-dropped";
+
+/**
+ * Name of the custom event "log:entry".
+ */
+export const LogEntry = "log:entry";
+
+/**
+ * Name of the custom event "scan:cancelled".
+ */
+export const ScanCancelled = "scan:cancelled";
+
+/**
+ * Name of the custom event "scan:progress".
+ */
+export const ScanProgress = "scan:progress";
 
 /**
  * Name of the custom event "startUpload".

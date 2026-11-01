@@ -16,6 +16,10 @@ type UploadReporter interface {
 	AlbumProgress(AlbumStatus)
 	AlbumComplete(AlbumStatus)
 	AlbumError(AlbumError)
+	AccountBlocked(AccountBlockedEvent)
+	LogEntry(LogEntry)
+	ScanProgress(ScanProgressEvent)
+	ScanCancelled()
 }
 
 // NopReporter discards every event.
@@ -31,3 +35,7 @@ func (NopReporter) FileResult(FileUploadResult)  {}
 func (NopReporter) AlbumProgress(AlbumStatus)    {}
 func (NopReporter) AlbumComplete(AlbumStatus)    {}
 func (NopReporter) AlbumError(AlbumError)        {}
+func (NopReporter) AccountBlocked(AccountBlockedEvent) {}
+func (NopReporter) LogEntry(LogEntry)            {}
+func (NopReporter) ScanProgress(ScanProgressEvent) {}
+func (NopReporter) ScanCancelled()               {}

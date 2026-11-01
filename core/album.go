@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -29,25 +30,66 @@ type AlbumStatus struct {
 	IsComplete bool     `json:"IsComplete"`
 }
 
-// AlbumManager handles album creation with batching
-type AlbumManager struct {
-	api      *Api
-	reporter UploadReporter
-	logger   *slog.Logger
-	cancel   <-chan struct{}
+// AlbumAPI is an interface satisfied by *Api or test mocks for album operations.
+type AlbumAPI interface {
+	CreateAlbum(albumName string, mediaKeys []string) (string, error)
+	AddMediaToAlbum(albumMediaKey string, mediaKeys []string) error
 }
 
-// NewAlbumManager creates a new AlbumManager
-func NewAlbumManager(api *Api, reporter UploadReporter, logger *slog.Logger, cancel <-chan struct{}) *AlbumManager {
+// AlbumManager handles album creation, reuse, batching, and serialization.
+type AlbumManager struct {
+	api          AlbumAPI
+	accountEmail string
+	registry     *AlbumRegistry
+	reporter     UploadReporter
+	logger       *slog.Logger
+	cancel       <-chan struct{}
+}
+
+// NewAlbumManager creates a new AlbumManager.
+func NewAlbumManager(api AlbumAPI, reporter UploadReporter, logger *slog.Logger, cancel <-chan struct{}) *AlbumManager {
+	account := ""
+	if accGetter, ok := api.(interface{ AccountEmail() string }); ok {
+		account = accGetter.AccountEmail()
+	}
 	return &AlbumManager{
-		api:      api,
-		reporter: reporter,
-		logger:   logger,
-		cancel:   cancel,
+		api:          api,
+		accountEmail: account,
+		registry:     GetGlobalAlbumRegistry(),
+		reporter:     reporter,
+		logger:       logger,
+		cancel:       cancel,
 	}
 }
 
-// isCancelled checks if cancellation has been requested
+// SetAccountEmail overrides the associated account email for album registry indexing.
+func (m *AlbumManager) SetAccountEmail(email string) {
+	m.accountEmail = email
+}
+
+// SetRegistry overrides the AlbumRegistry instance (useful for unit tests).
+func (m *AlbumManager) SetRegistry(registry *AlbumRegistry) {
+	m.registry = registry
+}
+
+func (m *AlbumManager) getRegistry() *AlbumRegistry {
+	if m.registry != nil {
+		return m.registry
+	}
+	return GetGlobalAlbumRegistry()
+}
+
+func (m *AlbumManager) getAccountEmail() string {
+	if m.accountEmail != "" {
+		return m.accountEmail
+	}
+	if accGetter, ok := m.api.(interface{ AccountEmail() string }); ok {
+		return accGetter.AccountEmail()
+	}
+	return ""
+}
+
+// isCancelled checks if cancellation has been requested.
 func (m *AlbumManager) isCancelled() bool {
 	if m.cancel == nil {
 		return false
@@ -60,15 +102,78 @@ func (m *AlbumManager) isCancelled() bool {
 	}
 }
 
-// IsAlbumKey checks if the input looks like an album media key (starts with "AF1Qip")
+// IsAlbumKey checks if the input looks like an album media key (starts with "AF1Qip").
 func IsAlbumKey(input string) bool {
-	return len(input) > 6 && input[:6] == "AF1Qip"
+	return len(input) > 6 && strings.HasPrefix(input, "AF1Qip")
 }
 
-// AddToAlbum adds media items to an album with proper batching.
-// - If albumNameOrKey is an album key (starts with AF1Qip), adds to existing album
-// - Otherwise creates a new album with that name
-// - If items exceed AlbumLimit (20,000), creates multiple numbered albums
+// isAlbumLink checks if the input starts with http:// or https://.
+func isAlbumLink(input string) bool {
+	return strings.HasPrefix(input, "http://") || strings.HasPrefix(input, "https://")
+}
+
+// ParseAlbumLink extracts the album media key (starts with "AF1Qip") from a Google Photos album link or raw key.
+// Returns an error if the input is an invalid link, missing the key, or empty.
+func ParseAlbumLink(input string) (string, error) {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return "", errors.New("album link cannot be empty")
+	}
+
+	// 1. Raw album key
+	if IsAlbumKey(trimmed) {
+		key := extractCleanKey(trimmed)
+		if IsAlbumKey(key) {
+			return key, nil
+		}
+	}
+
+	// 2. HTTP / HTTPS link
+	if isAlbumLink(trimmed) {
+		idx := strings.Index(trimmed, "AF1Qip")
+		if idx == -1 {
+			return "", errors.New("invalid Google Photos album link: no album key found (expected AF1Qip...)")
+		}
+		key := extractCleanKey(trimmed[idx:])
+		if !IsAlbumKey(key) {
+			return "", errors.New("invalid Google Photos album link: malformed album key")
+		}
+		return key, nil
+	}
+
+	return "", errors.New("input is not a valid Google Photos album link or key")
+}
+
+func extractCleanKey(raw string) string {
+	for i, r := range raw {
+		if r == '?' || r == '#' || r == '/' || r == '&' || r == ' ' || r == '\t' || r == '\n' || r == '\r' {
+			return raw[:i]
+		}
+	}
+	return raw
+}
+
+func isAlbumNotFoundError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "not found") ||
+		strings.Contains(s, "not_found") ||
+		strings.Contains(s, "404") ||
+		strings.Contains(s, "deleted") ||
+		strings.Contains(s, "unavailable") ||
+		strings.Contains(s, "does not exist") ||
+		strings.Contains(s, "invalid album")
+}
+
+// AddToAlbum adds media items to an album with proper batching and persistence:
+// - If albumNameOrKey is an album key (starts with AF1Qip) or a Google Photos album link, adds to existing album
+// - Otherwise looks up the per-account registry; if found, adds to that album
+// - If not found, creates the album once, saves name->key in registry, and adds media
+// - Serializes get-or-create per (account, name) with mutex/singleflight
+// - If adding fails with album not found/deleted, deletes from registry and recreates once
+// - Keeps 20,000-item split behavior and numbered names, registering each numbered album
 // Returns a list of album media keys for all created/used albums.
 func (m *AlbumManager) AddToAlbum(mediaKeys []string, albumNameOrKey string) ([]string, error) {
 	if len(mediaKeys) == 0 {
@@ -80,25 +185,131 @@ func (m *AlbumManager) AddToAlbum(mediaKeys []string, albumNameOrKey string) ([]
 		return nil, fmt.Errorf("album name or key cannot be empty")
 	}
 
-	// Check if we're adding to an existing album
+	// (a) If the name is an album key or Google Photos album link, extract and use key
+	if isAlbumLink(albumNameOrKey) {
+		key, err := ParseAlbumLink(albumNameOrKey)
+		if err != nil {
+			return nil, err
+		}
+		return m.addToExistingAlbum(mediaKeys, key)
+	}
 	if IsAlbumKey(albumNameOrKey) {
-		return m.addToExistingAlbum(mediaKeys, albumNameOrKey)
+		cleanKey := extractCleanKey(albumNameOrKey)
+		return m.addToExistingAlbum(mediaKeys, cleanKey)
 	}
 
-	return m.createNewAlbum(mediaKeys, albumNameOrKey)
-}
-
-// addToExistingAlbum adds media to an existing album using the album media key
-func (m *AlbumManager) addToExistingAlbum(mediaKeys []string, albumKey string) ([]string, error) {
+	// (f) 20,000-item split behavior and numbered names, registering each numbered album
 	totalItems := len(mediaKeys)
 	itemsAdded := 0
-	displayName := fmt.Sprintf("Album (%s...)", albumKey[:10])
+	var allAlbumKeys []string
+	albumCounter := 1
 
-	// Process in API-sized batches (500 items per call)
-	for i := 0; i < len(mediaKeys); i += AlbumBatchSize {
-		// Check for cancellation
+	if len(mediaKeys) > AlbumLimit && m.logger != nil {
+		m.logger.Warn(fmt.Sprintf("%d items exceed the album limit of %d. They will be split into multiple albums.", len(mediaKeys), AlbumLimit))
+	}
+
+	for i := 0; i < len(mediaKeys); i += AlbumLimit {
 		if m.isCancelled() {
-			return []string{albumKey}, fmt.Errorf("album creation cancelled (added %d/%d items)", itemsAdded, totalItems)
+			return allAlbumKeys, fmt.Errorf("album creation cancelled (added %d/%d items)", itemsAdded, totalItems)
+		}
+
+		end := min(i+AlbumLimit, len(mediaKeys))
+		chunk := mediaKeys[i:end]
+
+		currentAlbumName := albumNameOrKey
+		if len(mediaKeys) > AlbumLimit {
+			currentAlbumName = fmt.Sprintf("%s (%d)", albumNameOrKey, albumCounter)
+		}
+
+		key, err := m.getOrCreateAndAddToAlbum(chunk, currentAlbumName)
+		if err != nil {
+			return allAlbumKeys, fmt.Errorf("failed to process album '%s' (added %d/%d items): %w", currentAlbumName, itemsAdded, totalItems, err)
+		}
+
+		allAlbumKeys = append(allAlbumKeys, key)
+		itemsAdded += len(chunk)
+		albumCounter++
+	}
+
+	if m.reporter != nil {
+		m.reporter.AlbumComplete(AlbumStatus{
+			AlbumName:  albumNameOrKey,
+			ItemsAdded: itemsAdded,
+			TotalItems: totalItems,
+			AlbumKeys:  allAlbumKeys,
+			IsComplete: true,
+		})
+	}
+
+	return allAlbumKeys, nil
+}
+
+// getOrCreateAndAddToAlbum gets or creates an album for (account, albumName) under serialized lock.
+func (m *AlbumManager) getOrCreateAndAddToAlbum(mediaKeys []string, albumName string) (string, error) {
+	account := m.getAccountEmail()
+	lock := globalKeyedAlbumLock.get(account, albumName)
+	lock.Lock()
+	defer lock.Unlock()
+
+	reg := m.getRegistry()
+
+	// (b) Look up the registry; if found, add to that album
+	if entry, found := reg.Get(account, albumName); found {
+		err := m.addMediaInBatches(entry.AlbumKey, albumName, mediaKeys)
+		if err == nil {
+			return entry.AlbumKey, nil
+		}
+
+		// (e) If add fails with "album not found"/deleted, remove registry entry and recreate once
+		if isAlbumNotFoundError(err) {
+			if m.logger != nil {
+				m.logger.Warn(fmt.Sprintf("Album '%s' (key %s) not found; recreating once.", albumName, entry.AlbumKey))
+			}
+			_ = reg.Delete(account, albumName)
+			return m.createAndAddInBatches(mediaKeys, albumName)
+		}
+
+		return entry.AlbumKey, err
+	}
+
+	// (c) If not found, create album ONCE, save name->key in registry, add
+	return m.createAndAddInBatches(mediaKeys, albumName)
+}
+
+// createAndAddInBatches creates a new album with the first batch, registers it, and adds any remainder.
+func (m *AlbumManager) createAndAddInBatches(mediaKeys []string, albumName string) (string, error) {
+	reg := m.getRegistry()
+	account := m.getAccountEmail()
+	totalItems := len(mediaKeys)
+	itemsAdded := 0
+
+	// First batch creates the album
+	firstEnd := min(AlbumBatchSize, len(mediaKeys))
+	firstBatch := mediaKeys[:firstEnd]
+
+	albumKey, err := m.createAlbumWithRetry(albumName, firstBatch)
+	if err != nil {
+		return "", err
+	}
+	itemsAdded += len(firstBatch)
+
+	// Save name -> key in registry immediately
+	_ = reg.Set(account, albumName, albumKey)
+
+	if m.reporter != nil {
+		m.reporter.AlbumProgress(AlbumStatus{
+			AlbumName:  albumName,
+			ItemsAdded: itemsAdded,
+			TotalItems: totalItems,
+			AlbumKeys:  []string{albumKey},
+			IsComplete: itemsAdded == totalItems,
+		})
+	}
+
+	// Subsequent batches add to the newly created album
+	for i := firstEnd; i < len(mediaKeys); i += AlbumBatchSize {
+		if m.isCancelled() {
+			return albumKey, fmt.Errorf("album creation cancelled (added %d/%d items)", itemsAdded, totalItems)
 		}
 
 		end := min(i+AlbumBatchSize, len(mediaKeys))
@@ -106,41 +317,85 @@ func (m *AlbumManager) addToExistingAlbum(mediaKeys []string, albumKey string) (
 
 		err := m.addMediaWithRetry(albumKey, batch)
 		if err != nil {
-			return []string{albumKey}, fmt.Errorf("failed to add media to album (added %d/%d items): %w", itemsAdded, totalItems, err)
+			return albumKey, fmt.Errorf("failed to add media to album '%s': %w", albumName, err)
 		}
-
 		itemsAdded += len(batch)
 
-		// Emit progress event
-		m.reporter.AlbumProgress(AlbumStatus{
-			AlbumName:  displayName,
-			ItemsAdded: itemsAdded,
-			TotalItems: totalItems,
-			AlbumKeys:  []string{albumKey},
-			IsComplete: false,
-		})
+		if m.reporter != nil {
+			m.reporter.AlbumProgress(AlbumStatus{
+				AlbumName:  albumName,
+				ItemsAdded: itemsAdded,
+				TotalItems: totalItems,
+				AlbumKeys:  []string{albumKey},
+				IsComplete: itemsAdded == totalItems,
+			})
+		}
 	}
 
-	// Emit completion event
-	m.reporter.AlbumComplete(AlbumStatus{
-		AlbumName:  displayName,
-		ItemsAdded: itemsAdded,
-		TotalItems: totalItems,
-		AlbumKeys:  []string{albumKey},
-		IsComplete: true,
-	})
+	return albumKey, nil
+}
+
+// addMediaInBatches adds items to an existing album in chunks of AlbumBatchSize.
+func (m *AlbumManager) addMediaInBatches(albumKey, albumName string, mediaKeys []string) error {
+	totalItems := len(mediaKeys)
+	itemsAdded := 0
+
+	for i := 0; i < len(mediaKeys); i += AlbumBatchSize {
+		if m.isCancelled() {
+			return fmt.Errorf("album upload cancelled (added %d/%d items)", itemsAdded, totalItems)
+		}
+
+		end := min(i+AlbumBatchSize, len(mediaKeys))
+		batch := mediaKeys[i:end]
+
+		err := m.addMediaWithRetry(albumKey, batch)
+		if err != nil {
+			return err
+		}
+		itemsAdded += len(batch)
+
+		if m.reporter != nil {
+			m.reporter.AlbumProgress(AlbumStatus{
+				AlbumName:  albumName,
+				ItemsAdded: itemsAdded,
+				TotalItems: totalItems,
+				AlbumKeys:  []string{albumKey},
+				IsComplete: itemsAdded == totalItems,
+			})
+		}
+	}
+
+	return nil
+}
+
+// addToExistingAlbum adds media to an existing album using its key (bypassing registry creation).
+func (m *AlbumManager) addToExistingAlbum(mediaKeys []string, albumKey string) ([]string, error) {
+	displayName := fmt.Sprintf("Album (%s...)", albumKey[:min(10, len(albumKey))])
+	err := m.addMediaInBatches(albumKey, displayName, mediaKeys)
+	if err != nil {
+		return []string{albumKey}, err
+	}
+
+	if m.reporter != nil {
+		m.reporter.AlbumComplete(AlbumStatus{
+			AlbumName:  displayName,
+			ItemsAdded: len(mediaKeys),
+			TotalItems: len(mediaKeys),
+			AlbumKeys:  []string{albumKey},
+			IsComplete: true,
+		})
+	}
 
 	return []string{albumKey}, nil
 }
 
-// addMediaWithRetry adds media to an album with retry logic
+// addMediaWithRetry adds media to an album with retry logic.
 func (m *AlbumManager) addMediaWithRetry(albumKey string, mediaKeys []string) error {
 	retryConfig := DefaultRetryConfig()
 	var lastErr error
 
 	for attempt := 0; attempt <= retryConfig.MaxRetries; attempt++ {
 		if attempt > 0 {
-			// Check for cancellation before retry delay
 			if m.isCancelled() {
 				return fmt.Errorf("cancelled during retry")
 			}
@@ -154,7 +409,6 @@ func (m *AlbumManager) addMediaWithRetry(albumKey string, mediaKeys []string) er
 		}
 		lastErr = err
 
-		// Don't retry on 4xx errors (except 429)
 		if !isRetryableAlbumError(err) {
 			return err
 		}
@@ -163,111 +417,13 @@ func (m *AlbumManager) addMediaWithRetry(albumKey string, mediaKeys []string) er
 	return fmt.Errorf("failed after %d attempts: %w", retryConfig.MaxRetries+1, lastErr)
 }
 
-// isRetryableAlbumError checks if an error should be retried
-func isRetryableAlbumError(err error) bool {
-	errStr := err.Error()
-	// Retry on 5xx errors or 429 (rate limit)
-	if strings.Contains(errStr, "status 5") || strings.Contains(errStr, "status 429") {
-		return true
-	}
-	// Retry on network errors
-	if strings.Contains(errStr, "connection") || strings.Contains(errStr, "timeout") {
-		return true
-	}
-	return false
-}
-
-// createNewAlbum creates a new album with the given name and adds media to it
-func (m *AlbumManager) createNewAlbum(mediaKeys []string, albumName string) ([]string, error) {
-	var albumKeys []string
-	totalItems := len(mediaKeys)
-	itemsAdded := 0
-	albumCounter := 1
-
-	// Log if we need multiple albums
-	if len(mediaKeys) > AlbumLimit {
-		m.logger.Warn(fmt.Sprintf("%d items exceed the album limit of %d. They will be split into multiple albums.", len(mediaKeys), AlbumLimit))
-	}
-
-	// Process in album-sized chunks (up to 20,000 items per album)
-	for i := 0; i < len(mediaKeys); i += AlbumLimit {
-		// Check for cancellation
-		if m.isCancelled() {
-			return albumKeys, fmt.Errorf("album creation cancelled (added %d/%d items)", itemsAdded, totalItems)
-		}
-
-		end := min(i+AlbumLimit, len(mediaKeys))
-		albumBatch := mediaKeys[i:end]
-
-		// Determine album name (add suffix if multiple albums needed)
-		currentAlbumName := albumName
-		if len(mediaKeys) > AlbumLimit {
-			currentAlbumName = fmt.Sprintf("%s (%d)", albumName, albumCounter)
-		}
-
-		var currentAlbumKey string
-
-		// Process this album's items in API-sized batches (500 items per call)
-		for j := 0; j < len(albumBatch); j += AlbumBatchSize {
-			// Check for cancellation
-			if m.isCancelled() {
-				return albumKeys, fmt.Errorf("album creation cancelled (added %d/%d items)", itemsAdded, totalItems)
-			}
-
-			batchEnd := min(j+AlbumBatchSize, len(albumBatch))
-			batch := albumBatch[j:batchEnd]
-
-			var err error
-			if currentAlbumKey == "" {
-				// First batch: create the album with retry
-				currentAlbumKey, err = m.createAlbumWithRetry(currentAlbumName, batch)
-				if err != nil {
-					return albumKeys, fmt.Errorf("failed to create album '%s' (added %d/%d items): %w", currentAlbumName, itemsAdded, totalItems, err)
-				}
-				albumKeys = append(albumKeys, currentAlbumKey)
-			} else {
-				// Subsequent batches: add to existing album with retry
-				err = m.addMediaWithRetry(currentAlbumKey, batch)
-				if err != nil {
-					return albumKeys, fmt.Errorf("failed to add media to album '%s' (added %d/%d items): %w", currentAlbumName, itemsAdded, totalItems, err)
-				}
-			}
-
-			itemsAdded += len(batch)
-
-			// Emit progress event
-			m.reporter.AlbumProgress(AlbumStatus{
-				AlbumName:  currentAlbumName,
-				ItemsAdded: itemsAdded,
-				TotalItems: totalItems,
-				AlbumKeys:  albumKeys,
-				IsComplete: false,
-			})
-		}
-
-		albumCounter++
-	}
-
-	// Emit completion event
-	m.reporter.AlbumComplete(AlbumStatus{
-		AlbumName:  albumName,
-		ItemsAdded: itemsAdded,
-		TotalItems: totalItems,
-		AlbumKeys:  albumKeys,
-		IsComplete: true,
-	})
-
-	return albumKeys, nil
-}
-
-// createAlbumWithRetry creates an album with retry logic
+// createAlbumWithRetry creates an album with retry logic.
 func (m *AlbumManager) createAlbumWithRetry(albumName string, mediaKeys []string) (string, error) {
 	retryConfig := DefaultRetryConfig()
 	var lastErr error
 
 	for attempt := 0; attempt <= retryConfig.MaxRetries; attempt++ {
 		if attempt > 0 {
-			// Check for cancellation before retry delay
 			if m.isCancelled() {
 				return "", fmt.Errorf("cancelled during retry")
 			}
@@ -281,11 +437,25 @@ func (m *AlbumManager) createAlbumWithRetry(albumName string, mediaKeys []string
 		}
 		lastErr = err
 
-		// Don't retry on 4xx errors (except 429)
 		if !isRetryableAlbumError(err) {
 			return "", err
 		}
 	}
 
 	return "", fmt.Errorf("failed after %d attempts: %w", retryConfig.MaxRetries+1, lastErr)
+}
+
+// isRetryableAlbumError checks if an error should be retried.
+func isRetryableAlbumError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	if strings.Contains(errStr, "status 5") || strings.Contains(errStr, "status 429") {
+		return true
+	}
+	if strings.Contains(errStr, "connection") || strings.Contains(errStr, "timeout") {
+		return true
+	}
+	return false
 }

@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 
 interface Props {
-  size?: 'xs' | 'sm' | 'md' | 'lg' | number
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl' | number
   color?: string
   label?: string
   contained?: boolean
@@ -23,6 +23,7 @@ const scale = computed(() => {
     case 'xs': return 0.45
     case 'sm': return 0.6
     case 'lg': return 1.0
+    case 'xl': return 1.33
     case 'md':
     default: return 0.75
   }
@@ -34,6 +35,7 @@ const containerSize = computed(() => {
     case 'xs': return '22px'
     case 'sm': return '28px'
     case 'lg': return '48px'
+    case 'xl': return '64px'
     case 'md':
     default: return '36px'
   }
@@ -53,6 +55,7 @@ const containerSize = computed(() => {
     >
       <md-loading-indicator
         :variant="contained ? 'contained' : undefined"
+        :color="color || undefined"
         :aria-label="label"
         class="m3e-loading-element"
       />

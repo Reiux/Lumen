@@ -55,20 +55,14 @@ type LivePhotoCommitPolicy struct {
 
 func buildLivePhotoCommitPolicy(api *Api) LivePhotoCommitPolicy {
 	storagePolicy := int64(3)
-	model := api.model
-	if api.saver {
+	if api.saver && !api.useQuota {
 		storagePolicy = 1
-		model = "Pixel 2"
-	}
-	// Use Quota selects the current quota-counting device regardless of quality.
-	if api.useQuota {
-		model = "Pixel 8"
 	}
 	return LivePhotoCommitPolicy{
 		StoragePolicy: storagePolicy,
 		UploadQuality: 1,
 		UploadDeviceInfo: UploadDeviceInfo{
-			Model:             model,
+			Model:             api.model,
 			Make:              api.make,
 			AndroidAPIVersion: api.androidAPIVersion,
 		},

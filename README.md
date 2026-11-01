@@ -192,6 +192,19 @@ task build
 
 ---
 
+## Account Safety & Risks
+
+Lumen is an unofficial tool and isn't affiliated with Google. It uploads photos using an unofficial method that Google didn't design for third-party apps.
+
+- **Terms of Service:** Using Lumen may violate Google's Terms of Service. Google can log you out, limit, or ban your account at any time.
+- **Gmail & Drive Access:** If Google restricts your account, you could lose access to Gmail, Google Drive, and other services linked to that email.
+- **Use a Secondary Account:** Use an email you're okay with losing access to. Do not use your primary personal email or accounts used for work, school, or banking.
+- **Keep Your Local Copies:** Don't rely on Google Photos as your only backup. Keep your original files on your computer or local storage until backup is verified.
+- **Avoid Repeated Sign-Ins:** If Google logs you out or asks for verification, don't spam sign-in attempts. Lumen's built-in circuit breaker will pause automatically when it detects account issues. Each sign-in registers a new device, so avoid logging in and out repeatedly.
+- **Secure Keyring Storage:** Sensitive tokens and credentials are encrypted and stored in your operating system's native secure credential manager (Linux Secret Service / D-Bus, Windows Credential Manager, macOS Keychain) instead of plaintext files on disk.
+
+---
+
 ## Configuration
 
 Lumen stores configuration and saved accounts in:
@@ -200,6 +213,17 @@ Lumen stores configuration and saved accounts in:
 - **Windows:** `%APPDATA%\gotohp\gotohp.config`
 
 To run portably, place an empty `gotohp.config` file next to the binary.
+
+---
+
+## Privacy & Network Transparency
+
+Lumen is built with a strict privacy-first philosophy:
+
+- **Zero Analytics or Telemetry:** Lumen contains no trackers, telemetry services, crash reporters, or usage analytics.
+- **Direct Google Communication:** Upload traffic, authentication, and media requests travel directly between your machine and Google's official endpoints. No intermediary servers, proxies, or relay nodes are operated by Lumen.
+- **Update Checks:** Lumen only queries `api.github.com` to check for new releases if the **Check for updates automatically** setting is enabled. This can be completely disabled at any time in **Settings -> Updates**.
+- **Local Credentials:** All account sessions and tokens are stored exclusively on your local device in the OS native keyring, never transmitted anywhere except directly to Google.
 
 ---
 

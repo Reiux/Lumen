@@ -1,0 +1,1163 @@
+{
+  "project": {
+    "name": "Lumen Desktop",
+    "license": "MIT",
+    "copyright": "Copyright (c) 2026 Lumen Contributors",
+    "text": "MIT License\n\nCopyright (c) 2026 Lumen Contributors\nPortions Copyright (c) 2024 xob0t (gotohp)\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  },
+  "upstream": {
+    "name": "gotohp",
+    "license": "MIT",
+    "copyright": "Copyright (c) 2024 xob0t",
+    "text": "MIT License\n\nCopyright (c) 2024 xob0t\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE."
+  },
+  "goDependencies": [
+    {
+      "name": "al.essio.dev/pkg/shellescape",
+      "version": "v1.6.0",
+      "license": "MIT"
+    },
+    {
+      "name": "atomicgo.dev/cursor",
+      "version": "v0.2.0",
+      "license": "MIT"
+    },
+    {
+      "name": "atomicgo.dev/keyboard",
+      "version": "v0.2.9",
+      "license": "MIT"
+    },
+    {
+      "name": "atomicgo.dev/schedule",
+      "version": "v0.1.0",
+      "license": "MIT"
+    },
+    {
+      "name": "dario.cat/mergo",
+      "version": "v1.0.2",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "git.sr.ht/~jackmordaunt/go-toast/v2",
+      "version": "v2.0.3",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/AlekSi/pointer",
+      "version": "v1.2.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/BurntSushi/toml",
+      "version": "v1.6.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/Ladicle/tabwriter",
+      "version": "v1.0.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/MakeNowJust/heredoc",
+      "version": "v1.0.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/Masterminds/goutils",
+      "version": "v1.1.1",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "github.com/Masterminds/semver/v3",
+      "version": "v3.4.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/Masterminds/sprig/v3",
+      "version": "v3.3.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/Microsoft/go-winio",
+      "version": "v0.6.2",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/ProtonMail/go-crypto",
+      "version": "v1.3.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/adrg/xdg",
+      "version": "v0.5.3",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/alecthomas/chroma/v2",
+      "version": "v2.23.1",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/atotto/clipboard",
+      "version": "v0.1.4",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/atterpac/refresh",
+      "version": "v1.1.4",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/aymanbagabas/go-osc52/v2",
+      "version": "v2.0.1",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/aymanbagabas/go-udiff",
+      "version": "v0.3.1",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/aymerick/douceur",
+      "version": "v0.2.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/bits-and-blooms/bitset",
+      "version": "v1.24.6",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/blakesmith/ar",
+      "version": "v0.0.0-20190502131153-809d4375e1fb",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/c2sp/wycheproof",
+      "version": "v0.0.0-20260105152342-fca0d3ba9f12",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "github.com/catppuccin/go",
+      "version": "v0.3.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/cavaliergopher/cpio",
+      "version": "v1.0.1",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/chainguard-dev/git-urls",
+      "version": "v1.0.2",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/charmbracelet/bubbles",
+      "version": "v1.0.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/charmbracelet/bubbletea",
+      "version": "v1.3.10",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/charmbracelet/colorprofile",
+      "version": "v0.4.3",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/charmbracelet/glamour",
+      "version": "v0.10.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/charmbracelet/harmonica",
+      "version": "v0.2.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/charmbracelet/huh",
+      "version": "v0.8.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/charmbracelet/lipgloss",
+      "version": "v1.1.1-0.20250404203927-76690c660834",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/charmbracelet/x/ansi",
+      "version": "v0.11.8",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/charmbracelet/x/cellbuf",
+      "version": "v0.0.15",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/charmbracelet/x/exp/golden",
+      "version": "v0.0.0-20241011142426-46044092ad91",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/charmbracelet/x/exp/slice",
+      "version": "v0.0.0-20260122224438-b01af16209d9",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/charmbracelet/x/exp/strings",
+      "version": "v0.0.0-20260122224438-b01af16209d9",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/charmbracelet/x/term",
+      "version": "v0.2.2",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/chromedp/cdproto",
+      "version": "v0.157.8",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/chromedp/chromedp",
+      "version": "v0.21.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/clipperhouse/displaywidth",
+      "version": "v0.11.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/clipperhouse/stringish",
+      "version": "v0.1.1",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/clipperhouse/uax29/v2",
+      "version": "v2.7.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/cloudflare/circl",
+      "version": "v1.6.3",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/coder/websocket",
+      "version": "v1.8.15",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/containerd/console",
+      "version": "v1.0.5",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "github.com/cpuguy83/go-md2man/v2",
+      "version": "v2.0.6",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/cyphar/filepath-securejoin",
+      "version": "v0.6.1",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/danieljoos/wincred",
+      "version": "v1.2.3",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/davecgh/go-spew",
+      "version": "v1.1.1",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/dlclark/regexp2",
+      "version": "v1.11.5",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/dominikbraun/graph",
+      "version": "v0.23.0",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "github.com/dustin/go-humanize",
+      "version": "v1.0.1",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/emirpasic/gods",
+      "version": "v1.18.1",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/erikgeiser/coninput",
+      "version": "v0.0.0-20211004153227-1c3628e74d0f",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/fatih/color",
+      "version": "v1.18.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/fatih/structs",
+      "version": "v1.1.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/fsnotify/fsnotify",
+      "version": "v1.10.1",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/go-git/gcfg",
+      "version": "v1.5.1-0.20230307220236-3a3c6141e376",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/go-git/go-billy/v5",
+      "version": "v5.9.0",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "github.com/go-git/go-git/v5",
+      "version": "v5.19.2",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "github.com/go-json-experiment/json",
+      "version": "v0.0.0-20260213210345-44df1a37e875",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/go-ole/go-ole",
+      "version": "v1.3.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/go-task/slim-sprig/v3",
+      "version": "v3.0.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/go-task/template",
+      "version": "v0.2.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/go-viper/mapstructure/v2",
+      "version": "v2.5.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/gobwas/glob",
+      "version": "v0.2.3",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/godbus/dbus/v5",
+      "version": "v5.2.2",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/golang/groupcache",
+      "version": "v0.0.0-20241129210726-2c02b8208cf8",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "github.com/golang/protobuf",
+      "version": "v1.5.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/google/go-cmp",
+      "version": "v0.7.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/google/jsonschema-go",
+      "version": "v0.4.3",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/google/pprof",
+      "version": "v0.0.0-20260802141513-ef3492d7dac3",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "github.com/google/rpmpack",
+      "version": "v0.7.1",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "github.com/google/uuid",
+      "version": "v1.6.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/gookit/color",
+      "version": "v1.6.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/goreleaser/chglog",
+      "version": "v0.7.4",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/goreleaser/fileglob",
+      "version": "v1.4.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/goreleaser/nfpm/v2",
+      "version": "v2.44.1",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/gorilla/css",
+      "version": "v1.0.1",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/gorilla/websocket",
+      "version": "v1.5.3",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/hashicorp/golang-lru/v2",
+      "version": "v2.0.7",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/huandu/xstrings",
+      "version": "v1.5.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/inconshreveable/mousetrap",
+      "version": "v1.1.0",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "github.com/jackmordaunt/icns/v2",
+      "version": "v2.2.7",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/jaypipes/ghw",
+      "version": "v0.21.3",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "github.com/jaypipes/pcidb",
+      "version": "v1.1.1",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "github.com/jbenet/go-context",
+      "version": "v0.0.0-20150711004518-d14ea06fba99",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/joho/godotenv",
+      "version": "v1.5.1",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/kevinburke/ssh_config",
+      "version": "v1.4.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/klauspost/compress",
+      "version": "v1.18.3",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "github.com/klauspost/cpuid/v2",
+      "version": "v2.3.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/klauspost/pgzip",
+      "version": "v1.2.6",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/knadh/koanf/maps",
+      "version": "v0.1.3",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/knadh/koanf/parsers/yaml",
+      "version": "v1.1.1",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/knadh/koanf/providers/file",
+      "version": "v1.2.1",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/knadh/koanf/providers/structs",
+      "version": "v1.0.1",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/knadh/koanf/v2",
+      "version": "v2.3.6",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/konoui/go-qsort",
+      "version": "v0.1.0",
+      "license": "unknown"
+    },
+    {
+      "name": "github.com/konoui/lipo",
+      "version": "v0.10.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/kr/pretty",
+      "version": "v0.2.1",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/kr/text",
+      "version": "v0.2.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/kylelemons/godebug",
+      "version": "v1.1.0",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "github.com/leaanthony/clir",
+      "version": "v1.7.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/leaanthony/dmg",
+      "version": "v0.0.0-20260731074841-5c28840cf819",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/leaanthony/winicon",
+      "version": "v1.0.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/lithammer/fuzzysearch",
+      "version": "v1.1.8",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/lmittmann/tint",
+      "version": "v1.1.3",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/lucasb-eyer/go-colorful",
+      "version": "v1.4.1",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/matryer/is",
+      "version": "v1.4.1",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/mattn/go-colorable",
+      "version": "v0.1.15",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/mattn/go-isatty",
+      "version": "v0.0.24",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/mattn/go-localereader",
+      "version": "v0.0.1",
+      "license": "unknown"
+    },
+    {
+      "name": "github.com/mattn/go-runewidth",
+      "version": "v0.0.30",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/mattn/go-zglob",
+      "version": "v0.0.6",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/microcosm-cc/bluemonday",
+      "version": "v1.0.27",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/mitchellh/copystructure",
+      "version": "v1.2.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/mitchellh/hashstructure/v2",
+      "version": "v2.0.2",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/mitchellh/reflectwalk",
+      "version": "v1.0.2",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/modelcontextprotocol/go-sdk",
+      "version": "v1.6.1",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "github.com/muesli/ansi",
+      "version": "v0.0.0-20230316100256-276c6243b2f6",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/muesli/cancelreader",
+      "version": "v0.2.2",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/muesli/reflow",
+      "version": "v0.3.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/muesli/termenv",
+      "version": "v0.16.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/ncruces/go-strftime",
+      "version": "v1.0.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/nfnt/resize",
+      "version": "v0.0.0-20180221191011-83c6a9932646",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/pjbgf/sha1cd",
+      "version": "v0.6.0",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "github.com/pkg/errors",
+      "version": "v0.9.1",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/pmezard/go-difflib",
+      "version": "v1.0.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/pterm/pterm",
+      "version": "v0.12.82",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/radovskyb/watcher",
+      "version": "v1.0.7",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/remyoudompheng/bigfft",
+      "version": "v0.0.0-20230129092748-24d4a6f8daec",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/rivo/uniseg",
+      "version": "v0.4.7",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/rjeczalik/notify",
+      "version": "v0.9.3",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/russross/blackfriday/v2",
+      "version": "v2.1.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/sahilm/fuzzy",
+      "version": "v0.1.1",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/sajari/fuzzy",
+      "version": "v1.0.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/segmentio/asm",
+      "version": "v1.1.3",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/segmentio/encoding",
+      "version": "v0.5.4",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/sergi/go-diff",
+      "version": "v1.4.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/shopspring/decimal",
+      "version": "v1.4.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/skeema/knownhosts",
+      "version": "v1.3.2",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "github.com/spf13/cast",
+      "version": "v1.10.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/spf13/cobra",
+      "version": "v1.10.2",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "github.com/spf13/pflag",
+      "version": "v1.0.10",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/stretchr/objx",
+      "version": "v0.5.2",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/stretchr/testify",
+      "version": "v1.11.1",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/tc-hib/winres",
+      "version": "v0.3.1",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/tink-crypto/tink-go/v2",
+      "version": "v2.8.0",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "github.com/ulikunitz/xz",
+      "version": "v0.5.15",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/wailsapp/task/v3",
+      "version": "v3.40.1-patched3",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/wailsapp/wails/v3",
+      "version": "v3.0.0-beta.33",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/xanzy/ssh-agent",
+      "version": "v0.3.3",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "github.com/xo/terminfo",
+      "version": "v1.2.0",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/yosida95/uritemplate/v3",
+      "version": "v3.0.2",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "github.com/yuin/goldmark",
+      "version": "v1.7.17",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/yuin/goldmark-emoji",
+      "version": "v1.0.6",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/yusufpapurcu/wmi",
+      "version": "v1.2.4",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/zalando/go-keyring",
+      "version": "v0.2.8",
+      "license": "MIT"
+    },
+    {
+      "name": "github.com/zeebo/xxh3",
+      "version": "v1.1.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "gitlab.com/digitalxero/go-conventional-commit",
+      "version": "v1.0.7",
+      "license": "MIT"
+    },
+    {
+      "name": "go.yaml.in/yaml/v3",
+      "version": "v3.0.5",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "golang.org/x/crypto",
+      "version": "v0.57.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "golang.org/x/exp",
+      "version": "v0.0.0-20260410095643-746e56fc9e2f",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "golang.org/x/exp/typeparams",
+      "version": "v0.0.0-20260112195511-716be5621a96",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "golang.org/x/image",
+      "version": "v0.41.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "golang.org/x/mod",
+      "version": "v0.41.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "golang.org/x/net",
+      "version": "v0.60.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "golang.org/x/oauth2",
+      "version": "v0.35.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "golang.org/x/sync",
+      "version": "v0.23.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "golang.org/x/sys",
+      "version": "v0.48.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "golang.org/x/term",
+      "version": "v0.46.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "golang.org/x/text",
+      "version": "v0.42.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "golang.org/x/tools",
+      "version": "v0.49.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "google.golang.org/protobuf",
+      "version": "v1.36.12",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "gopkg.in/check.v1",
+      "version": "v1.0.0-20190902080502-41f04d3bba15",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "gopkg.in/warnings.v0",
+      "version": "v0.1.2",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "gopkg.in/yaml.v2",
+      "version": "v2.4.0",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "gopkg.in/yaml.v3",
+      "version": "v3.0.1",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "howett.net/plist",
+      "version": "v1.0.2-0.20250314012144-ee69052608d9",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "modernc.org/cc/v4",
+      "version": "v4.29.2",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "modernc.org/ccgo/v4",
+      "version": "v4.35.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "modernc.org/fileutil",
+      "version": "v1.4.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "modernc.org/gc/v2",
+      "version": "v2.6.5",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "modernc.org/gc/v3",
+      "version": "v3.1.5",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "modernc.org/goabi0",
+      "version": "v0.2.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "modernc.org/libc",
+      "version": "v1.75.7",
+      "license": "MIT"
+    },
+    {
+      "name": "modernc.org/mathutil",
+      "version": "v1.7.1",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "modernc.org/memory",
+      "version": "v1.12.1",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "modernc.org/opt",
+      "version": "v0.2.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "modernc.org/sortutil",
+      "version": "v1.2.1",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "modernc.org/sqlite",
+      "version": "v1.58.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "modernc.org/strutil",
+      "version": "v1.2.1",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "modernc.org/token",
+      "version": "v1.1.0",
+      "license": "MPL-2.0"
+    },
+    {
+      "name": "mvdan.cc/sh/v3",
+      "version": "v3.12.0",
+      "license": "MPL-2.0"
+    }
+  ],
+  "npmDependencies": [
+    {
+      "name": "@eslint/js",
+      "version": "10.0.1",
+      "license": "MIT"
+    },
+    {
+      "name": "@fontsource-variable/roboto-flex",
+      "version": "5.3.0",
+      "license": "OFL-1.1"
+    },
+    {
+      "name": "@iconify-json/radix-icons",
+      "version": "1.2.6",
+      "license": "MIT"
+    },
+    {
+      "name": "@iconify/vue",
+      "version": "5.0.1",
+      "license": "MIT"
+    },
+    {
+      "name": "@lucide/vue",
+      "version": "1.46.0",
+      "license": "ISC"
+    },
+    {
+      "name": "@materialwebunofficial/md3e-web",
+      "version": "1.0.14",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "@tailwindcss/vite",
+      "version": "4.3.3",
+      "license": "MIT"
+    },
+    {
+      "name": "@types/node",
+      "version": "26.5.1",
+      "license": "MIT"
+    },
+    {
+      "name": "@vitejs/plugin-vue",
+      "version": "6.0.9",
+      "license": "MIT"
+    },
+    {
+      "name": "@vueuse/core",
+      "version": "14.4.0",
+      "license": "MIT"
+    },
+    {
+      "name": "@wailsio/runtime",
+      "version": "3.0.0",
+      "license": "MIT"
+    },
+    {
+      "name": "autoprefixer",
+      "version": "10.6.0",
+      "license": "MIT"
+    },
+    {
+      "name": "class-variance-authority",
+      "version": "0.7.1",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "clsx",
+      "version": "2.1.1",
+      "license": "MIT"
+    },
+    {
+      "name": "eslint",
+      "version": "10.10.0",
+      "license": "MIT"
+    },
+    {
+      "name": "eslint-plugin-vue",
+      "version": "10.11.0",
+      "license": "MIT"
+    },
+    {
+      "name": "globals",
+      "version": "17.12.0",
+      "license": "MIT"
+    },
+    {
+      "name": "material-symbols",
+      "version": "0.48.0",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "postcss",
+      "version": "8.5.28",
+      "license": "MIT"
+    },
+    {
+      "name": "radix-vue",
+      "version": "1.9.17",
+      "license": "MIT"
+    },
+    {
+      "name": "reka-ui",
+      "version": "2.10.4",
+      "license": "MIT"
+    },
+    {
+      "name": "tailwind-merge",
+      "version": "3.7.0",
+      "license": "MIT"
+    },
+    {
+      "name": "tailwindcss",
+      "version": "4.3.3",
+      "license": "MIT"
+    },
+    {
+      "name": "tw-animate-css",
+      "version": "1.4.0",
+      "license": "MIT"
+    },
+    {
+      "name": "typescript",
+      "version": "6.0.3",
+      "license": "Apache-2.0"
+    },
+    {
+      "name": "typescript-eslint",
+      "version": "8.70.0",
+      "license": "MIT"
+    },
+    {
+      "name": "vaul-vue",
+      "version": "0.4.1",
+      "license": "unknown"
+    },
+    {
+      "name": "vite",
+      "version": "8.3.0",
+      "license": "MIT"
+    },
+    {
+      "name": "vue",
+      "version": "3.5.42",
+      "license": "MIT"
+    },
+    {
+      "name": "vue-sonner",
+      "version": "2.0.9",
+      "license": "MIT"
+    },
+    {
+      "name": "vue-tsc",
+      "version": "3.3.11",
+      "license": "MIT"
+    }
+  ]
+}

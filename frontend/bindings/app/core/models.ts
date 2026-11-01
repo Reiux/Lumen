@@ -5,6 +5,50 @@
 // @ts-ignore: Unused imports
 import { Create as $Create } from "@wailsio/runtime";
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as time$0 from "../../time/models.js";
+
+/**
+ * AccountBlockedEvent is emitted to the UI and reporter when an account issue trips the breaker.
+ */
+export class AccountBlockedEvent {
+    /**
+     * "SIGN_IN_REQUIRED", "ACCOUNT_RESTRICTED", "RATE_LIMITED"
+     */
+    "reason": string;
+    "email": string;
+    "message": string;
+
+    /**
+     * Unix ms timestamp when rate limit expires
+     */
+    "resumeAt"?: number;
+
+    /** Creates a new AccountBlockedEvent instance. */
+    constructor($$source: Partial<AccountBlockedEvent> = {}) {
+        if (!("reason" in $$source)) {
+            this["reason"] = "";
+        }
+        if (!("email" in $$source)) {
+            this["email"] = "";
+        }
+        if (!("message" in $$source)) {
+            this["message"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AccountBlockedEvent instance from a string or object.
+     */
+    static createFrom($$source: any = {}): AccountBlockedEvent {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AccountBlockedEvent($$parsedSource as Partial<AccountBlockedEvent>);
+    }
+}
+
 export class AccountSummary {
     "email": string;
     "needsTokenBinding": boolean;
@@ -131,6 +175,92 @@ export class AlbumStatus {
     }
 }
 
+/**
+ * BrowserSignInOptions configures an automated sign-in session.
+ */
+export class BrowserSignInOptions {
+    "Browser": SupportedBrowser;
+    "BrowserPath": string;
+    "Timeout": time$0.Duration;
+    "PollInterval": time$0.Duration;
+    "CookieSource": CookieSource;
+    "ProcessRunner": ProcessRunner;
+    "TempDirFunc": any;
+
+    /**
+     * Test hook to capture temp directory path
+     */
+    "OnTempDir": any;
+
+    /**
+     * Called if the browser window could not be closed automatically
+     */
+    "OnCloseFailed": any;
+
+    /** Creates a new BrowserSignInOptions instance. */
+    constructor($$source: Partial<BrowserSignInOptions> = {}) {
+        if (!("Browser" in $$source)) {
+            this["Browser"] = (new SupportedBrowser());
+        }
+        if (!("BrowserPath" in $$source)) {
+            this["BrowserPath"] = "";
+        }
+        if (!("Timeout" in $$source)) {
+            this["Timeout"] = time$0.Duration.$zero;
+        }
+        if (!("PollInterval" in $$source)) {
+            this["PollInterval"] = time$0.Duration.$zero;
+        }
+        if (!("CookieSource" in $$source)) {
+            this["CookieSource"] = null;
+        }
+        if (!("ProcessRunner" in $$source)) {
+            this["ProcessRunner"] = null;
+        }
+        if (!("TempDirFunc" in $$source)) {
+            this["TempDirFunc"] = null;
+        }
+        if (!("OnTempDir" in $$source)) {
+            this["OnTempDir"] = null;
+        }
+        if (!("OnCloseFailed" in $$source)) {
+            this["OnCloseFailed"] = null;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new BrowserSignInOptions instance from a string or object.
+     */
+    static createFrom($$source: any = {}): BrowserSignInOptions {
+        const $$createField0_0 = $$createType3;
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        if ("Browser" in $$parsedSource) {
+            $$parsedSource["Browser"] = $$createField0_0($$parsedSource["Browser"]);
+        }
+        return new BrowserSignInOptions($$parsedSource as Partial<BrowserSignInOptions>);
+    }
+}
+
+/**
+ * BrowserType represents the automation engine type needed for a browser.
+ */
+export enum BrowserType {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    BrowserTypeChromium = "chromium",
+    BrowserTypeUnknown = "unknown",
+};
+
+/**
+ * CookieSource represents an entity that can wait for and retrieve a named cookie.
+ */
+export type CookieSource = any;
+
 export class FileUploadResult {
     "MediaKey": string;
     "IsError": boolean;
@@ -141,6 +271,8 @@ export class FileUploadResult {
     "ErrorMessage": string;
     "Path": string;
     "Paths": string[];
+    "DurationMs"?: number;
+    "SizeBytes"?: number;
 
     /** Creates a new FileUploadResult instance. */
     constructor($$source: Partial<FileUploadResult> = {}) {
@@ -221,6 +353,84 @@ export class FilesDroppedEvent {
 }
 
 /**
+ * LogEntry is a structured event recording an operation or problem.
+ */
+export class LogEntry {
+    "id": string;
+    "timestamp": string;
+
+    /**
+     * DEBUG, INFO, WARN, ERROR
+     */
+    "level": string;
+
+    /**
+     * Upload, Auth, Scanner, Network, System
+     */
+    "category": string;
+
+    /**
+     * e.g. "Run 1"
+     */
+    "runId"?: string;
+    "fileName"?: string;
+    "filePath"?: string;
+    "sizeBytes"?: number;
+    "durationMs"?: number;
+
+    /**
+     * UPLOADED, SKIPPED_CACHE, SKIPPED_REMOTE_DEDUP, RECOVERED_COMMIT, FAILED
+     */
+    "outcome"?: string;
+
+    /**
+     * RATE_LIMITED, AUTH_EXPIRED, NETWORK_TIMEOUT, FILE_UNREADABLE, SERVER_ERROR
+     */
+    "reasonCode"?: string;
+
+    /**
+     * Plain-language user explanation
+     */
+    "userMessage"?: string;
+
+    /**
+     * Actionable advice
+     */
+    "suggestedAction"?: string;
+
+    /**
+     * Technical error details
+     */
+    "rawError"?: string;
+
+    /** Creates a new LogEntry instance. */
+    constructor($$source: Partial<LogEntry> = {}) {
+        if (!("id" in $$source)) {
+            this["id"] = "";
+        }
+        if (!("timestamp" in $$source)) {
+            this["timestamp"] = "0001-01-01T00:00:00.000Z";
+        }
+        if (!("level" in $$source)) {
+            this["level"] = "";
+        }
+        if (!("category" in $$source)) {
+            this["category"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new LogEntry instance from a string or object.
+     */
+    static createFrom($$source: any = {}): LogEntry {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new LogEntry($$parsedSource as Partial<LogEntry>);
+    }
+}
+
+/**
  * Preferences are GUI settings. The CLI never reads them; every CLI run is
  * configured by flags alone.
  */
@@ -246,6 +456,8 @@ export class Preferences {
     "watchedFolders": string[];
     "watchedFolderConfigs": WatchedFolderConfig[];
     "recentAlbums": string[];
+    "auto_check_updates": boolean;
+    "lastUpdateCheck": number;
 
     /**
      * AlbumName and AlbumAutoMode are per-session choices and are never persisted.
@@ -318,6 +530,12 @@ export class Preferences {
         if (!("recentAlbums" in $$source)) {
             this["recentAlbums"] = [];
         }
+        if (!("auto_check_updates" in $$source)) {
+            this["auto_check_updates"] = false;
+        }
+        if (!("lastUpdateCheck" in $$source)) {
+            this["lastUpdateCheck"] = 0;
+        }
         if (!("albumName" in $$source)) {
             this["albumName"] = "";
         }
@@ -333,7 +551,7 @@ export class Preferences {
      */
     static createFrom($$source: any = {}): Preferences {
         const $$createField18_0 = $$createType2;
-        const $$createField19_0 = $$createType4;
+        const $$createField19_0 = $$createType5;
         const $$createField20_0 = $$createType2;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
         if ("watchedFolders" in $$parsedSource) {
@@ -383,6 +601,43 @@ export class PreflightWarning {
 }
 
 /**
+ * ProcessRunner starts a browser process.
+ */
+export type ProcessRunner = any;
+
+/**
+ * ScanProgressEvent reports live discovery stats to the UI and reporter.
+ */
+export class ScanProgressEvent {
+    "filesFound": number;
+    "currentDirectory": string;
+    "isScanning": boolean;
+
+    /** Creates a new ScanProgressEvent instance. */
+    constructor($$source: Partial<ScanProgressEvent> = {}) {
+        if (!("filesFound" in $$source)) {
+            this["filesFound"] = 0;
+        }
+        if (!("currentDirectory" in $$source)) {
+            this["currentDirectory"] = "";
+        }
+        if (!("isScanning" in $$source)) {
+            this["isScanning"] = false;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new ScanProgressEvent instance from a string or object.
+     */
+    static createFrom($$source: any = {}): ScanProgressEvent {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new ScanProgressEvent($$parsedSource as Partial<ScanProgressEvent>);
+    }
+}
+
+/**
  * StartUploadEvent is received from frontend to start upload
  */
 export class StartUploadEvent {
@@ -407,6 +662,34 @@ export class StartUploadEvent {
             $$parsedSource["files"] = $$createField0_0($$parsedSource["files"]);
         }
         return new StartUploadEvent($$parsedSource as Partial<StartUploadEvent>);
+    }
+}
+
+/**
+ * SupportedBrowser represents a located browser executable and its protocol driver type.
+ */
+export class SupportedBrowser {
+    "Path": string;
+    "Type": BrowserType;
+
+    /** Creates a new SupportedBrowser instance. */
+    constructor($$source: Partial<SupportedBrowser> = {}) {
+        if (!("Path" in $$source)) {
+            this["Path"] = "";
+        }
+        if (!("Type" in $$source)) {
+            this["Type"] = BrowserType.$zero;
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new SupportedBrowser instance from a string or object.
+     */
+    static createFrom($$source: any = {}): SupportedBrowser {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new SupportedBrowser($$parsedSource as Partial<SupportedBrowser>);
     }
 }
 
@@ -467,6 +750,55 @@ export class ThreadStatus {
     }
 }
 
+/**
+ * UpdateInfo contains release details and whether an update is available.
+ */
+export class UpdateInfo {
+    "currentVersion": string;
+    "latestVersion": string;
+    "hasUpdate": boolean;
+    "releaseUrl": string;
+    "releaseNotes": string;
+    "publishedAt": string;
+    "checkedAt": string;
+    "error"?: string;
+
+    /** Creates a new UpdateInfo instance. */
+    constructor($$source: Partial<UpdateInfo> = {}) {
+        if (!("currentVersion" in $$source)) {
+            this["currentVersion"] = "";
+        }
+        if (!("latestVersion" in $$source)) {
+            this["latestVersion"] = "";
+        }
+        if (!("hasUpdate" in $$source)) {
+            this["hasUpdate"] = false;
+        }
+        if (!("releaseUrl" in $$source)) {
+            this["releaseUrl"] = "";
+        }
+        if (!("releaseNotes" in $$source)) {
+            this["releaseNotes"] = "";
+        }
+        if (!("publishedAt" in $$source)) {
+            this["publishedAt"] = "";
+        }
+        if (!("checkedAt" in $$source)) {
+            this["checkedAt"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new UpdateInfo instance from a string or object.
+     */
+    static createFrom($$source: any = {}): UpdateInfo {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new UpdateInfo($$parsedSource as Partial<UpdateInfo>);
+    }
+}
+
 export class UploadBatchStart {
     "Total": number;
     "TotalBytes": number;
@@ -495,6 +827,14 @@ export class UploadBatchStart {
 export class WatchedFolderConfig {
     "path": string;
     "accountEmail": string;
+    "enabled": boolean;
+    "includeSubfolders": boolean;
+
+    /**
+     * "none", "auto", "custom"
+     */
+    "albumMode": string;
+    "albumNameOrKey": string;
 
     /** Creates a new WatchedFolderConfig instance. */
     constructor($$source: Partial<WatchedFolderConfig> = {}) {
@@ -503,6 +843,18 @@ export class WatchedFolderConfig {
         }
         if (!("accountEmail" in $$source)) {
             this["accountEmail"] = "";
+        }
+        if (!("enabled" in $$source)) {
+            this["enabled"] = false;
+        }
+        if (!("includeSubfolders" in $$source)) {
+            this["includeSubfolders"] = false;
+        }
+        if (!("albumMode" in $$source)) {
+            this["albumMode"] = "";
+        }
+        if (!("albumNameOrKey" in $$source)) {
+            this["albumNameOrKey"] = "";
         }
 
         Object.assign(this, $$source);
@@ -521,5 +873,6 @@ export class WatchedFolderConfig {
 const $$createType0 = AccountSummary.createFrom;
 const $$createType1 = $Create.Array($$createType0);
 const $$createType2 = $Create.Array($Create.Any);
-const $$createType3 = WatchedFolderConfig.createFrom;
-const $$createType4 = $Create.Array($$createType3);
+const $$createType3 = SupportedBrowser.createFrom;
+const $$createType4 = WatchedFolderConfig.createFrom;
+const $$createType5 = $Create.Array($$createType4);

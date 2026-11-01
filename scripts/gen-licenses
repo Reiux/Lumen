@@ -1,0 +1,213 @@
+#!/usr/bin/env python3
+"""
+scripts/gen-licenses
+Generates docs/THIRD_PARTY_LICENSES.json listing third-party Go and npm dependencies,
+along with full project and upstream license texts.
+"""
+
+import json
+import os
+import re
+import subprocess
+import sys
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DOCS_DIR = os.path.join(REPO_ROOT, 'docs')
+OUTPUT_FILE = os.path.join(DOCS_DIR, 'THIRD_PARTY_LICENSES.json')
+LICENSE_FILE = os.path.join(REPO_ROOT, 'LICENSE')
+
+def detect_license_text(text: str) -> str:
+    t = text.lower()
+    if 'apache license' in t and ('version 2.0' in t or '2.0' in t):
+        return 'Apache-2.0'
+    if 'mit license' in t or 'permission is hereby granted, free of charge' in t:
+        return 'MIT'
+    if 'mozilla public license' in t or 'mpl' in t:
+        return 'MPL-2.0'
+    if 'redistribution and use in source and binary forms' in t:
+        if 'neither the name' in t or 'clause' in t or 'three' in t or 'third' in t:
+            return 'BSD-3-Clause'
+        return 'BSD-2-Clause'
+    if 'isc license' in t or ('permission to use, copy, modify' in t and 'without fee' in t):
+        return 'ISC'
+    if 'gnu general public license' in t or 'gpl' in t:
+        return 'GPL-3.0'
+    if 'gnu lesser general public' in t or 'lgpl' in t:
+        return 'LGPL-3.0'
+    if 'unlicense' in t or 'public domain' in t:
+        return 'Unlicense'
+    return 'unknown'
+
+def get_dir_license(dir_path: str) -> str:
+    if not dir_path or not os.path.exists(dir_path):
+        return 'unknown'
+    for fn in os.listdir(dir_path):
+        if re.match(r'^(license|licence|copying).*', fn, re.I):
+            try:
+                full = os.path.join(dir_path, fn)
+                if os.path.isfile(full):
+                    with open(full, 'r', errors='ignore') as f:
+                        content = f.read(4096)
+                        lic = detect_license_text(content)
+                        if lic != 'unknown':
+                            return lic
+            except Exception:
+                pass
+    return 'unknown'
+
+def collect_go_dependencies():
+    cmd = ['go', 'mod', 'download', '-json', 'all']
+    proc = subprocess.run(cmd, cwd=REPO_ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    if proc.returncode != 0:
+        print(f"Warning: go mod download returned code {proc.returncode}: {proc.stderr}", file=sys.stderr)
+
+    out = proc.stdout
+    decoder = json.JSONDecoder()
+    idx = 0
+    modules = []
+    seen = set()
+
+    while idx < len(out):
+        out_str = out[idx:].lstrip()
+        if not out_str:
+            break
+        idx += len(out[idx:]) - len(out_str)
+        obj, end = decoder.raw_decode(out[idx:])
+        idx += end
+
+        path = obj.get('Path')
+        version = obj.get('Version')
+        if not path or path == 'app' or path in seen:
+            continue
+        seen.add(path)
+
+        dir_path = obj.get('Dir')
+        license_name = get_dir_license(dir_path)
+
+        modules.append({
+            'name': path,
+            'version': version or 'unknown',
+            'license': license_name,
+        })
+
+    modules.sort(key=lambda m: m['name'])
+    return modules
+
+def collect_npm_dependencies():
+    pkg_json_path = os.path.join(REPO_ROOT, 'frontend', 'package.json')
+    if not os.path.exists(pkg_json_path):
+        return []
+
+    with open(pkg_json_path, 'r', encoding='utf-8') as f:
+        root_pkg = json.load(f)
+
+    deps = {}
+    deps.update(root_pkg.get('dependencies', {}))
+    deps.update(root_pkg.get('devDependencies', {}))
+
+    node_modules_dir = os.path.join(REPO_ROOT, 'frontend', 'node_modules')
+    packages = []
+
+    for name, req_ver in deps.items():
+        pkg_file = os.path.join(node_modules_dir, name, 'package.json')
+        version = req_ver
+        license_name = 'unknown'
+
+        if os.path.exists(pkg_file):
+            try:
+                with open(pkg_file, 'r', encoding='utf-8') as pf:
+                    data = json.load(pf)
+                    version = data.get('version', req_ver)
+                    lic = data.get('license') or data.get('licenses')
+                    if isinstance(lic, str):
+                        license_name = lic
+                    elif isinstance(lic, dict):
+                        license_name = lic.get('type', 'unknown')
+                    elif isinstance(lic, list) and len(lic) > 0:
+                        license_name = lic[0].get('type', 'unknown') if isinstance(lic[0], dict) else str(lic[0])
+            except Exception:
+                pass
+
+        if license_name == 'unknown':
+            pkg_dir = os.path.join(node_modules_dir, name)
+            fallback = get_dir_license(pkg_dir)
+            if fallback != 'unknown':
+                license_name = fallback
+
+        packages.append({
+            'name': name,
+            'version': version,
+            'license': license_name or 'unknown',
+        })
+
+    packages.sort(key=lambda p: p['name'])
+    return packages
+
+def main():
+    os.makedirs(DOCS_DIR, exist_ok=True)
+
+    upstream_text = ""
+    if os.path.exists(LICENSE_FILE):
+        with open(LICENSE_FILE, 'r', encoding='utf-8') as f:
+            upstream_text = f.read().strip()
+
+    project_text = (
+        "MIT License\n\n"
+        "Copyright (c) 2026 Lumen Contributors\n"
+        "Portions Copyright (c) 2024 xob0t (gotohp)\n\n"
+        "Permission is hereby granted, free of charge, to any person obtaining a copy\n"
+        "of this software and associated documentation files (the \"Software\"), to deal\n"
+        "in the Software without restriction, including without limitation the rights\n"
+        "to use, copy, modify, merge, publish, distribute, sublicense, and/or sell\n"
+        "copies of the Software, and to permit persons to whom the Software is\n"
+        "furnished to do so, subject to the following conditions:\n\n"
+        "The above copyright notice and this permission notice shall be included in all\n"
+        "copies or substantial portions of the Software.\n\n"
+        "THE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\n"
+        "IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\n"
+        "FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\n"
+        "AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\n"
+        "LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\n"
+        "OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\n"
+        "SOFTWARE."
+    )
+
+    go_deps = collect_go_dependencies()
+    npm_deps = collect_npm_dependencies()
+
+    data = {
+        'project': {
+            'name': 'Lumen Desktop',
+            'license': 'MIT',
+            'copyright': 'Copyright (c) 2026 Lumen Contributors',
+            'text': project_text,
+        },
+        'upstream': {
+            'name': 'gotohp',
+            'license': 'MIT',
+            'copyright': 'Copyright (c) 2024 xob0t',
+            'text': upstream_text,
+        },
+        'goDependencies': go_deps,
+        'npmDependencies': npm_deps,
+    }
+
+    with open(OUTPUT_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2)
+
+    unknown_go = [m['name'] for m in go_deps if m['license'] == 'unknown']
+    unknown_npm = [p['name'] for p in npm_deps if p['license'] == 'unknown']
+
+    print(f"Generated {OUTPUT_FILE}")
+    print(f"Go dependencies: {len(go_deps)} ({len(unknown_go)} unknown)")
+    print(f"NPM dependencies: {len(npm_deps)} ({len(unknown_npm)} unknown)")
+
+    if unknown_go or unknown_npm:
+        print("\nDependencies with unknown licenses:")
+        for name in unknown_go:
+            print(f"  [Go]  {name}")
+        for name in unknown_npm:
+            print(f"  [NPM] {name}")
+
+if __name__ == '__main__':
+    main()

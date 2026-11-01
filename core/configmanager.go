@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -27,8 +28,12 @@ type AccountConfig struct {
 }
 
 type WatchedFolderConfig struct {
-	Path         string `json:"path" koanf:"path"`
-	AccountEmail string `json:"accountEmail" koanf:"account_email"`
+	Path              string `json:"path" koanf:"path"`
+	AccountEmail      string `json:"accountEmail" koanf:"account_email"`
+	Enabled           bool   `json:"enabled" koanf:"enabled"`
+	IncludeSubfolders bool   `json:"includeSubfolders" koanf:"include_subfolders"`
+	AlbumMode         string `json:"albumMode" koanf:"album_mode"` // "none", "auto", "custom"
+	AlbumNameOrKey    string `json:"albumNameOrKey" koanf:"album_name_or_key"`
 }
 
 // Preferences are GUI settings. The CLI never reads them; every CLI run is
@@ -55,6 +60,8 @@ type Preferences struct {
 	WatchedFolders                []string              `json:"watchedFolders" koanf:"watched_folders"`
 	WatchedFolderConfigs          []WatchedFolderConfig `json:"watchedFolderConfigs" koanf:"watched_folder_configs"`
 	RecentAlbums                  []string              `json:"recentAlbums" koanf:"recent_albums"`
+	AutoCheckUpdates              bool                  `json:"auto_check_updates" koanf:"auto_check_updates"`
+	LastUpdateCheck               int64                 `json:"lastUpdateCheck" koanf:"last_update_check"`
 	// AlbumName and AlbumAutoMode are per-session choices and are never persisted.
 	AlbumName     string `json:"albumName" koanf:"-"`
 	AlbumAutoMode bool   `json:"albumAutoMode" koanf:"-"`
@@ -132,6 +139,7 @@ var (
 		UploadThreads:            3,
 		NotifyOnComplete:         true,
 		UseLocalHashCache:        false,
+		AutoCheckUpdates:         true,
 		WatchedFolders:           []string{},
 		WatchedFolderConfigs:     []WatchedFolderConfig{},
 		RecentAlbums:             []string{},
@@ -173,12 +181,18 @@ func (g *ConfigManager) SetSelected(email string) {
 func (g *ConfigManager) SetUseQuota(useQuota bool) {
 	updateAppConfig(func(config *Config) {
 		config.Preferences.UseQuota = useQuota
+		if useQuota {
+			config.Preferences.Saver = false
+		}
 	})
 }
 
 func (g *ConfigManager) SetSaver(saver bool) {
 	updateAppConfig(func(config *Config) {
 		config.Preferences.Saver = saver
+		if saver {
+			config.Preferences.UseQuota = false
+		}
 	})
 }
 
@@ -367,17 +381,103 @@ func (g *ConfigManager) GetWatchedFolderConfigs() []WatchedFolderConfig {
 	configMu.RLock()
 	defer configMu.RUnlock()
 	if len(AppConfig.Preferences.WatchedFolderConfigs) > 0 {
-		return append([]WatchedFolderConfig(nil), AppConfig.Preferences.WatchedFolderConfigs...)
+		configs := make([]WatchedFolderConfig, len(AppConfig.Preferences.WatchedFolderConfigs))
+		copy(configs, AppConfig.Preferences.WatchedFolderConfigs)
+		return configs
 	}
 	var synthesized []WatchedFolderConfig
 	selected := AppConfig.Account.Selected
 	for _, f := range AppConfig.Preferences.WatchedFolders {
 		synthesized = append(synthesized, WatchedFolderConfig{
-			Path:         f,
-			AccountEmail: selected,
+			Path:              f,
+			AccountEmail:      selected,
+			Enabled:           true,
+			IncludeSubfolders: false,
+			AlbumMode:         "none",
 		})
 	}
 	return synthesized
+}
+
+func (g *ConfigManager) UpdateWatchedFolderConfig(cfg WatchedFolderConfig) error {
+	folder := filepath.Clean(strings.TrimSpace(cfg.Path))
+	if folder == "" {
+		return fmt.Errorf("folder path cannot be empty")
+	}
+
+	configMu.Lock()
+	found := false
+	for i, fc := range AppConfig.Preferences.WatchedFolderConfigs {
+		if filepath.Clean(fc.Path) == folder {
+			AppConfig.Preferences.WatchedFolderConfigs[i] = cfg
+			AppConfig.Preferences.WatchedFolderConfigs[i].Path = folder
+			found = true
+			break
+		}
+	}
+	if !found {
+		cfg.Path = folder
+		AppConfig.Preferences.WatchedFolderConfigs = append(AppConfig.Preferences.WatchedFolderConfigs, cfg)
+	}
+
+	var updatedLegacy []string
+	for _, fc := range AppConfig.Preferences.WatchedFolderConfigs {
+		if fc.Enabled {
+			updatedLegacy = append(updatedLegacy, fc.Path)
+		}
+	}
+	AppConfig.Preferences.WatchedFolders = updatedLegacy
+
+	err := saveAppConfigLocked()
+	configMu.Unlock()
+
+	SyncFolderWatcher()
+	return err
+}
+
+func (g *ConfigManager) GetWatchedFolderConfigForPath(filePath string) *WatchedFolderConfig {
+	configMu.RLock()
+	defer configMu.RUnlock()
+	cleaned := filepath.Clean(filePath)
+	for _, fc := range AppConfig.Preferences.WatchedFolderConfigs {
+		dir := filepath.Clean(fc.Path)
+		if cleaned == dir || strings.HasPrefix(cleaned, dir+string(filepath.Separator)) {
+			copy := fc
+			return &copy
+		}
+	}
+	return nil
+}
+
+func (g *ConfigManager) SetAlbumNickname(account, key, nickname string) error {
+	account = strings.TrimSpace(account)
+	if account == "" {
+		account = AppConfig.Account.Selected
+	}
+	key = strings.TrimSpace(key)
+	nickname = strings.TrimSpace(nickname)
+	if key == "" || nickname == "" {
+		return nil
+	}
+	return GetGlobalAlbumRegistry().Set(account, nickname, key)
+}
+
+func (g *ConfigManager) GetAlbumNickname(account, key string) string {
+	account = strings.TrimSpace(account)
+	if account == "" {
+		account = AppConfig.Account.Selected
+	}
+	key = strings.TrimSpace(key)
+	name, _ := GetGlobalAlbumRegistry().FindNameByKey(account, key)
+	return name
+}
+
+func (g *ConfigManager) GetAlbumNicknames(account string) map[string]string {
+	account = strings.TrimSpace(account)
+	if account == "" {
+		account = AppConfig.Account.Selected
+	}
+	return GetGlobalAlbumRegistry().GetAllNicknames(account)
 }
 
 func (g *ConfigManager) AddWatchedFolder(folder string) error {
@@ -409,14 +509,18 @@ func (g *ConfigManager) AddWatchedFolderWithAccount(folder string, accountEmail 
 	for i, fc := range AppConfig.Preferences.WatchedFolderConfigs {
 		if filepath.Clean(fc.Path) == folder {
 			AppConfig.Preferences.WatchedFolderConfigs[i].AccountEmail = accountEmail
+			AppConfig.Preferences.WatchedFolderConfigs[i].Enabled = true
 			exists = true
 			break
 		}
 	}
 	if !exists {
 		AppConfig.Preferences.WatchedFolderConfigs = append(AppConfig.Preferences.WatchedFolderConfigs, WatchedFolderConfig{
-			Path:         folder,
-			AccountEmail: accountEmail,
+			Path:              folder,
+			AccountEmail:      accountEmail,
+			Enabled:           true,
+			IncludeSubfolders: false,
+			AlbumMode:         "none",
 		})
 	}
 
@@ -571,59 +675,8 @@ func (g *ConfigManager) RemoveRecentAlbum(name string) {
 }
 
 func (g *ConfigManager) AddCredentials(newAuthString string) error {
-	// Required fields that must be present in the auth string
-	requiredFields := []string{
-		"androidId",
-		"app",
-		"client_sig",
-		"Email",
-		"Token",
-		"lang",
-		"service",
-	}
-
-	// Parse the auth string
-	params, err := url.ParseQuery(newAuthString)
-	if err != nil {
-		return fmt.Errorf("invalid auth string format: %v", err)
-	}
-
-	// Validate required fields
-	var missingFields []string
-	for _, field := range requiredFields {
-		if params.Get(field) == "" {
-			missingFields = append(missingFields, field)
-		}
-	}
-	if len(missingFields) > 0 {
-		return fmt.Errorf("auth string missing required fields: %v", missingFields)
-	}
-
-	// Get and validate email
-	email := params.Get("Email")
-	if email == "" {
-		return fmt.Errorf("email cannot be empty")
-	}
-
-	configMu.Lock()
-	defer configMu.Unlock()
-
-	// Check for duplicate email in existing credentials
-	for _, cred := range AppConfig.Account.Credentials {
-		existingParams, err := url.ParseQuery(cred)
-		if err != nil {
-			continue // skip malformed entries
-		}
-		if existingParams.Get("Email") == email {
-			return fmt.Errorf("auth string with email %s already exists", email)
-		}
-	}
-
-	// If validation passed, add the new credentials
-	AppConfig.Account.Credentials = append(AppConfig.Account.Credentials, newAuthString)
-	AppConfig.Account.Selected = email
-	_ = saveAppConfigLocked()
-	return nil
+	_, err := g.ValidateAndAddCredentials(newAuthString)
+	return err
 }
 
 func (g *ConfigManager) CredentialNeedsTokenBinding(authString string) bool {
@@ -692,6 +745,11 @@ func (g *ConfigManager) RemoveCredentials(email string) error {
 
 	if !found {
 		return fmt.Errorf("no credentials found for email %s", email)
+	}
+
+	// Delete from OS keyring
+	if kr := GetGlobalKeyring(); kr != nil {
+		_ = kr.DeleteCredential(email)
 	}
 
 	// Update the configuration
@@ -992,6 +1050,7 @@ func (g *ConfigManager) SessionUploadOptions() UploadOptions {
 	defer configMu.RUnlock()
 	opts := AppConfig.Preferences.UploadOptions()
 	opts.AccountEmail = AppConfig.Account.Selected
+	opts.Api.Account = AppConfig.Account.Selected
 	return opts
 }
 
@@ -1054,6 +1113,16 @@ func loadConfigLocked() error {
 		_ = os.Chmod(ConfigPath, 0o600)
 	}
 
+	if AppConfig.Preferences.UseQuota && AppConfig.Preferences.Saver {
+		AppConfig.Preferences.Saver = false
+		log.Println("config warning: both UseQuota and Saver were enabled; normalizing to UseQuota on and Saver off")
+	}
+
+	// Auto-migrate plaintext tokens from config file to OS keyring
+	if MigrateCredentialsToKeyring(&AppConfig) {
+		_ = saveAppConfigLocked()
+	}
+
 	dbPath := filepath.Join(filepath.Dir(ConfigPath), "hash_cache.db")
 	_, _ = InitGlobalHashCache(dbPath)
 
@@ -1072,9 +1141,28 @@ func updateAppConfig(update func(*Config)) {
 
 // saveAppConfigLocked persists AppConfig while the caller holds configMu for writing.
 func saveAppConfigLocked() error {
+	diskConfig := AppConfig
+	// If keyring is functional, strip sensitive plaintext token from on-disk copy
+	if kr := GetGlobalKeyring(); kr != nil {
+		diskCreds := make([]string, len(AppConfig.Account.Credentials))
+		for i, c := range AppConfig.Account.Credentials {
+			params, err := url.ParseQuery(c)
+			if err == nil {
+				email := params.Get("Email")
+				if _, err := kr.GetCredential(email); err == nil {
+					// Keyring holds this credential securely: redact Token for disk file
+					diskCreds[i] = StripSensitiveToken(c)
+					continue
+				}
+			}
+			diskCreds[i] = c
+		}
+		diskConfig.Account.Credentials = diskCreds
+	}
+
 	k := koanf.New(".")
 
-	err := k.Load(structs.Provider(AppConfig, "koanf"), nil)
+	err := k.Load(structs.Provider(diskConfig, "koanf"), nil)
 	if err != nil {
 		fmt.Println(err)
 		return err
@@ -1153,6 +1241,10 @@ func loadAppConfig() Config {
 		c.Preferences.NotifyOnComplete = DefaultPreferences.NotifyOnComplete
 	}
 
+	if !k.Exists("preferences.auto_check_updates") {
+		c.Preferences.AutoCheckUpdates = DefaultPreferences.AutoCheckUpdates
+	}
+
 	if c.Preferences.WatchedFolders == nil {
 		c.Preferences.WatchedFolders = []string{}
 	}
@@ -1169,6 +1261,11 @@ func loadAppConfig() Config {
 	}
 	if c.Preferences.RecentAlbums == nil {
 		c.Preferences.RecentAlbums = []string{}
+	}
+
+	if c.Preferences.UseQuota && c.Preferences.Saver {
+		c.Preferences.Saver = false
+		log.Println("config warning: both UseQuota and Saver were enabled; normalizing to UseQuota on and Saver off")
 	}
 
 	return c
@@ -1210,6 +1307,10 @@ func migrateLegacyConfig(k *koanf.Koanf) Config {
 	if !k.Exists("preferences.notify_on_complete") {
 		c.Preferences.NotifyOnComplete = DefaultPreferences.NotifyOnComplete
 	}
+
+	if !k.Exists("preferences.auto_check_updates") {
+		c.Preferences.AutoCheckUpdates = DefaultPreferences.AutoCheckUpdates
+	}
 	previous := AppConfig
 	AppConfig = c
 	if err := saveAppConfigLocked(); err != nil {
@@ -1218,3 +1319,197 @@ func migrateLegacyConfig(k *koanf.Koanf) Config {
 	AppConfig = previous
 	return c
 }
+
+// GetLogEntries returns buffered log entries, newest first.
+func (g *ConfigManager) GetLogEntries(limit int, levelFilter string) []LogEntry {
+	return GetGlobalLogger().GetEntries(limit, levelFilter)
+}
+
+// GetProblemLogs returns only WARN and ERROR entries.
+func (g *ConfigManager) GetProblemLogs() []LogEntry {
+	return GetGlobalLogger().GetProblems()
+}
+
+// ClearLogEntries removes all stored log entries.
+func (g *ConfigManager) ClearLogEntries() {
+	GetGlobalLogger().Clear()
+}
+
+// ExportLogs formats all logs for sharing (format is "txt" or "json").
+func (g *ConfigManager) ExportLogs(format string) string {
+	return GetGlobalLogger().Export(format)
+}
+
+// CancelScan cancels any in-progress folder scanning.
+func (g *ConfigManager) CancelScan() {
+	CancelActiveScan()
+}
+
+// GetAutoCheckUpdates returns whether automatic GitHub release checks are enabled.
+func (g *ConfigManager) GetAutoCheckUpdates() bool {
+	ensureConfigLoaded()
+	configMu.RLock()
+	defer configMu.RUnlock()
+	return AppConfig.Preferences.AutoCheckUpdates
+}
+
+// SetAutoCheckUpdates updates and persists the automatic update check preference immediately.
+func (g *ConfigManager) SetAutoCheckUpdates(enabled bool) error {
+	updateAppConfig(func(config *Config) {
+		config.Preferences.AutoCheckUpdates = enabled
+	})
+	return nil
+}
+
+// GetLastUpdateCheck returns the unix epoch seconds of the last update check.
+func (g *ConfigManager) GetLastUpdateCheck() int64 {
+	ensureConfigLoaded()
+	configMu.RLock()
+	defer configMu.RUnlock()
+	return AppConfig.Preferences.LastUpdateCheck
+}
+
+// SetLastUpdateCheck persists the unix epoch seconds of the last update check.
+func (g *ConfigManager) SetLastUpdateCheck(timestamp int64) {
+	updateAppConfig(func(config *Config) {
+		config.Preferences.LastUpdateCheck = timestamp
+	})
+}
+
+// GetAppVersion returns the current semantic version of the application.
+func (g *ConfigManager) GetAppVersion() string {
+	return AppVersion
+}
+
+var (
+	accountRiskMu           sync.RWMutex
+	accountRiskAcknowledged bool
+
+	browserSignInMu     sync.Mutex
+	browserSignInCancel context.CancelFunc
+	browserCloseFailed  bool
+
+	// BrowserCloseFailedFunc is an optional hook invoked when the browser window could not be closed after sign-in.
+	BrowserCloseFailedFunc func()
+)
+
+// WasBrowserCloseFailed reports whether the browser window could not be automatically closed after sign-in.
+func (g *ConfigManager) WasBrowserCloseFailed() bool {
+	browserSignInMu.Lock()
+	defer browserSignInMu.Unlock()
+	return browserCloseFailed
+}
+
+// SetAccountRiskAcknowledged updates whether the user has acknowledged the account risk notice.
+func (g *ConfigManager) SetAccountRiskAcknowledged(acknowledged bool) {
+	accountRiskMu.Lock()
+	defer accountRiskMu.Unlock()
+	accountRiskAcknowledged = acknowledged
+}
+
+// IsAccountRiskAcknowledged returns whether the user has acknowledged the account risk notice.
+func (g *ConfigManager) IsAccountRiskAcknowledged() bool {
+	accountRiskMu.RLock()
+	defer accountRiskMu.RUnlock()
+	return accountRiskAcknowledged
+}
+
+// HasSupportedBrowser checks whether a supported browser is installed on the host.
+func (g *ConfigManager) HasSupportedBrowser() bool {
+	_, ok := FindSystemSupportedBrowser()
+	return ok
+}
+
+// GetSupportedBrowserName returns the friendly name of the detected browser (e.g. Brave, Google Chrome).
+func (g *ConfigManager) GetSupportedBrowserName() string {
+	b, ok := FindSystemSupportedBrowser()
+	if !ok {
+		return ""
+	}
+	return b.DisplayName()
+}
+
+// StartBrowserSignIn launches the system browser for automated Google sign-in.
+// It requires that the account safety notice has been acknowledged.
+// On success, it delegates directly to ValidateAndAddCredentials, ensuring identical validation,
+// keyring persistence, and account block protections as manual token entry.
+func (g *ConfigManager) StartBrowserSignIn() (string, error) {
+	return g.StartBrowserSignInWithOptions(BrowserSignInOptions{})
+}
+
+// StartBrowserSignInWithOptions runs the browser sign-in flow with custom options (used for testing and injection).
+func (g *ConfigManager) StartBrowserSignInWithOptions(opts BrowserSignInOptions) (string, error) {
+	accountRiskMu.RLock()
+	acknowledged := accountRiskAcknowledged
+	accountRiskMu.RUnlock()
+
+	if !acknowledged {
+		return "", errors.New("Please acknowledge the account safety notice before signing in.")
+	}
+
+	browserPath := opts.BrowserPath
+	if browserPath == "" && opts.ProcessRunner == nil {
+		foundBrowser, ok := FindSystemSupportedBrowser()
+		if !ok {
+			return "", errors.New("No supported Chromium-based browser (Chrome, Edge, Brave, or Chromium) was found on your system. Please enter the token manually.")
+		}
+		browserPath = foundBrowser.Path
+	}
+	opts.BrowserPath = browserPath
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	browserSignInMu.Lock()
+	if browserSignInCancel != nil {
+		browserSignInCancel()
+	}
+	browserSignInCancel = cancel
+	browserCloseFailed = false
+	browserSignInMu.Unlock()
+
+	origOnCloseFailed := opts.OnCloseFailed
+	opts.OnCloseFailed = func() {
+		browserSignInMu.Lock()
+		browserCloseFailed = true
+		browserSignInMu.Unlock()
+		if BrowserCloseFailedFunc != nil {
+			BrowserCloseFailedFunc()
+		}
+		if origOnCloseFailed != nil {
+			origOnCloseFailed()
+		}
+	}
+
+	defer func() {
+		browserSignInMu.Lock()
+		browserSignInCancel = nil
+		browserSignInMu.Unlock()
+	}()
+
+	token, err := RunBrowserSignInWithOptions(ctx, opts)
+	if err != nil {
+		if errors.Is(err, context.Canceled) {
+			return "", errors.New("Sign-in was cancelled.")
+		}
+		return "", err
+	}
+
+	if clean, ok := extractOAuthToken(token); ok {
+		token = clean
+	}
+
+	// Persist through the existing validation, keyring storage, and account handling path
+	return g.ValidateAndAddCredentials(token)
+}
+
+// CancelBrowserSignIn terminates an in-flight automated browser sign-in session.
+func (g *ConfigManager) CancelBrowserSignIn() {
+	browserSignInMu.Lock()
+	defer browserSignInMu.Unlock()
+	if browserSignInCancel != nil {
+		browserSignInCancel()
+		browserSignInCancel = nil
+	}
+}
+
+

@@ -17,10 +17,12 @@ const emit = defineEmits<{
 }>()
 
 const showFailedList = ref(false)
+const showSkippedList = ref(false)
 const copied = ref(false)
 
 const displaySuccess = ref(props.results.success.length)
 const displayFail = ref(props.results.fail.length)
+const displaySkipped = ref(props.results.skipped.length)
 
 let animFrames: number[] = []
 
@@ -56,8 +58,10 @@ function animateNumber(target: number, currentRef: Ref<number>, duration = 400) 
 onMounted(() => {
   displaySuccess.value = 0
   displayFail.value = 0
+  displaySkipped.value = 0
   animateNumber(props.results.success.length, displaySuccess)
   animateNumber(props.results.fail.length, displayFail)
+  animateNumber(props.results.skipped.length, displaySkipped)
 })
 
 onUnmounted(() => {
@@ -71,6 +75,10 @@ watch(() => props.results.success.length, (newVal) => {
 
 watch(() => props.results.fail.length, (newVal) => {
   animateNumber(newVal, displayFail)
+})
+
+watch(() => props.results.skipped.length, (newVal) => {
+  animateNumber(newVal, displaySkipped)
 })
 
 function onCopyClick() {
@@ -87,10 +95,10 @@ function onCopyClick() {
     <!-- Header: responsive wrap for compact windows -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 flex-wrap">
       <div class="flex flex-col min-w-0">
-        <h2 class="text-lg sm:text-xl font-bold tracking-tight text-[var(--md-sys-color-on-surface)] truncate">
+        <h2 class="m3-headline-small text-[var(--md-sys-color-on-surface)] truncate">
           Upload Batch Results
         </h2>
-        <span class="text-xs text-[var(--md-sys-color-on-surface-variant)]">
+        <span class="m3-body-medium">
           Summary of recent upload operations
         </span>
       </div>
@@ -125,8 +133,11 @@ function onCopyClick() {
       </md-button-group>
     </div>
 
-    <!-- Two Stat Cards Side by Side (Tonal Containers) -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <!-- Stat Cards Side by Side (Tonal Containers) -->
+    <div
+      class="grid gap-4"
+      :class="results.skipped.length > 0 ? 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3' : 'grid-cols-1 sm:grid-cols-2'"
+    >
       <!-- Successful in Tertiary Container -->
       <div class="m3-stat-card-1 flex items-center gap-4 rounded-[24px] border border-[var(--md-sys-color-tertiary)]/30 bg-[var(--md-sys-color-tertiary-container)] p-5 text-[var(--md-sys-color-on-tertiary-container)] shadow-xs">
         <div class="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--md-sys-color-on-tertiary-container)]/15">
@@ -138,11 +149,34 @@ function onCopyClick() {
           />
         </div>
         <div class="flex flex-col min-w-0">
-          <span class="text-3xl font-extrabold tabular-nums tracking-tight">
+          <span class="m3-display tabular-nums">
             {{ displaySuccess }}
           </span>
-          <span class="text-xs font-semibold opacity-90 truncate">
+          <span class="m3-label-large opacity-90 truncate">
             Successful Uploads
+          </span>
+        </div>
+      </div>
+
+      <!-- Skipped / Already in Google Photos in Secondary Container -->
+      <div
+        v-if="results.skipped.length > 0"
+        class="m3-stat-card-skipped flex items-center gap-4 rounded-[24px] border border-[var(--md-sys-color-secondary)]/30 bg-[var(--md-sys-color-secondary-container)] p-5 text-[var(--md-sys-color-on-secondary-container)] shadow-xs"
+      >
+        <div class="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--md-sys-color-on-secondary-container)]/15">
+          <M3Icon
+            name="cloud_done"
+            :filled="true"
+            :size="24"
+            class="text-[var(--md-sys-color-on-secondary-container)]"
+          />
+        </div>
+        <div class="flex flex-col min-w-0">
+          <span class="m3-display tabular-nums">
+            {{ displaySkipped }}
+          </span>
+          <span class="m3-label-large opacity-90 truncate">
+            Already in Google Photos
           </span>
         </div>
       </div>
@@ -168,12 +202,12 @@ function onCopyClick() {
         </div>
         <div class="flex flex-col min-w-0">
           <span
-            class="text-3xl font-extrabold tabular-nums tracking-tight"
+            class="m3-display tabular-nums"
             :class="results.fail.length > 0 ? 'text-[var(--md-sys-color-on-error-container)]' : 'text-[var(--md-sys-color-on-surface)]'"
           >
             {{ displayFail }}
           </span>
-          <span class="text-xs font-semibold opacity-90 truncate">
+          <span class="m3-label-large opacity-90 truncate">
             {{ results.fail.length > 0 ? 'Failed Uploads' : 'No Failures' }}
           </span>
         </div>
@@ -181,13 +215,84 @@ function onCopyClick() {
     </div>
 
     <!-- Secondary stats chips (Skipped & Warnings) -->
-    <div class="flex flex-wrap items-center gap-2 pt-1 text-xs">
-      <span class="inline-flex items-center rounded-full bg-[var(--md-sys-color-surface-container-high)] px-3 py-1 font-medium text-[var(--md-sys-color-on-surface-variant)]">
-        Skipped: <strong class="ml-1 text-[var(--md-sys-color-on-surface)] tabular-nums">{{ results.skipped.length }}</strong>
+    <div class="flex flex-wrap items-center gap-2 pt-1 m3-body-medium">
+      <span class="inline-flex items-center rounded-full bg-[var(--md-sys-color-surface-container-high)] px-3 py-1 m3-label-large text-[var(--md-sys-color-on-surface-variant)]">
+        Already in Google Photos: <strong class="ml-1 text-[var(--md-sys-color-on-surface)] tabular-nums">{{ results.skipped.length }}</strong>
       </span>
-      <span class="inline-flex items-center rounded-full bg-[var(--md-sys-color-surface-container-high)] px-3 py-1 font-medium text-[var(--md-sys-color-on-surface-variant)]">
+      <span class="inline-flex items-center rounded-full bg-[var(--md-sys-color-surface-container-high)] px-3 py-1 m3-label-large text-[var(--md-sys-color-on-surface-variant)]">
         Warnings: <strong class="ml-1 text-[var(--md-sys-color-on-surface)] tabular-nums">{{ results.warnings.length }}</strong>
       </span>
+    </div>
+
+    <!-- Expandable Skipped / Duplicate List -->
+    <div
+      v-if="results.skipped.length > 0"
+      class="flex flex-col rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-low)] overflow-hidden"
+    >
+      <div class="flex items-center justify-between p-4 bg-[var(--md-sys-color-surface-container-high)]/40">
+        <button
+          type="button"
+          class="flex flex-1 cursor-pointer items-center justify-between m3-title-medium text-[var(--md-sys-color-on-surface)] transition-colors pr-2"
+          aria-label="Toggle skipped items list"
+          @click="showSkippedList = !showSkippedList"
+        >
+          <div class="flex items-center gap-2">
+            <M3Icon
+              name="cloud_done"
+              :filled="true"
+              :size="16"
+              class="text-[var(--md-sys-color-primary)]"
+            />
+            <span>Already in Google Photos ({{ results.skipped.length }})</span>
+          </div>
+          <M3Icon
+            name="expand_more"
+            :size="18"
+            class="transition-transform duration-300 ease-[var(--md-sys-motion-easing-spatial)]"
+            :class="showSkippedList && 'rotate-180'"
+          />
+        </button>
+      </div>
+
+      <div
+        class="grid transition-[grid-template-rows] duration-300 ease-[var(--md-sys-motion-easing-spatial)]"
+        :style="{ gridTemplateRows: showSkippedList ? '1fr' : '0fr' }"
+      >
+        <div class="min-h-0 overflow-hidden">
+          <div class="max-h-64 overflow-y-auto p-4 pt-1 space-y-2 border-t border-[var(--md-sys-color-outline-variant)]/20">
+            <div
+              v-for="(skipItem, idx) in results.skipped"
+              :key="idx"
+              class="flex items-center justify-between gap-3 rounded-2xl bg-[var(--md-sys-color-surface-container-highest)]/60 p-3 border border-[var(--md-sys-color-outline-variant)]/20"
+            >
+              <div class="flex items-start gap-2.5 min-w-0 flex-1">
+                <M3Icon
+                  name="cloud_done"
+                  :filled="true"
+                  :size="16"
+                  class="shrink-0 text-[var(--md-sys-color-primary)] mt-0.5"
+                />
+                <div class="flex flex-col min-w-0">
+                  <span
+                    class="m3-mono m3-body-medium text-[var(--md-sys-color-on-surface)] truncate"
+                    :title="skipItem.paths?.[0] || 'Unknown file'"
+                  >
+                    {{ (skipItem.paths?.[0] || 'Unknown file').split(/[/\\]/).pop() }}
+                  </span>
+                  <span
+                    class="m3-body-medium mt-0.5 leading-relaxed"
+                  >
+                    {{ skipItem.reason || 'Already in Google Photos' }}
+                  </span>
+                </div>
+              </div>
+              <span class="px-2 py-0.5 rounded-full bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)] m3-label-small shrink-0">
+                Already in library
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Expandable Failed List with Structured Records & Retry -->
@@ -198,7 +303,7 @@ function onCopyClick() {
       <div class="flex items-center justify-between p-4 bg-[var(--md-sys-color-error-container)]/10">
         <button
           type="button"
-          class="flex flex-1 cursor-pointer items-center justify-between text-xs font-semibold text-[var(--md-sys-color-error)] transition-colors pr-2"
+          class="flex flex-1 cursor-pointer items-center justify-between m3-title-medium text-[var(--md-sys-color-error)] transition-colors pr-2"
           aria-label="Toggle failed items list"
           @click="showFailedList = !showFailedList"
         >
@@ -240,7 +345,7 @@ function onCopyClick() {
             <div
               v-for="(failItem, idx) in results.fail"
               :key="idx"
-              class="flex items-center justify-between gap-3 rounded-2xl bg-[var(--md-sys-color-surface-container-highest)]/60 p-3 text-xs border border-[var(--md-sys-color-outline-variant)]/20"
+              class="flex items-center justify-between gap-3 rounded-2xl bg-[var(--md-sys-color-surface-container-highest)]/60 p-3 border border-[var(--md-sys-color-outline-variant)]/20"
             >
               <div class="flex items-start gap-2.5 min-w-0 flex-1">
                 <M3Icon
@@ -251,14 +356,14 @@ function onCopyClick() {
                 />
                 <div class="flex flex-col min-w-0">
                   <span
-                    class="font-mono text-xs font-semibold text-[var(--md-sys-color-on-surface)] truncate"
+                    class="m3-mono m3-body-medium text-[var(--md-sys-color-on-surface)] truncate"
                     :title="typeof failItem === 'string' ? failItem : failItem.path"
                   >
                     {{ typeof failItem === 'string' ? failItem : failItem.path }}
                   </span>
                   <span
                     v-if="typeof failItem !== 'string' && failItem.error"
-                    class="text-[11px] text-[var(--md-sys-color-error)] mt-0.5 leading-relaxed"
+                    class="m3-body-medium text-[var(--md-sys-color-error)] mt-0.5 leading-relaxed"
                   >
                     {{ failItem.error }}
                   </span>

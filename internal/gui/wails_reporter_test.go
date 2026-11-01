@@ -45,6 +45,8 @@ func TestWailsReporterFrontendEvents(t *testing.T) {
 	progress := core.AlbumStatus{AlbumName: "Holiday", ItemsAdded: 1, TotalItems: 2, AlbumKeys: []string{"album-key"}}
 	complete := core.AlbumStatus{AlbumName: "Holiday", ItemsAdded: 2, TotalItems: 2, AlbumKeys: []string{"album-key"}, IsComplete: true}
 	albumError := core.AlbumError{AlbumName: "Holiday", Error: "album unavailable"}
+	logEntry := core.LogEntry{ID: "1", Level: core.LogLevelInfo, Category: core.LogCategoryUpload, UserMessage: "hello"}
+	scanProg := core.ScanProgressEvent{CurrentDirectory: "/test", FilesFound: 10}
 
 	for _, test := range []struct {
 		name       string
@@ -57,6 +59,9 @@ func TestWailsReporterFrontendEvents(t *testing.T) {
 		{"albumComplete", complete, `{"AlbumName":"Holiday","ItemsAdded":2,"TotalItems":2,"AlbumKeys":["album-key"],"IsComplete":true}`, func() { reporter.AlbumComplete(complete) }},
 		{"albumError", albumError, `{"AlbumName":"Holiday","Error":"album unavailable"}`, func() { reporter.AlbumError(albumError) }},
 		{"uploadStop", nil, `null`, reporter.UploadStop},
+		{"log:entry", logEntry, `{"id":"1","level":"INFO","category":"Upload","userMessage":"hello"}`, func() { reporter.LogEntry(logEntry) }},
+		{"scan:progress", scanProg, `{"currentDirectory":"/test","filesFound":10}`, func() { reporter.ScanProgress(scanProg) }},
+		{"scan:cancelled", nil, `null`, reporter.ScanCancelled},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			received := make(chan *application.CustomEvent, 1)

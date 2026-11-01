@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"app/core"
@@ -150,13 +151,13 @@ preferences:
 func TestUploadFlagsPropagateToRunOptions(t *testing.T) {
 	opts, paths := parsedUploadOptions(t, "photo.jpg",
 		"--account", "cli@example.test", "--proxy", "http://cli.invalid:8080",
-		"--saver", "--use-quota", "-r", "-t", "7", "-f", "-d",
+		"--use-quota", "-r", "-t", "7", "-f", "-d",
 		"--disable-filter", "--date-from-filename", "-e", "excluded",
 		"--pair-live-photos", "--upload-incomplete-live-photos",
 		"--update-existing-photos-to-live", "--ignore-apple-metadata", "-a", "Trip")
 	want := core.UploadOptions{
 		Api: core.ApiOptions{
-			Account: "cli@example.test", Proxy: "http://cli.invalid:8080", Saver: true, UseQuota: true,
+			Account: "cli@example.test", Proxy: "http://cli.invalid:8080", Saver: false, UseQuota: true,
 		},
 		Recursive: true, Threads: 7, ForceUpload: true, DeleteFromHost: true,
 		DisableUnsupportedFilesFilter: true, SetDateFromFilename: true, ExcludePattern: "excluded",
@@ -170,6 +171,26 @@ func TestUploadFlagsPropagateToRunOptions(t *testing.T) {
 	auto, _ := parsedUploadOptions(t, "photo.jpg", "--album", "AuTo", "--pair-live-photos")
 	if !auto.AlbumAutoMode || auto.AlbumName != "" || !auto.SkipIncompleteLivePhotos {
 		t.Fatalf("AUTO album or default incomplete-pair policy lost: %+v", auto)
+	}
+}
+
+func TestUploadFlagsRejectBothQuotaAndSaver(t *testing.T) {
+	root := newRootCommand(Info{ExecutableName: "gotohp-cli"})
+	upload, _, err := root.Find([]string{"upload"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	upload.RunE = func(cmd *cobra.Command, args []string) error {
+		opts := uploadOptionsFromFlags(cmd.Flags())
+		return validateUploadOptions(cmd.Flags(), opts)
+	}
+	root.SetArgs(normalizeLegacyArgs(root, []string{"upload", "photo.jpg", "--use-quota", "--saver"}))
+	err = root.Execute()
+	if err == nil {
+		t.Fatal("expected error when passing both --use-quota and --saver, got nil")
+	}
+	if !strings.Contains(err.Error(), "cannot use both --use-quota and --saver together") {
+		t.Fatalf("unexpected error message: %v", err)
 	}
 }
 

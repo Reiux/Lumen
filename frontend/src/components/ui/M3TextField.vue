@@ -162,10 +162,10 @@ defineExpose({
         class="absolute pointer-events-none transition-all duration-200 ease-[var(--md-sys-motion-easing-spatial)] select-none truncate max-w-[calc(100%-32px)]"
         :class="[
           isFloating
-            ? '-top-2.5 left-3 px-1 text-xs font-medium rounded-sm bg-[var(--md-sys-color-surface-container-high)] z-10'
+            ? '-top-2.5 left-3 px-1 m3-label-small normal-case rounded-sm bg-[var(--md-sys-color-surface-container-high)] z-10'
             : leadingIcon
-              ? 'left-11 top-4 text-sm'
-              : 'left-4 top-4 text-sm',
+              ? 'left-11 top-4 m3-body-large'
+              : 'left-4 top-4 m3-body-large',
           effectiveError
             ? 'text-[var(--md-sys-color-error)]'
             : isFocused
@@ -190,7 +190,7 @@ defineExpose({
         :name="name"
         :autocomplete="autocomplete"
         :spellcheck="spellcheck"
-        class="w-full h-full bg-transparent text-sm text-[var(--md-sys-color-on-surface)] placeholder:text-[var(--md-sys-color-on-surface-variant)]/60 outline-none border-0"
+        class="w-full h-full bg-transparent m3-body-large text-[var(--md-sys-color-on-surface)] placeholder:text-[var(--md-sys-color-on-surface-variant)]/60 outline-none border-0"
         :class="[
           leadingIcon ? 'pl-11' : 'pl-4',
           trailingIcon ? 'pr-11' : 'pr-4',
@@ -223,8 +223,8 @@ defineExpose({
     <!-- Supporting or Error Text -->
     <div
       v-if="errorText || supportingText"
-      class="flex items-center justify-between px-3.5 pt-1 text-[11px] leading-tight"
-      :class="effectiveError ? 'text-[var(--md-sys-color-error)] font-medium' : 'text-[var(--md-sys-color-on-surface-variant)]'"
+      class="flex items-center justify-between px-3.5 pt-1 m3-body-medium leading-tight"
+      :class="effectiveError ? 'text-[var(--md-sys-color-error)]' : 'text-[var(--md-sys-color-on-surface-variant)]'"
     >
       <span class="truncate">{{ errorText || supportingText }}</span>
       <span

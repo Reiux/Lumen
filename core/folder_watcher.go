@@ -14,15 +14,15 @@ import (
 // FolderWatcher monitors configured directories for newly created or modified
 // media files and notifies a callback after a debounce period.
 type FolderWatcher struct {
-	watcher    *fsnotify.Watcher
-	mu         sync.Mutex
-	folders    map[string]bool
-	pending    map[string]*fileStatCandidate
-	timer      *time.Timer
-	debounce   time.Duration
-	stopCh     chan struct{}
-	running    bool
-	onNewFiles func([]string)
+	watcher       *fsnotify.Watcher
+	mu            sync.Mutex
+	folderConfigs map[string]bool // dirPath -> includeSubfolders
+	pending       map[string]*fileStatCandidate
+	timer         *time.Timer
+	debounce      time.Duration
+	stopCh        chan struct{}
+	running       bool
+	onNewFiles    func([]string)
 }
 
 type fileStatCandidate struct {
@@ -112,12 +112,30 @@ func syncFolderWatcherLocked() {
 		return
 	}
 	cfg := currentConfig().Preferences
-	if !cfg.WatchFoldersEnabled || len(cfg.WatchedFolders) == 0 {
+	if !cfg.WatchFoldersEnabled {
 		globalFolderWatcher.Stop()
 		return
 	}
 
-	_ = globalFolderWatcher.SetFolders(cfg.WatchedFolders)
+	activeFolders := make(map[string]bool)
+	if len(cfg.WatchedFolderConfigs) > 0 {
+		for _, fc := range cfg.WatchedFolderConfigs {
+			if fc.Enabled {
+				activeFolders[filepath.Clean(fc.Path)] = fc.IncludeSubfolders
+			}
+		}
+	} else {
+		for _, f := range cfg.WatchedFolders {
+			activeFolders[filepath.Clean(f)] = false
+		}
+	}
+
+	if len(activeFolders) == 0 {
+		globalFolderWatcher.Stop()
+		return
+	}
+
+	_ = globalFolderWatcher.SetFolderConfigs(activeFolders)
 	globalFolderWatcher.Start()
 }
 
@@ -132,12 +150,12 @@ func NewFolderWatcher(debounce time.Duration, onNewFiles func([]string)) (*Folde
 	}
 
 	fw := &FolderWatcher{
-		watcher:    fsWatcher,
-		folders:    make(map[string]bool),
-		pending:    make(map[string]*fileStatCandidate),
-		debounce:   debounce,
-		stopCh:     make(chan struct{}),
-		onNewFiles: onNewFiles,
+		watcher:       fsWatcher,
+		folderConfigs: make(map[string]bool),
+		pending:       make(map[string]*fileStatCandidate),
+		debounce:      debounce,
+		stopCh:        make(chan struct{}),
+		onNewFiles:    onNewFiles,
 	}
 
 	return fw, nil
@@ -178,14 +196,19 @@ func (fw *FolderWatcher) Close() error {
 	return fw.watcher.Close()
 }
 
-// AddFolder adds a directory to be monitored, including existing subdirectories.
-func (fw *FolderWatcher) AddFolder(dirPath string) error {
+// AddFolderWithSubfolders adds a directory to be monitored with optional recursive subfolders.
+func (fw *FolderWatcher) AddFolderWithSubfolders(dirPath string, includeSubfolders bool) error {
 	fw.mu.Lock()
 	defer fw.mu.Unlock()
 
 	dirPath = filepath.Clean(dirPath)
-	if fw.folders[dirPath] {
+	if existingSub, exists := fw.folderConfigs[dirPath]; exists && existingSub == includeSubfolders {
 		return nil
+	}
+	fw.folderConfigs[dirPath] = includeSubfolders
+
+	if !includeSubfolders {
+		return fw.watcher.Add(dirPath)
 	}
 
 	err := filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
@@ -207,12 +230,12 @@ func (fw *FolderWatcher) AddFolder(dirPath string) error {
 		}
 		return nil
 	})
-	if err != nil {
-		return err
-	}
+	return err
+}
 
-	fw.folders[dirPath] = true
-	return nil
+// AddFolder adds a directory to be monitored (backward compatible, no subfolders).
+func (fw *FolderWatcher) AddFolder(dirPath string) error {
+	return fw.AddFolderWithSubfolders(dirPath, false)
 }
 
 // RemoveFolder stops monitoring a directory and its subdirectories.
@@ -221,7 +244,7 @@ func (fw *FolderWatcher) RemoveFolder(dirPath string) error {
 	defer fw.mu.Unlock()
 
 	dirPath = filepath.Clean(dirPath)
-	if !fw.folders[dirPath] {
+	if _, exists := fw.folderConfigs[dirPath]; !exists {
 		return nil
 	}
 
@@ -235,15 +258,15 @@ func (fw *FolderWatcher) RemoveFolder(dirPath string) error {
 		return nil
 	})
 
-	delete(fw.folders, dirPath)
+	delete(fw.folderConfigs, dirPath)
 	return nil
 }
 
-// SetFolders replaces the set of watched folders.
-func (fw *FolderWatcher) SetFolders(folders []string) error {
+// SetFolderConfigs replaces the set of watched folders with their respective subfolder flags.
+func (fw *FolderWatcher) SetFolderConfigs(folders map[string]bool) error {
 	fw.mu.Lock()
-	current := make([]string, 0, len(fw.folders))
-	for f := range fw.folders {
+	current := make([]string, 0, len(fw.folderConfigs))
+	for f := range fw.folderConfigs {
 		current = append(current, f)
 	}
 	fw.mu.Unlock()
@@ -251,10 +274,19 @@ func (fw *FolderWatcher) SetFolders(folders []string) error {
 	for _, c := range current {
 		_ = fw.RemoveFolder(c)
 	}
-	for _, f := range folders {
-		_ = fw.AddFolder(f)
+	for f, sub := range folders {
+		_ = fw.AddFolderWithSubfolders(f, sub)
 	}
 	return nil
+}
+
+// SetFolders replaces the set of watched folders.
+func (fw *FolderWatcher) SetFolders(folders []string) error {
+	m := make(map[string]bool)
+	for _, f := range folders {
+		m[f] = false
+	}
+	return fw.SetFolderConfigs(m)
 }
 
 func (fw *FolderWatcher) loop() {
@@ -279,6 +311,22 @@ func (fw *FolderWatcher) loop() {
 	}
 }
 
+func (fw *FolderWatcher) isSubfolderAllowedLocked(path string) bool {
+	clean := filepath.Clean(path)
+	for root, subfolders := range fw.folderConfigs {
+		if clean == root {
+			return true
+		}
+		if filepath.Dir(clean) == root {
+			return true
+		}
+		if subfolders && strings.HasPrefix(clean, root+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}
+
 func (fw *FolderWatcher) handleEvent(event fsnotify.Event) {
 	if event.Op&(fsnotify.Create|fsnotify.Write) == 0 {
 		return
@@ -295,10 +343,23 @@ func (fw *FolderWatcher) handleEvent(event fsnotify.Event) {
 	}
 
 	if info.IsDir() {
-		// New subdirectory created inside watched folder; add it to watcher
-		if err := fw.watcher.Add(path); err != nil && isInotifyLimit(err) {
-			SetLastInotifyError(err)
+		// New subdirectory created inside watched folder; add it only if parent permits subfolders
+		fw.mu.Lock()
+		allowed := fw.isSubfolderAllowedLocked(path)
+		fw.mu.Unlock()
+		if allowed {
+			if err := fw.watcher.Add(path); err != nil && isInotifyLimit(err) {
+				SetLastInotifyError(err)
+			}
 		}
+		return
+	}
+
+	// Verify file is within a watched folder configuration
+	fw.mu.Lock()
+	allowed := fw.isSubfolderAllowedLocked(path)
+	fw.mu.Unlock()
+	if !allowed {
 		return
 	}
 
