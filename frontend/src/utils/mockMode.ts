@@ -1,6 +1,7 @@
-import { reactive } from 'vue'
+import { reactive, ref } from 'vue'
 import { uploadManager } from './UploadManager'
 import { LogEntry } from '../../bindings/app/core/models'
+import { ConfigManager } from '../../bindings/app/core'
 
 export interface MockState {
   enabled: boolean
@@ -174,12 +175,24 @@ export const mockState = reactive<MockState>({
 // Timer for simulated upload
 let mockProgressInterval: ReturnType<typeof setInterval> | null = null
 
+export const isDebugBinary = ref(false)
+
+export async function detectDebugBuild(): Promise<boolean> {
+  try {
+    const isDebug = await ConfigManager.IsDebugBuild()
+    isDebugBinary.value = !!isDebug
+    return !!isDebug
+  } catch {
+    return false
+  }
+}
+
 export function isDevMode(): boolean {
-  return import.meta.env.DEV
+  return import.meta.env.DEV || isDebugBinary.value || devOptionsState.unlocked
 }
 
 export function initMockMode(): boolean {
-  if (!import.meta.env.DEV) return false
+  if (!isDevMode()) return false
 
   const params = new URLSearchParams(window.location.search)
   const isMockParam = params.get('mock') === '1'
@@ -195,7 +208,7 @@ export function initMockMode(): boolean {
 }
 
 export function setMockView(view: MockState['currentView']) {
-  if (!import.meta.env.DEV) return
+  if (!isDevMode()) return
   mockState.currentView = view
 
   if (mockProgressInterval) {
@@ -224,7 +237,7 @@ export function setMockView(view: MockState['currentView']) {
 }
 
 export function toggleMockMode(): boolean {
-  if (!import.meta.env.DEV) return false
+  if (!isDevMode()) return false
   mockState.enabled = !mockState.enabled
   localStorage.setItem('lumen_mock_active', mockState.enabled ? 'true' : 'false')
 
@@ -360,6 +373,7 @@ function simulateResults() {
 }
 
 export function triggerMockCircuitBreaker(reason: 'SIGN_IN_REQUIRED' | 'ACCOUNT_RESTRICTED' | 'RATE_LIMITED') {
+  if (!isDevMode()) return
   uploadManager.state.isUploading = false
   if (reason === 'RATE_LIMITED') {
     uploadManager.state.accountBlocked = {

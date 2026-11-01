@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import {
   clearMockCircuitBreaker,
+  detectDebugBuild,
   devOptionsState,
   initMockMode,
   isDevMode,
@@ -35,7 +36,7 @@ const props = withDefaults(defineProps<Props>(), {
   liveLogs: () => [],
 })
 
-const activeSection = ref<'previews' | 'circuit' | 'logs' | 'flicker'>('previews')
+const activeSection = ref<'previews' | 'circuit' | 'logs' | 'flicker'>(isDevMode() ? 'previews' : 'logs')
 
 const flagsState = ref<Record<FlickerFlag, boolean>>({
   noanim: isFlickerFlagActive('noanim'),
@@ -130,11 +131,13 @@ async function testNotification() {
   }
 }
 
-if (isDevMode()) {
-  initMockMode()
-}
-
-onMounted(() => {
+onMounted(async () => {
+  await detectDebugBuild()
+  if (!isDevMode()) {
+    activeSection.value = 'logs'
+  } else {
+    initMockMode()
+  }
   loadBackendLogs()
   refreshPreferences()
 })
@@ -154,18 +157,22 @@ onMounted(() => {
           <h1 class="m3-headline-large text-[var(--md-sys-color-on-surface)]">
             Developer tools
           </h1>
-          <span class="rounded-full bg-[var(--md-sys-color-tertiary-container)] text-[var(--md-sys-color-on-tertiary-container)] px-2.5 py-0.5 m3-label-small">
+          <span
+            v-if="isDevMode()"
+            class="rounded-full bg-[var(--md-sys-color-tertiary-container)] text-[var(--md-sys-color-on-tertiary-container)] px-2.5 py-0.5 m3-label-small"
+          >
             Debug
           </span>
         </div>
         <p class="m3-body-medium leading-relaxed">
-          View logs, preview app screens, and test error handling.
+          {{ isDevMode() ? 'View logs, preview app screens, and test error handling.' : 'View application logs and system events.' }}
         </p>
       </div>
 
-      <!-- Mock Mode Toggle Pill -->
+      <!-- Header Action Buttons -->
       <div class="flex items-center gap-3">
         <M3Button
+          v-if="isDevMode()"
           :variant="mockState.enabled ? 'filled' : 'outlined'"
           size="s"
           icon="science"
@@ -185,8 +192,11 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Section Navigation Tabs (M3 Expressive segmented group) -->
-    <div class="flex flex-wrap items-center gap-2 p-1 rounded-full bg-[var(--md-sys-color-surface-container)] border border-[var(--md-sys-color-outline-variant)]/40 w-fit">
+    <!-- Section Navigation Tabs (M3 Expressive segmented group - debug builds only) -->
+    <div
+      v-if="isDevMode()"
+      class="flex flex-wrap items-center gap-2 p-1 rounded-full bg-[var(--md-sys-color-surface-container)] border border-[var(--md-sys-color-outline-variant)]/40 w-fit"
+    >
       <M3Button
         size="s"
         :toggle="true"

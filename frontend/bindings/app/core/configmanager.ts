@@ -233,6 +233,13 @@ export function IsAccountRiskAcknowledged(): $CancellablePromise<boolean> {
     return $Call.ByID(2095363999);
 }
 
+/**
+ * IsDebugBuild returns whether the binary was compiled as a debug build (without -tags production).
+ */
+export function IsDebugBuild(): $CancellablePromise<boolean> {
+    return $Call.ByID(2816183272);
+}
+
 export function IsTrayAvailable(): $CancellablePromise<boolean> {
     return $Call.ByID(2807422592);
 }
