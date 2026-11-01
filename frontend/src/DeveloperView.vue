@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import {
   clearMockCircuitBreaker,
   detectDebugBuild,
@@ -37,6 +37,12 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const activeSection = ref<'previews' | 'circuit' | 'logs' | 'flicker'>(isDevMode() ? 'previews' : 'logs')
+
+watch(() => isDevMode(), (dev) => {
+  if (!dev) {
+    activeSection.value = 'logs'
+  }
+})
 
 const flagsState = ref<Record<FlickerFlag, boolean>>({
   noanim: isFlickerFlagActive('noanim'),

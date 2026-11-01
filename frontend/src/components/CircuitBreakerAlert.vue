@@ -120,7 +120,12 @@ async function removeAccount() {
             </button>
           </div>
 
-          <p class="m3-body-medium leading-relaxed opacity-95">
+          <p
+            class="m3-body-medium leading-relaxed"
+            :class="blockedState.reason === 'ACCOUNT_RESTRICTED'
+              ? '!text-[var(--md-sys-color-on-error-container)]'
+              : '!text-[var(--md-sys-color-on-tertiary-container)]'"
+          >
             <template v-if="blockedState.reason === 'SIGN_IN_REQUIRED'">
               Google is asking you to sign in again. Uploads are paused to protect your account from security lockouts.
             </template>

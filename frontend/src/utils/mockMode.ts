@@ -188,7 +188,7 @@ export async function detectDebugBuild(): Promise<boolean> {
 }
 
 export function isDevMode(): boolean {
-  return import.meta.env.DEV || isDebugBinary.value || devOptionsState.unlocked
+  return import.meta.env.DEV || isDebugBinary.value
 }
 
 export function initMockMode(): boolean {
