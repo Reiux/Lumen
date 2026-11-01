@@ -750,6 +750,7 @@ func (g *ConfigManager) RemoveCredentials(email string) error {
 	// Delete from OS keyring
 	if kr := GetGlobalKeyring(); kr != nil {
 		_ = kr.DeleteCredential(email)
+		MarkAccountInKeyring(email, false)
 	}
 
 	// Update the configuration
@@ -1198,8 +1199,8 @@ func saveAppConfigLocked() error {
 				continue
 			}
 			email := params.Get("Email")
-			if _, err := kr.GetCredential(email); err == nil {
-				// Keyring holds this credential securely: redact Token for disk file
+			if IsAccountInKeyring(email) {
+				// Keyring holds this credential securely: redact Token for disk file without D-Bus IPC
 				diskCreds[i] = StripSensitiveToken(c)
 				continue
 			}

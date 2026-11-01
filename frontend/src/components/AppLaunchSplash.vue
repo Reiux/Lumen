@@ -244,7 +244,7 @@ onUnmounted(() => {
   <Teleport to="body">
     <div
       v-if="isVisible"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-[var(--md-sys-color-background)] pointer-events-none select-none"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-[#141416] bg-[var(--md-sys-color-background)] pointer-events-none select-none"
       :style="{
         opacity: splashOpacity,
         transition: splashTransition,

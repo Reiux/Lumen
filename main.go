@@ -79,6 +79,11 @@ func runGUI() {
 		},
 	})
 
+	bgType := application.BackgroundTypeSolid
+	if runtime.GOOS == "darwin" {
+		bgType = application.BackgroundTypeTranslucent
+	}
+
 	window = wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:               title,
 		Frameless:           false,
@@ -91,7 +96,7 @@ func runGUI() {
 		DisableResize:       false,
 		MaximiseButtonState: application.ButtonEnabled,
 		BackgroundColour:    application.NewRGB(20, 20, 22),
-		BackgroundType:      application.BackgroundTypeTranslucent,
+		BackgroundType:      bgType,
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 0,
 			Backdrop:                application.MacBackdropTranslucent,
