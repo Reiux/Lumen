@@ -206,8 +206,8 @@ The CLI shares stored credentials with the app. Upload options are controlled by
 
 ### Prerequisites
 
-- **Go:** version from `go.mod` (CHECK)
-- **Node.js:** version from `frontend/.node-version` (CHECK)
+- **Go:** `1.26.4` or later
+- **Node.js:** `24` or later (Node 20.19+ and 22.13+ also supported)
 - **C compiler:** `gcc` or `clang`
 - **Linux packages:** CHECK against the CI workflow (it installs `libgtk-4-dev` and `libwebkitgtk-6.0-dev`)
 - **Wails v3 CLI (optional):**
