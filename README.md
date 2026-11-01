@@ -87,6 +87,15 @@ Get the latest build for your system on the [Releases](https://github.com/Reiux/
 | Linux | binary / package for your distro |
 | Any (no GUI) | `lumen-cli` |
 
+> [!TIP]
+> **First-time launch on Windows & macOS:**
+> Since Lumen is an open-source project without commercial signing certificates, your OS may show an unrecognized app warning on first launch:
+> - **Windows (SmartScreen):** Click **More info** -> **Run anyway**.
+> - **macOS (Gatekeeper):** Right-click `Lumen.app` -> choose **Open** -> click **Open**. Alternatively, run:
+>   ```shell
+>   xattr -d com.apple.quarantine /Applications/Lumen.app
+>   ```
+
 Found a bug or have an idea? [Open an issue](https://github.com/Reiux/Lumen/issues/new/choose).
 
 ---
@@ -208,6 +217,9 @@ The CLI shares stored credentials with the app. Upload options are controlled by
 - **Node.js:** `24` or later (Node 20.19+ and 22.13+ also supported)
 - **C compiler:** `gcc` or `clang`
 - **Linux packages (Debian/Ubuntu):**
+  ```shell
+  sudo apt-get install -y build-essential gcc pkg-config libgtk-4-dev libwebkitgtk-6.0-dev
+  ```
 - **Wails v3 CLI (optional):**
   ```shell
   go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.33
