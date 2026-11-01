@@ -29,7 +29,7 @@ import AccountPickerMenu from './components/AccountPickerMenu.vue'
 import M3Icon from './components/ui/M3Icon.vue'
 import { launchReplayTrigger } from './utils/launchState'
 import { uploadManager } from './utils/UploadManager'
-import { devOptionsState, mockBatches, mockLogEntries, mockProblems, mockState, setMockView } from './utils/mockMode'
+import { detectDebugBuild, devOptionsState, isDevMode, mockBatches, mockLogEntries, mockProblems, mockState, setMockView } from './utils/mockMode'
 import { preferencesState, refreshPreferences } from './utils/configStore'
 import { cycleNextTheme, themePulseCounter } from './utils/theme'
 import {
@@ -365,13 +365,13 @@ watch(launchReplayTrigger, () => {
 
 const displaySelectedOption = computed({
   get() {
-    if (import.meta.env.DEV && mockState.enabled) {
+    if (isDevMode() && mockState.enabled) {
       return mockState.currentView === 'empty' ? '' : mockState.account
     }
     return selectedOption.value
   },
   set(val: string) {
-    if (import.meta.env.DEV && mockState.enabled) {
+    if (isDevMode() && mockState.enabled) {
       mockState.account = val
     } else {
       selectedOption.value = val
@@ -381,7 +381,7 @@ const displaySelectedOption = computed({
 
 const displayOptions = computed(() => {
   let list: string[] = []
-  if (import.meta.env.DEV && mockState.enabled) {
+  if (isDevMode() && mockState.enabled) {
     list = mockState.currentView === 'empty' ? [] : [...mockState.accounts]
   } else {
     list = [...options.value]
@@ -440,7 +440,7 @@ watch(activeTab, async (newTab) => {
 watch(
   () => mockState.currentView,
   (view) => {
-    if (!import.meta.env.DEV || !mockState.enabled) return
+    if (!isDevMode() || !mockState.enabled) return
     if (view === 'album') {
       showAlbumInput.value = true
       pendingFileCount.value = 3
@@ -484,7 +484,7 @@ async function refreshCredentials() {
 
 async function addTokenBindingAliasFromADB() {
   if (!tokenBindingEmail.value) return
-  if (import.meta.env.DEV && mockState.enabled) {
+  if (isDevMode() && mockState.enabled) {
     toast.success('Token binding key added.')
     tokenBindingEmail.value = ''
     return
@@ -511,7 +511,7 @@ const removeCredentials = async (email: string) => {
     return false
   }
 
-  if (import.meta.env.DEV && mockState.enabled) {
+  if (isDevMode() && mockState.enabled) {
     mockState.accounts = mockState.accounts.filter((account) => account !== email)
     if (mockState.account === email) {
       mockState.account = mockState.accounts[0] || ''
@@ -636,7 +636,7 @@ const onDropZoneDragLeave = (e: DragEvent) => {
 async function handleFilesDropped(files: string[], dropZone = 'regular') {
   if (!files || files.length === 0) return
 
-  if (import.meta.env.DEV && mockState.enabled) {
+  if (isDevMode() && mockState.enabled) {
     if (dropZone === 'album') {
       pendingFiles.value = files
       pendingFileCount.value = files.length
@@ -803,7 +803,7 @@ const confirmAlbumUpload = async () => {
   showAlbumKeyHelp.value = false
   albumNickname.value = ''
 
-  if (import.meta.env.DEV && mockState.enabled) {
+  if (isDevMode() && mockState.enabled) {
     if (pendingFiles.value.length > 0) {
       pendingFiles.value = []
       pendingFileCount.value = 0
@@ -849,7 +849,7 @@ async function handlePickFiles() {
   if (isPickingMedia.value) return
   isPickingMedia.value = true
   try {
-    if (import.meta.env.DEV && mockState.enabled) {
+    if (isDevMode() && mockState.enabled) {
       mockState.currentView = 'uploading'
       uploadManager.state.isUploading = true
       return
@@ -880,7 +880,7 @@ async function handlePickFolder() {
   if (isPickingMedia.value) return
   isPickingMedia.value = true
   try {
-    if (import.meta.env.DEV && mockState.enabled) {
+    if (isDevMode() && mockState.enabled) {
       mockState.currentView = 'uploading'
       uploadManager.state.isUploading = true
       return
@@ -908,7 +908,7 @@ async function handlePickFolder() {
 }
 
 async function handleRetryAll() {
-  if (import.meta.env.DEV && mockState.enabled) {
+  if (isDevMode() && mockState.enabled) {
     mockState.currentView = 'uploading'
     uploadManager.state.isUploading = true
     return
@@ -917,7 +917,7 @@ async function handleRetryAll() {
 }
 
 async function handleRetryItem(filePath: string) {
-  if (import.meta.env.DEV && mockState.enabled) {
+  if (isDevMode() && mockState.enabled) {
     mockState.currentView = 'uploading'
     uploadManager.state.isUploading = true
     return
@@ -983,6 +983,7 @@ function triggerAvatarUpload() {
 let onGlobalKeydown: ((e: KeyboardEvent) => void) | null = null
 
 onMounted(async () => {
+  await detectDebugBuild()
   await refreshCredentials()
   await refreshPreferences()
   await loadActivityData()

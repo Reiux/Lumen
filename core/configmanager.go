@@ -1561,4 +1561,9 @@ func (g *ConfigManager) CancelBrowserSignIn() {
 	}
 }
 
+// IsDebugBuild returns whether the binary was compiled as a debug build (without -tags production).
+func (g *ConfigManager) IsDebugBuild() bool {
+	return isDebugBuild()
+}
+
 

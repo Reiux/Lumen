@@ -42,7 +42,7 @@ export function setFlickerFlag(flag: FlickerFlag, active: boolean) {
 }
 
 export function initFlickerDebug() {
-  if (typeof window === 'undefined' || !import.meta.env.DEV) return
+  if (typeof window === 'undefined') return
 
   const searchParams = new URLSearchParams(window.location.search)
   const hash = window.location.hash.startsWith('#')
