@@ -9,7 +9,7 @@ info:
   productName: "Lumen" # The name of the application
   productIdentifier: "com.reiux.lumen" # The unique product identifier
   description: "Google Photos Unofficial Client" # The application description
-  copyright: "" # Copyright text
+  copyright: "© 2026 Reiux" # Copyright text
   comments: "" # Comments
   version: "1.0.0" # The application version, managed by Release Please (x-release-please-version)
 

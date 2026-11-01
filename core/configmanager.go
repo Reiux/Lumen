@@ -1192,13 +1192,16 @@ func saveAppConfigLocked() error {
 		diskCreds := make([]string, len(AppConfig.Account.Credentials))
 		for i, c := range AppConfig.Account.Credentials {
 			params, err := url.ParseQuery(c)
-			if err == nil {
-				email := params.Get("Email")
-				if _, err := kr.GetCredential(email); err == nil {
-					// Keyring holds this credential securely: redact Token for disk file
-					diskCreds[i] = StripSensitiveToken(c)
-					continue
-				}
+			if err != nil || params.Get("Token") == "" {
+				// Token is absent or already redacted; no need for synchronous keyring IPC
+				diskCreds[i] = c
+				continue
+			}
+			email := params.Get("Email")
+			if _, err := kr.GetCredential(email); err == nil {
+				// Keyring holds this credential securely: redact Token for disk file
+				diskCreds[i] = StripSensitiveToken(c)
+				continue
 			}
 			diskCreds[i] = c
 		}
