@@ -6,7 +6,7 @@ import (
 )
 
 // AppVersion is the canonical semantic version of Lumen Desktop.
-const AppVersion = "1.0.0"
+const AppVersion = "1.0.1"
 
 type VersionInfo struct {
 	Fixed struct {
