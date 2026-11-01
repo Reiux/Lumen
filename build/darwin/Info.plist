@@ -7,7 +7,7 @@
 		<key>CFBundleExecutable</key>
 		<string>lumen</string>
 		<key>CFBundleGetInfoString</key>
-		<string>This is a comment</string>
+		<string>Google Photos Unofficial Client</string>
 		<key>CFBundleIconFile</key>
 		<string>icons</string>
 		<key>CFBundleIdentifier</key>
