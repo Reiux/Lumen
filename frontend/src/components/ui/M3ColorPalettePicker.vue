@@ -107,7 +107,10 @@ function selectVariant(variant: M3PaletteVariant) {
               : 'group-hover:scale-105 group-hover:shadow-sm border border-[var(--md-sys-color-outline-variant)]/40 opacity-90 group-hover:opacity-100'"
           >
             <!-- 4-Quadrant Split Background rotated 45deg like Android (dynamically computed per variant) -->
-            <div class="absolute inset-0 grid grid-cols-2 grid-rows-2 -rotate-45 scale-125 pointer-events-none">
+            <div
+              v-memo="[preset.id, currentPaletteVariant]"
+              class="absolute inset-0 grid grid-cols-2 grid-rows-2 -rotate-45 scale-125 pointer-events-none"
+            >
               <div :style="{ backgroundColor: getPresetPreviewColors(preset, currentPaletteVariant).primary }" />
               <div :style="{ backgroundColor: getPresetPreviewColors(preset, currentPaletteVariant).container }" />
               <div :style="{ backgroundColor: getPresetPreviewColors(preset, currentPaletteVariant).tertiary }" />

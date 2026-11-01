@@ -85,6 +85,10 @@ jobs:
           go install github.com/go-task/task/v3/cmd/task@latest
           Write-Host "Task installed successfully"
 
+      - name: Set up NSIS (Windows)
+        if: matrix.platform == 'windows'
+        uses: nsis-dev/setup-nsis@v1
+
       - name: Install Wails3
         shell: bash
         run: go install -v github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}

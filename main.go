@@ -97,6 +97,7 @@ func runGUI() {
 		MaximiseButtonState: application.ButtonEnabled,
 		BackgroundColour:    application.NewRGB(20, 20, 22),
 		BackgroundType:      bgType,
+		Hidden:              true,
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 0,
 			Backdrop:                application.MacBackdropTranslucent,
@@ -106,6 +107,20 @@ func runGUI() {
 	})
 
 	window.Center()
+
+	var showOnce sync.Once
+	showWindow := func() {
+		showOnce.Do(func() {
+			window.Show()
+		})
+	}
+	window.OnWindowEvent(events.Common.WindowRuntimeReady, func(*application.WindowEvent) {
+		showWindow()
+	})
+	wailsApp.Event.On("app:ready", func(*application.CustomEvent) {
+		showWindow()
+	})
+	time.AfterFunc(1500*time.Millisecond, showWindow)
 
 	// Detect if system tray is supported on this desktop environment
 	traySupported := true

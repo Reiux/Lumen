@@ -995,6 +995,11 @@ onMounted(async () => {
     // Ignore in test/mock environment
   }
   isAppReady.value = true
+  try {
+    Events.Emit('app:ready')
+  } catch {
+    // Ignore in non-Wails environment
+  }
 
   document.addEventListener('dragenter', onDragEnter)
   document.addEventListener('dragleave', onDragLeave)

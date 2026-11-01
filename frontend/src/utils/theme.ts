@@ -179,11 +179,25 @@ export function setPaletteVariant(variant: M3PaletteVariant) {
   applyTheme(currentThemeSeed.value, variant)
 }
 
+const presetPreviewCache = new Map<string, { primary: string; container: string; tertiary: string }>()
+
 export function getPresetPreviewColors(preset: ThemePreset, variant: M3PaletteVariant = currentPaletteVariant.value) {
+  const cacheKey = `${preset.id}:${variant}`
+  const cached = presetPreviewCache.get(cacheKey)
+  if (cached) {
+    return cached
+  }
+
+  let result = {
+    primary: preset.primary,
+    container: preset.container,
+    tertiary: preset.tertiary,
+  }
+
   try {
     const scheme = generateM3Scheme(preset.seed, true, variant)
     if (scheme && scheme['--md-sys-color-primary']) {
-      return {
+      result = {
         primary: scheme['--md-sys-color-primary'],
         container: scheme['--md-sys-color-primary-container'],
         tertiary: scheme['--md-sys-color-tertiary'],
@@ -192,11 +206,9 @@ export function getPresetPreviewColors(preset: ThemePreset, variant: M3PaletteVa
   } catch {
     // fallback
   }
-  return {
-    primary: preset.primary,
-    container: preset.container,
-    tertiary: preset.tertiary,
-  }
+
+  presetPreviewCache.set(cacheKey, result)
+  return result
 }
 
 export function cycleNextTheme() {
