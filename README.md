@@ -87,8 +87,6 @@ Get the latest build for your system on the [Releases](https://github.com/Reiux/
 | Linux | binary / package for your distro |
 | Any (no GUI) | `lumen-cli` |
 
-> Replace the file names above with the exact names used in your releases.
-
 Found a bug or have an idea? [Open an issue](https://github.com/Reiux/Lumen/issues/new/choose).
 
 ---
