@@ -11,7 +11,7 @@ info:
   description: "Google Photos Unofficial Client" # The application description
   copyright: "© 2026 Reiux" # Copyright text
   comments: "" # Comments
-  version: "1.0.0" # The application version, managed by Release Please (x-release-please-version)
+  version: "1.0.1" # The application version, managed by Release Please (x-release-please-version)
 
 # Dev mode configuration
 dev_mode:
