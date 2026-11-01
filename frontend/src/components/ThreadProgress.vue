@@ -94,11 +94,11 @@ const statusMessage = computed(() => props.thread.Message.replace(/^Error:\s*/, 
 <template>
   <div class="flex flex-col gap-2 rounded-[20px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-3.5 shadow-xs transition-colors select-none">
     <div class="flex items-center justify-between gap-2">
-      <span class="rounded-full bg-[var(--md-sys-color-surface-container-high)] px-2 py-0.5 text-[10px] font-bold text-[var(--md-sys-color-on-surface-variant)]">
+      <span class="rounded-full bg-[var(--md-sys-color-surface-container-high)] px-2 py-0.5 m3-label-small text-[var(--md-sys-color-on-surface-variant)]">
         Worker #{{ thread.WorkerID }}
       </span>
       <span
-        class="inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase"
+        class="inline-flex items-center rounded-full px-2.5 py-0.5 m3-label-small"
         :class="[statusConfig.bg, statusConfig.color]"
       >
         {{ statusConfig.label }}
@@ -107,14 +107,14 @@ const statusMessage = computed(() => props.thread.Message.replace(/^Error:\s*/, 
 
     <div class="flex flex-col gap-0.5 min-w-0">
       <span
-        class="truncate text-xs font-semibold text-[var(--md-sys-color-on-surface)]"
+        class="truncate m3-title-medium text-[var(--md-sys-color-on-surface)]"
         :title="thread.FileName || thread.FilePath"
       >
         {{ thread.FileName || 'Processing...' }}
       </span>
       <span
         v-if="statusMessage"
-        class="truncate text-[11px] text-[var(--md-sys-color-on-surface-variant)]"
+        class="truncate m3-body-medium text-[var(--md-sys-color-on-surface-variant)]"
       >
         {{ statusMessage }}
       </span>
@@ -131,9 +131,9 @@ const statusMessage = computed(() => props.thread.Message.replace(/^Error:\s*/, 
           :style="{ width: `${uploadPercent}%` }"
         />
       </div>
-      <div class="flex items-center justify-between text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
+      <div class="flex items-center justify-between m3-body-medium text-[var(--md-sys-color-on-surface-variant)]">
         <span>{{ fileSizeDisplay }}</span>
-        <span class="font-bold">{{ uploadPercent }}%</span>
+        <span class="tabular-nums">{{ uploadPercent }}%</span>
       </div>
     </div>
   </div>

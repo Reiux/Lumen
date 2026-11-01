@@ -13,7 +13,6 @@ func TestSessionUploadOptionsCapturePreferences(t *testing.T) {
 	}
 	manager := &ConfigManager{}
 	manager.SetProxy("http://proxy.example:8080")
-	manager.SetSaver(true)
 	manager.SetUseQuota(true)
 	manager.SetUploadThreads(7)
 	manager.SetPairLivePhotos(true)
@@ -23,7 +22,7 @@ func TestSessionUploadOptionsCapturePreferences(t *testing.T) {
 	manager.SetAlbumName("Holiday")
 
 	want := UploadOptions{
-		Api:     ApiOptions{Proxy: "http://proxy.example:8080", Saver: true, UseQuota: true},
+		Api:     ApiOptions{Proxy: "http://proxy.example:8080", Saver: false, UseQuota: true},
 		Threads: 7, PairLivePhotos: true, UpdateExistingPhotosToLive: true,
 		UseLocalHashCache: true,
 		AlbumName:         "Holiday",
@@ -35,7 +34,6 @@ func TestSessionUploadOptionsCapturePreferences(t *testing.T) {
 
 	// Settings changed for the next run must not change an in-progress run.
 	manager.SetProxy("")
-	manager.SetSaver(false)
 	manager.SetUseQuota(false)
 	manager.SetUploadThreads(2)
 	manager.SetAlbumName("")

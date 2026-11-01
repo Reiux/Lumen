@@ -21,4 +21,8 @@ func init() {
 	application.RegisterEvent[int64]("uploadTotalBytesDelta")
 	application.RegisterEvent[core.FilesDroppedEvent]("files-dropped")
 	application.RegisterEvent[core.StartUploadEvent]("startUpload")
+	application.RegisterEvent[core.AccountBlockedEvent]("account:blocked")
+	application.RegisterEvent[core.LogEntry]("log:entry")
+	application.RegisterEvent[core.ScanProgressEvent]("scan:progress")
+	application.RegisterEvent[application.Void]("scan:cancelled")
 }

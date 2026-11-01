@@ -14,24 +14,30 @@ function configure() {
     Object.freeze(Object.assign($Create.Events, {
         "FileStatus": $$createType0,
         "ThreadStatus": $$createType1,
-        "albumComplete": $$createType2,
-        "albumError": $$createType3,
-        "albumProgress": $$createType2,
-        "files-dropped": $$createType4,
-        "startUpload": $$createType5,
-        "uploadStart": $$createType6,
-        "uploadWarning": $$createType7,
+        "account:blocked": $$createType2,
+        "albumComplete": $$createType3,
+        "albumError": $$createType4,
+        "albumProgress": $$createType3,
+        "files-dropped": $$createType5,
+        "log:entry": $$createType6,
+        "scan:progress": $$createType7,
+        "startUpload": $$createType8,
+        "uploadStart": $$createType9,
+        "uploadWarning": $$createType10,
     }));
 }
 
 // Private type creation functions
 const $$createType0 = core$0.FileUploadResult.createFrom;
 const $$createType1 = core$0.ThreadStatus.createFrom;
-const $$createType2 = core$0.AlbumStatus.createFrom;
-const $$createType3 = core$0.AlbumError.createFrom;
-const $$createType4 = core$0.FilesDroppedEvent.createFrom;
-const $$createType5 = core$0.StartUploadEvent.createFrom;
-const $$createType6 = core$0.UploadBatchStart.createFrom;
-const $$createType7 = core$0.PreflightWarning.createFrom;
+const $$createType2 = core$0.AccountBlockedEvent.createFrom;
+const $$createType3 = core$0.AlbumStatus.createFrom;
+const $$createType4 = core$0.AlbumError.createFrom;
+const $$createType5 = core$0.FilesDroppedEvent.createFrom;
+const $$createType6 = core$0.LogEntry.createFrom;
+const $$createType7 = core$0.ScanProgressEvent.createFrom;
+const $$createType8 = core$0.StartUploadEvent.createFrom;
+const $$createType9 = core$0.UploadBatchStart.createFrom;
+const $$createType10 = core$0.PreflightWarning.createFrom;
 
 configure();

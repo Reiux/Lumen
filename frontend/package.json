@@ -10,6 +10,7 @@
     "dev": "vite",
     "build:dev": "vue-tsc && vite build --minify false --mode development",
     "build": "vue-tsc && vite build --mode production",
+    "test": "vitest run",
     "preview": "vite preview",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix"
@@ -37,16 +38,19 @@
     "@iconify/vue": "^5.0.1",
     "@types/node": "^26.4.1",
     "@vitejs/plugin-vue": "^6.0.8",
-    "@wailsio/runtime": "^3.0.0-beta.21",
+    "@vue/test-utils": "^2.5.1",
+    "@wailsio/runtime": "^3.0.0-beta.33",
     "autoprefixer": "^10.5.5",
     "eslint": "^10.10.0",
     "eslint-plugin-vue": "^10.10.0",
     "globals": "^17.12.0",
+    "jsdom": "^30.1.3",
     "postcss": "^8.5.28",
     "tailwindcss": "^4.3.3",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.69.0",
     "vite": "^8.2.2",
+    "vitest": "^5.0.5",
     "vue-tsc": "^3.3.11"
   }
 }

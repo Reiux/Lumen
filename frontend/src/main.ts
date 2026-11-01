@@ -1,3 +1,4 @@
+import '@fontsource-variable/roboto-flex'
 import { createApp } from 'vue'
 import App from './App.vue'
 import { vRipple } from './directives/ripple'

@@ -14,10 +14,14 @@ declare module "@wailsio/runtime" {
         interface CustomEvents {
             "FileStatus": core$0.FileUploadResult;
             "ThreadStatus": core$0.ThreadStatus;
+            "account:blocked": core$0.AccountBlockedEvent;
             "albumComplete": core$0.AlbumStatus;
             "albumError": core$0.AlbumError;
             "albumProgress": core$0.AlbumStatus;
             "files-dropped": core$0.FilesDroppedEvent;
+            "log:entry": core$0.LogEntry;
+            "scan:cancelled": void;
+            "scan:progress": core$0.ScanProgressEvent;
             "startUpload": core$0.StartUploadEvent;
             "uploadCancel": void;
             "uploadStart": core$0.UploadBatchStart;

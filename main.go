@@ -168,6 +168,10 @@ func runGUI() {
 			PromptForMultipleSelection()
 	}
 
+	core.BrowserCloseFailedFunc = func() {
+		wailsApp.Event.Emit("browser-signin:close-failed", nil)
+	}
+
 	uploadManager := core.NewUploadManager(gui.NewWailsReporter(wailsApp), wailsApp.Logger)
 
 	// Background Folder Watcher integration
@@ -185,7 +189,24 @@ func runGUI() {
 				opts.AccountEmail = targetAccount
 				opts.Api.Account = targetAccount
 			}
+			folderCfg := configManager.GetWatchedFolderConfigForPath(batch[0])
+			if folderCfg != nil {
+				if folderCfg.AlbumMode == "auto" {
+					opts.AlbumAutoMode = true
+					opts.AlbumName = ""
+				} else if folderCfg.AlbumMode == "custom" && folderCfg.AlbumNameOrKey != "" {
+					opts.AlbumAutoMode = false
+					opts.AlbumName = folderCfg.AlbumNameOrKey
+				} else if folderCfg.AlbumMode == "none" {
+					opts.AlbumAutoMode = false
+					opts.AlbumName = ""
+				}
+			}
 		}
+		wailsApp.Event.Emit("folder-watch:detected", map[string]any{
+			"files": batch,
+			"count": len(batch),
+		})
 		uploadManager.Upload(batch, opts)
 	}
 
@@ -201,6 +222,15 @@ func runGUI() {
 	}
 
 	_ = core.InitFolderWatcher(onWatchedFiles)
+
+	// Check for updates in background if AutoCheckUpdates is enabled
+	go func() {
+		time.Sleep(3 * time.Second)
+		updateInfo, err := configManager.CheckForUpdates(false)
+		if err == nil && updateInfo.HasUpdate {
+			wailsApp.Event.Emit("app:update-available", updateInfo)
+		}
+	}()
 
 	// Listen for upload completion to drain queued watch files or send desktop notification
 	wailsApp.Event.On("uploadStop", func(e *application.CustomEvent) {
@@ -221,6 +251,7 @@ func runGUI() {
 		if configManager.GetSettings().NotifyOnComplete {
 			// Send one summary notification per finished batch without filenames. Fail quietly if daemon unavailable.
 			if err := notificationService.SendNotification(notifications.NotificationOptions{
+				ID:    fmt.Sprintf("upload-complete-%d", time.Now().UnixNano()),
 				Title: "Lumen",
 				Body:  "Upload batch complete",
 			}); err != nil {
@@ -232,6 +263,17 @@ func runGUI() {
 	// Listen for upload cancel event
 	wailsApp.Event.On("uploadCancel", func(e *application.CustomEvent) {
 		uploadManager.Cancel()
+	})
+
+	// Developer tool event: test desktop notification
+	wailsApp.Event.On("dev:test-notification", func(e *application.CustomEvent) {
+		if err := notificationService.SendNotification(notifications.NotificationOptions{
+			ID:    fmt.Sprintf("test-notification-%d", time.Now().UnixNano()),
+			Title: "Lumen",
+			Body:  "Upload batch complete (test notification)",
+		}); err != nil {
+			wailsApp.Logger.Debug("Test notification failed", "err", err)
+		}
 	})
 
 	window.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {
@@ -256,8 +298,31 @@ func runGUI() {
 	// Listen for upload request from frontend (after drop zone is determined)
 	wailsApp.Event.On("startUpload", func(e *application.CustomEvent) {
 		if data, ok := e.Data.(core.StartUploadEvent); ok {
-			wailsApp.Logger.Info("Starting upload", "fileCount", len(data.Files))
-			uploadManager.Upload(data.Files, configManager.SessionUploadOptions())
+			opts := configManager.SessionUploadOptions()
+			if len(data.Files) > 0 {
+				folderCfg := configManager.GetWatchedFolderConfigForPath(data.Files[0])
+				if folderCfg != nil {
+					if folderCfg.AccountEmail != "" {
+						opts.AccountEmail = folderCfg.AccountEmail
+						opts.Api.Account = folderCfg.AccountEmail
+					}
+					if folderCfg.AlbumMode == "auto" {
+						opts.AlbumAutoMode = true
+						opts.AlbumName = ""
+					} else if folderCfg.AlbumMode == "custom" && folderCfg.AlbumNameOrKey != "" {
+						opts.AlbumAutoMode = false
+						opts.AlbumName = folderCfg.AlbumNameOrKey
+					} else if folderCfg.AlbumMode == "none" {
+						opts.AlbumAutoMode = false
+						opts.AlbumName = ""
+					}
+					if folderCfg.IncludeSubfolders {
+						opts.Recursive = true
+					}
+				}
+			}
+			wailsApp.Logger.Info("Starting upload", "fileCount", len(data.Files), "albumName", opts.AlbumName, "albumAutoMode", opts.AlbumAutoMode)
+			uploadManager.Upload(data.Files, opts)
 		} else {
 			wailsApp.Logger.Error("startUpload: unexpected data type", "type", fmt.Sprintf("%T", e.Data))
 		}

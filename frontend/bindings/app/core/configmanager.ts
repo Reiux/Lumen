@@ -37,8 +37,48 @@ export function AddWatchedFolderWithAccount(folder: string, accountEmail: string
     return $Call.ByID(3425035533, folder, accountEmail);
 }
 
+/**
+ * CancelBrowserSignIn terminates an in-flight automated browser sign-in session.
+ */
+export function CancelBrowserSignIn(): $CancellablePromise<void> {
+    return $Call.ByID(2387677215);
+}
+
+/**
+ * CancelScan cancels any in-progress folder scanning.
+ */
+export function CancelScan(): $CancellablePromise<void> {
+    return $Call.ByID(1160062042);
+}
+
+/**
+ * CheckForUpdates checks for updates. If manual is true, it always contacts GitHub.
+ * If manual is false, it respects the AutoCheckUpdates preference and throttles to at most once per 12 hours.
+ */
+export function CheckForUpdates(manual: boolean): $CancellablePromise<$models.UpdateInfo> {
+    return $Call.ByID(159647736, manual).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
+/**
+ * CheckForUpdatesWithRedirectURL checks for updates against the provided redirect URL.
+ */
+export function CheckForUpdatesWithRedirectURL(redirectURL: string, manual: boolean): $CancellablePromise<$models.UpdateInfo> {
+    return $Call.ByID(2333417865, redirectURL, manual).then(($result: any) => {
+        return $$createType0($result);
+    });
+}
+
 export function ClearHashCache(): $CancellablePromise<number> {
     return $Call.ByID(305047140);
+}
+
+/**
+ * ClearLogEntries removes all stored log entries.
+ */
+export function ClearLogEntries(): $CancellablePromise<void> {
+    return $Call.ByID(612353192);
 }
 
 export function CountFolderBacklog(folder: string): $CancellablePromise<number> {
@@ -49,13 +89,20 @@ export function CredentialNeedsTokenBinding(authString: string): $CancellablePro
     return $Call.ByID(3401558551, authString);
 }
 
+/**
+ * ExportLogs formats all logs for sharing (format is "txt" or "json").
+ */
+export function ExportLogs(format: string): $CancellablePromise<string> {
+    return $Call.ByID(2315479760, format);
+}
+
 export function GetAccountForPath(filePath: string): $CancellablePromise<string> {
     return $Call.ByID(430116842, filePath);
 }
 
 export function GetAccounts(): $CancellablePromise<$models.AccountsState> {
     return $Call.ByID(1187873763).then(($result: any) => {
-        return $$createType0($result);
+        return $$createType1($result);
     });
 }
 
@@ -65,6 +112,30 @@ export function GetAlbumAutoMode(): $CancellablePromise<boolean> {
 
 export function GetAlbumName(): $CancellablePromise<string> {
     return $Call.ByID(1570265661);
+}
+
+export function GetAlbumNickname(account: string, key: string): $CancellablePromise<string> {
+    return $Call.ByID(481385778, account, key);
+}
+
+export function GetAlbumNicknames(account: string): $CancellablePromise<{ [_ in string]?: string }> {
+    return $Call.ByID(1815465299, account).then(($result: any) => {
+        return $$createType2($result);
+    });
+}
+
+/**
+ * GetAppVersion returns the current semantic version of the application.
+ */
+export function GetAppVersion(): $CancellablePromise<string> {
+    return $Call.ByID(664123438);
+}
+
+/**
+ * GetAutoCheckUpdates returns whether automatic GitHub release checks are enabled.
+ */
+export function GetAutoCheckUpdates(): $CancellablePromise<boolean> {
+    return $Call.ByID(3751360826);
 }
 
 export function GetExcludePattern(): $CancellablePromise<string> {
@@ -79,28 +150,87 @@ export function GetInotifyError(): $CancellablePromise<string> {
     return $Call.ByID(1482242087);
 }
 
+/**
+ * GetLastUpdateCheck returns the unix epoch seconds of the last update check.
+ */
+export function GetLastUpdateCheck(): $CancellablePromise<number> {
+    return $Call.ByID(459378630);
+}
+
+/**
+ * GetLogEntries returns buffered log entries, newest first.
+ */
+export function GetLogEntries(limit: number, levelFilter: string): $CancellablePromise<$models.LogEntry[]> {
+    return $Call.ByID(3311289277, limit, levelFilter).then(($result: any) => {
+        return $$createType4($result);
+    });
+}
+
+/**
+ * GetProblemLogs returns only WARN and ERROR entries.
+ */
+export function GetProblemLogs(): $CancellablePromise<$models.LogEntry[]> {
+    return $Call.ByID(1098331413).then(($result: any) => {
+        return $$createType4($result);
+    });
+}
+
 export function GetRecentAlbums(): $CancellablePromise<string[]> {
     return $Call.ByID(2303587648).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType5($result);
     });
+}
+
+/**
+ * GetReleaseNotes fetches the release notes for a given tag.
+ */
+export function GetReleaseNotes(tag: string): $CancellablePromise<string> {
+    return $Call.ByID(2351436929, tag);
 }
 
 export function GetSettings(): $CancellablePromise<$models.Preferences> {
     return $Call.ByID(4032120730).then(($result: any) => {
-        return $$createType2($result);
+        return $$createType6($result);
+    });
+}
+
+/**
+ * GetSupportedBrowserName returns the friendly name of the detected browser (e.g. Brave, Google Chrome).
+ */
+export function GetSupportedBrowserName(): $CancellablePromise<string> {
+    return $Call.ByID(2774359954);
+}
+
+export function GetWatchedFolderConfigForPath(filePath: string): $CancellablePromise<$models.WatchedFolderConfig | null> {
+    return $Call.ByID(3176247387, filePath).then(($result: any) => {
+        return $$createType8($result);
     });
 }
 
 export function GetWatchedFolderConfigs(): $CancellablePromise<$models.WatchedFolderConfig[]> {
     return $Call.ByID(140277918).then(($result: any) => {
-        return $$createType4($result);
+        return $$createType9($result);
     });
 }
 
 export function GetWatchedFolders(): $CancellablePromise<string[]> {
     return $Call.ByID(2559290152).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType5($result);
     });
+}
+
+/**
+ * HasSupportedBrowser checks whether a supported browser is installed on the host.
+ */
+export function HasSupportedBrowser(): $CancellablePromise<boolean> {
+    return $Call.ByID(779996229);
+}
+
+/**
+ * IsAccountRiskAcknowledged returns whether the user has acknowledged the account risk notice.
+ */
+export function IsAccountRiskAcknowledged(): $CancellablePromise<boolean> {
+    return $Call.ByID(2095363999);
 }
 
 export function IsTrayAvailable(): $CancellablePromise<boolean> {
@@ -109,7 +239,7 @@ export function IsTrayAvailable(): $CancellablePromise<boolean> {
 
 export function PickUploadFiles(): $CancellablePromise<string[]> {
     return $Call.ByID(673148100).then(($result: any) => {
-        return $$createType1($result);
+        return $$createType5($result);
     });
 }
 
@@ -133,12 +263,30 @@ export function RemoveWatchedFolder(folder: string): $CancellablePromise<void> {
     return $Call.ByID(1498661169, folder);
 }
 
+/**
+ * SetAccountRiskAcknowledged updates whether the user has acknowledged the account risk notice.
+ */
+export function SetAccountRiskAcknowledged(acknowledged: boolean): $CancellablePromise<void> {
+    return $Call.ByID(2262158637, acknowledged);
+}
+
 export function SetAlbumAutoMode(autoMode: boolean): $CancellablePromise<void> {
     return $Call.ByID(1875085042, autoMode);
 }
 
 export function SetAlbumName(albumName: string): $CancellablePromise<void> {
     return $Call.ByID(1670821521, albumName);
+}
+
+export function SetAlbumNickname(account: string, key: string, nickname: string): $CancellablePromise<void> {
+    return $Call.ByID(1194951182, account, key, nickname);
+}
+
+/**
+ * SetAutoCheckUpdates updates and persists the automatic update check preference immediately.
+ */
+export function SetAutoCheckUpdates(enabled: boolean): $CancellablePromise<void> {
+    return $Call.ByID(2370305638, enabled);
 }
 
 export function SetDeleteFromHost(deleteFromHost: boolean): $CancellablePromise<void> {
@@ -155,6 +303,13 @@ export function SetExcludePattern(pattern: string): $CancellablePromise<void> {
 
 export function SetForceUpload(forceUpload: boolean): $CancellablePromise<void> {
     return $Call.ByID(700800787, forceUpload);
+}
+
+/**
+ * SetLastUpdateCheck persists the unix epoch seconds of the last update check.
+ */
+export function SetLastUpdateCheck(timestamp: number): $CancellablePromise<void> {
+    return $Call.ByID(4115394674, timestamp);
 }
 
 export function SetMinimizeToTray(v: boolean): $CancellablePromise<void> {
@@ -217,9 +372,51 @@ export function SetWatchFoldersEnabled(v: boolean): $CancellablePromise<void> {
     return $Call.ByID(1568031248, v);
 }
 
+/**
+ * StartBrowserSignIn launches the system browser for automated Google sign-in.
+ * It requires that the account safety notice has been acknowledged.
+ * On success, it delegates directly to ValidateAndAddCredentials, ensuring identical validation,
+ * keyring persistence, and account block protections as manual token entry.
+ */
+export function StartBrowserSignIn(): $CancellablePromise<string> {
+    return $Call.ByID(460427723);
+}
+
+/**
+ * StartBrowserSignInWithOptions runs the browser sign-in flow with custom options (used for testing and injection).
+ */
+export function StartBrowserSignInWithOptions(opts: $models.BrowserSignInOptions): $CancellablePromise<string> {
+    return $Call.ByID(4155164583, opts);
+}
+
+export function UpdateWatchedFolderConfig(cfg: $models.WatchedFolderConfig): $CancellablePromise<void> {
+    return $Call.ByID(1892818464, cfg);
+}
+
+/**
+ * ValidateAndAddCredentials validates a direct credential string or Embedded Setup oauth_token,
+ * confirms connectivity with Google Photos, saves valid credentials to the OS keyring,
+ * and returns the authenticated user's email.
+ */
+export function ValidateAndAddCredentials(rawInput: string): $CancellablePromise<string> {
+    return $Call.ByID(280249175, rawInput);
+}
+
+/**
+ * WasBrowserCloseFailed reports whether the browser window could not be automatically closed after sign-in.
+ */
+export function WasBrowserCloseFailed(): $CancellablePromise<boolean> {
+    return $Call.ByID(1455959379);
+}
+
 // Private type creation functions
-const $$createType0 = $models.AccountsState.createFrom;
-const $$createType1 = $Create.Array($Create.Any);
-const $$createType2 = $models.Preferences.createFrom;
-const $$createType3 = $models.WatchedFolderConfig.createFrom;
+const $$createType0 = $models.UpdateInfo.createFrom;
+const $$createType1 = $models.AccountsState.createFrom;
+const $$createType2 = $Create.Map($Create.Any, $Create.Any);
+const $$createType3 = $models.LogEntry.createFrom;
 const $$createType4 = $Create.Array($$createType3);
+const $$createType5 = $Create.Array($Create.Any);
+const $$createType6 = $models.Preferences.createFrom;
+const $$createType7 = $models.WatchedFolderConfig.createFrom;
+const $$createType8 = $Create.Nullable($$createType7);
+const $$createType9 = $Create.Array($$createType7);

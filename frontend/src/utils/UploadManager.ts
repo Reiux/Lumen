@@ -56,6 +56,20 @@ function isSkippedUploadWarning(code: string): boolean {
   return code === "incomplete-live-photo-skipped" || code === "ambiguous-filename-stem";
 }
 
+export interface AccountBlockedState {
+  isBlocked: boolean;
+  reason: 'SIGN_IN_REQUIRED' | 'ACCOUNT_RESTRICTED' | 'RATE_LIMITED' | '';
+  email: string;
+  message: string;
+  resumeAt?: number;
+}
+
+export interface ScanProgressState {
+  isScanning: boolean;
+  currentDirectory: string;
+  filesFound: number;
+}
+
 export interface UploadState {
   isUploading: boolean;
   totalFiles: number;
@@ -73,6 +87,10 @@ export interface UploadState {
   // Album creation
   albumStatus: AlbumStatus | null;
   isCreatingAlbum: boolean;
+  // Circuit breaker state
+  accountBlocked: AccountBlockedState;
+  // Incremental folder scanning state
+  scanProgress: ScanProgressState;
 }
 
 class UploadManager {
@@ -97,6 +115,17 @@ class UploadManager {
     uploadSpeed: 0,
     albumStatus: null,
     isCreatingAlbum: false,
+    accountBlocked: {
+      isBlocked: false,
+      reason: '',
+      email: '',
+      message: '',
+    },
+    scanProgress: {
+      isScanning: false,
+      currentDirectory: '',
+      filesFound: 0,
+    },
   });
 
   // For speed calculation
@@ -216,6 +245,26 @@ class UploadManager {
     // Handle upload stop
     Events.On("uploadStop", () => {
       this.state.isUploading = false;
+      this.state.scanProgress.isScanning = false;
+    });
+
+    // Handle incremental folder scan progress
+    Events.On("scan:progress", (event: { data: { currentDirectory: string; filesFound: number; isScanning: boolean } }) => {
+      this.state.scanProgress = {
+        isScanning: event.data?.isScanning ?? true,
+        currentDirectory: event.data?.currentDirectory || '',
+        filesFound: event.data?.filesFound || 0,
+      };
+    });
+
+    // Handle folder scan cancelled
+    Events.On("scan:cancelled", () => {
+      this.state.scanProgress = {
+        isScanning: false,
+        currentDirectory: '',
+        filesFound: 0,
+      };
+      this.state.isUploading = false;
     });
 
     // Handle album creation progress
@@ -236,6 +285,38 @@ class UploadManager {
       // Emit a custom event that App.vue can listen to for showing toast
       window.dispatchEvent(new CustomEvent('albumError', { detail: event.data }));
     });
+
+    // Handle circuit breaker account blocked / rate limited events
+    Events.On("account:blocked", (event: { data: { reason: string; email: string; message: string; resumeAt?: number } }) => {
+      this.state.isUploading = false;
+      this.state.accountBlocked = {
+        isBlocked: true,
+        reason: (event.data?.reason || 'SIGN_IN_REQUIRED') as AccountBlockedState['reason'],
+        email: event.data?.email || '',
+        message: event.data?.message || '',
+        resumeAt: event.data?.resumeAt,
+      };
+      window.dispatchEvent(new CustomEvent('accountBlocked', { detail: event.data }));
+    });
+  }
+
+  public clearAccountBlocked() {
+    this.state.accountBlocked = {
+      isBlocked: false,
+      reason: '',
+      email: '',
+      message: '',
+    };
+  }
+
+  public async cancelScan() {
+    this.state.scanProgress.isScanning = false;
+    try {
+      const { ConfigManager } = await import('../../bindings/app/core');
+      await ConfigManager.CancelScan();
+    } catch (e) {
+      console.warn("Failed to cancel scan:", e);
+    }
   }
 
   private updateBytesAndSpeed() {
@@ -278,6 +359,10 @@ class UploadManager {
   }
 
   public resetUploadResults() {
+    this.state.uploadedFiles = 0;
+    this.state.totalFiles = 0;
+    this.state.uploadedBytes = 0;
+    this.state.totalBytes = 0;
     this.state.results.success = [];
     this.state.results.fail = [];
     this.state.results.skipped = [];

@@ -1,0 +1,66 @@
+name: Bug report
+description: Something is not working
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please do not paste your oauth_token, cookies or any other login details anywhere in this issue.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Include the exact error message if there is one.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: How can I make it happen again?
+  - type: input
+    id: version
+    attributes:
+      label: Lumen version
+      placeholder: "1.1.2 (Settings > About)"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
+  - type: input
+    id: os_version
+    attributes:
+      label: OS version
+      placeholder: "Windows 11 23H2, Ubuntu 24.04, macOS 15"
+  - type: dropdown
+    id: signin
+    attributes:
+      label: How did you sign in?
+      options:
+        - Sign in with Google (browser window)
+        - Pasted the token manually
+        - Not sure
+  - type: input
+    id: browser
+    attributes:
+      label: Browser used for sign-in
+      placeholder: "Chrome, Edge, Brave..."
+  - type: dropdown
+    id: usage
+    attributes:
+      label: Are you using the app or the command line?
+      options:
+        - App (window)
+        - Command line
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: "Check them first and remove any email addresses or tokens."

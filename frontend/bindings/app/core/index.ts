@@ -7,16 +7,28 @@ export {
 };
 
 export {
+    AccountBlockedEvent,
     AccountSummary,
     AccountsState,
     AlbumError,
     AlbumStatus,
+    BrowserSignInOptions,
+    BrowserType,
     FileUploadResult,
     FilesDroppedEvent,
+    LogEntry,
     Preferences,
     PreflightWarning,
+    ScanProgressEvent,
     StartUploadEvent,
+    SupportedBrowser,
     ThreadStatus,
+    UpdateInfo,
     UploadBatchStart,
     WatchedFolderConfig
+} from "./models.js";
+
+export type {
+    CookieSource,
+    ProcessRunner
 } from "./models.js";

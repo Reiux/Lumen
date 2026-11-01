@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import M3Icon from './ui/M3Icon.vue'
+import M3Button from './ui/M3Button.vue'
 import { displayNameFromEmail } from '../utils/avatar'
 import {
   SelectItem as SelectItemPrimitive,
@@ -73,7 +74,7 @@ const selectedInitial = computed(() => {
     <SelectTriggerPrimitive
       ref="triggerRef"
       v-ripple
-      class="m3-interactive m3-chip inline-flex h-9 max-w-[240px] items-center gap-2 rounded-full border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] pl-1.5 pr-3 text-xs font-medium text-[var(--md-sys-color-on-surface)] shadow-xs outline-none transition-colors duration-150 select-none cursor-pointer"
+      class="m3-interactive m3-chip inline-flex h-9 max-w-[240px] items-center gap-2 rounded-full border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] pl-1.5 pr-3 m3-label-large text-[var(--md-sys-color-on-surface)] shadow-xs outline-none transition-colors duration-150 select-none cursor-pointer"
       style="--wails-draggable: none"
     >
       <img
@@ -84,7 +85,7 @@ const selectedInitial = computed(() => {
       >
       <div
         v-else-if="selectedInitial"
-        class="flex size-6 shrink-0 items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)] text-[11px] font-semibold text-[var(--md-sys-color-on-primary-container)]"
+        class="flex size-6 shrink-0 items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)] m3-label-small text-[var(--md-sys-color-on-primary-container)]"
       >
         {{ selectedInitial }}
       </div>
@@ -98,7 +99,7 @@ const selectedInitial = computed(() => {
         />
       </div>
 
-      <span class="truncate text-xs font-medium">
+      <span class="truncate m3-label-large">
         {{ selectedValue ? displayNameFromEmail(selectedValue) : 'Select account' }}
       </span>
 
@@ -129,10 +130,10 @@ const selectedInitial = computed(() => {
         >
           <SelectItemPrimitive
             :value="option"
-            class="m3-interactive m3-menu-item flex flex-1 min-w-0 items-center min-h-[48px] gap-2.5 rounded-2xl pl-2.5 pr-1 py-1.5 text-xs text-[var(--md-sys-color-on-surface)] data-[state=checked]:bg-[var(--md-sys-color-secondary-container)] data-[state=checked]:text-[var(--md-sys-color-on-secondary-container)] data-[state=checked]:font-semibold outline-none select-none cursor-pointer transition-colors"
+            class="m3-interactive m3-menu-item flex flex-1 min-w-0 items-center min-h-[48px] gap-2.5 rounded-2xl pl-2.5 pr-1 py-1.5 m3-body-medium text-[var(--md-sys-color-on-surface)] data-[state=checked]:bg-[var(--md-sys-color-secondary-container)] data-[state=checked]:text-[var(--md-sys-color-on-secondary-container)] outline-none select-none cursor-pointer transition-colors"
           >
             <div
-              class="flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-colors"
+              class="flex size-7 shrink-0 items-center justify-center rounded-full m3-title-medium transition-colors"
               :class="option === selectedValue
                 ? 'bg-[var(--md-sys-color-on-secondary-container)] text-[var(--md-sys-color-secondary-container)]'
                 : 'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]'"
@@ -141,8 +142,8 @@ const selectedInitial = computed(() => {
             </div>
             <SelectItemText class="min-w-0 flex-1 truncate">
               <div class="flex flex-col min-w-0 text-left">
-                <span class="block truncate text-xs font-semibold leading-tight">{{ displayNameFromEmail(option) }}</span>
-                <span class="block truncate text-[10px] text-[var(--md-sys-color-on-surface-variant)] leading-tight">{{ option }}</span>
+                <span class="block truncate m3-title-medium leading-tight">{{ displayNameFromEmail(option) }}</span>
+                <span class="block truncate m3-body-medium leading-tight">{{ option }}</span>
               </div>
             </SelectItemText>
             <SelectItemIndicator class="shrink-0 text-[var(--md-sys-color-on-secondary-container)] mx-0.5">
@@ -152,39 +153,35 @@ const selectedInitial = computed(() => {
               />
             </SelectItemIndicator>
           </SelectItemPrimitive>
-          <button
-            type="button"
-            class="m3-interactive flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-error-container)] hover:text-[var(--md-sys-color-on-error-container)] mr-1 disabled:pointer-events-none disabled:opacity-40"
+          <M3Button
+            variant="text"
+            size="xs"
+            destructive
+            icon="close"
             :aria-label="`Remove ${option}`"
             :title="`Remove ${option}`"
             :disabled="removingAccount === option"
+            class="!size-8 !min-w-0 !p-0 mr-1"
             @pointerdown.stop.prevent
             @click.stop.prevent="emit('item-removed', option)"
-          >
-            <M3Icon
-              name="close"
-              :size="16"
-            />
-          </button>
+          />
         </div>
       </SelectGroup>
       <SelectSeparator
         v-if="options.length"
         class="my-1.5 h-px bg-[var(--md-sys-color-outline-variant)]/40"
       />
-      <button
-        type="button"
-        class="m3-interactive flex w-full min-h-[44px] cursor-pointer items-center gap-2.5 rounded-2xl py-2 px-3 text-xs font-medium text-[var(--md-sys-color-primary)] outline-none select-none transition-colors hover:bg-[var(--md-sys-color-primary-container)]/30"
+      <M3Button
+        variant="text"
+        size="s"
+        icon="add"
+        full-width
+        class="!justify-start"
         @pointerdown.stop.prevent
         @click.stop.prevent="isOpen = false; emit('add')"
       >
-        <M3Icon
-          name="add"
-          :size="16"
-          class="shrink-0"
-        />
-        <span>Add account</span>
-      </button>
+        Add account
+      </M3Button>
     </SelectContent>
   </Select>
 </template>

@@ -65,6 +65,13 @@ type albumErrorMsg struct {
 	error     string
 }
 
+type accountBlockedMsg struct {
+	reason   string
+	email    string
+	message  string
+	resumeAt int64
+}
+
 // Bubbletea model
 type uploadModel struct {
 	progress     progress.Model
@@ -206,6 +213,10 @@ func (m uploadModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case albumErrorMsg:
 		m.albumName = msg.albumName
 		m.albumError = msg.error
+		return m, nil
+
+	case accountBlockedMsg:
+		m.workers[0] = fmt.Sprintf("Account %s: %s (%s)", msg.email, msg.reason, msg.message)
 		return m, nil
 
 	case tea.KeyMsg:
@@ -375,6 +386,19 @@ func (r teaReporter) AlbumError(albumErr core.AlbumError) {
 		error:     albumErr.Error,
 	})
 }
+
+func (r teaReporter) AccountBlocked(event core.AccountBlockedEvent) {
+	r.p.Send(accountBlockedMsg{
+		reason:   event.Reason,
+		email:    event.Email,
+		message:  event.Message,
+		resumeAt: event.ResumeAt,
+	})
+}
+
+func (r teaReporter) LogEntry(core.LogEntry) {}
+func (r teaReporter) ScanProgress(core.ScanProgressEvent) {}
+func (r teaReporter) ScanCancelled() {}
 
 func newLogger(level slog.Level) *slog.Logger {
 	if level > slog.LevelDebug {

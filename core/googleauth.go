@@ -109,6 +109,107 @@ func (g *ConfigManager) addGoogleAccount(
 	return exchange.Email, nil
 }
 
+// ValidateAndAddCredentials validates a direct credential string or Embedded Setup oauth_token,
+// confirms connectivity with Google Photos, saves valid credentials to the OS keyring,
+// and returns the authenticated user's email.
+func (g *ConfigManager) ValidateAndAddCredentials(rawInput string) (string, error) {
+	rawInput = strings.TrimSpace(rawInput)
+	if rawInput == "" {
+		return "", errors.New("credential input cannot be empty")
+	}
+
+	ensureConfigLoaded()
+
+	configMu.RLock()
+	proxy := AppConfig.Preferences.Proxy
+	configMu.RUnlock()
+
+	// 1. If it looks like an auth query string (has Email and Token)
+	if LooksLikeAuthString(rawInput) {
+		params, err := url.ParseQuery(rawInput)
+		if err != nil {
+			return "", errors.New("Invalid credential format. Expected key=value parameters.")
+		}
+		email := strings.TrimSpace(params.Get("Email"))
+		token := strings.TrimSpace(params.Get("Token"))
+		if email == "" || token == "" {
+			return "", errors.New("Invalid credential format. Email and Token are required.")
+		}
+
+		androidID := strings.TrimSpace(params.Get("androidId"))
+		if androidID == "" {
+			androidID, err = generateAndroidID()
+			if err != nil {
+				return "", fmt.Errorf("generate Android ID: %w", err)
+			}
+		}
+
+		// Rebuild proper Google Photos credential
+		credential := buildGooglePhotosCredential(email, token, androidID)
+		// Preserve token binding alias if present
+		if alias := params.Get("token_binding_alias"); alias != "" {
+			vals, _ := url.ParseQuery(credential)
+			vals.Set("token_binding_alias", alias)
+			credential = vals.Encode()
+		}
+
+		// Immediate live validation probe against Google Photos
+		if err := validateGooglePhotosCredential(credential, proxy); err != nil {
+			return "", classifyAuthError(err)
+		}
+
+		// If validation passed, persist credential
+		if err := upsertCredential(credential); err != nil {
+			return "", fmt.Errorf("save Google account: %w", err)
+		}
+		return email, nil
+	}
+
+	// 2. Otherwise treat as oauth_token (e.g. from Embedded Setup cookie)
+	cleanToken := rawInput
+	if strings.Contains(cleanToken, "oauth_token=") {
+		parts := strings.Split(cleanToken, "oauth_token=")
+		if len(parts) > 1 {
+			cleanToken = strings.Fields(parts[1])[0]
+			cleanToken = strings.Trim(cleanToken, ";\"'")
+		}
+	}
+
+	email, err := g.AddGoogleAccountWithProxy(cleanToken, proxy)
+	if err != nil {
+		return "", classifyAuthError(err)
+	}
+	return email, nil
+}
+
+func classifyAuthError(err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	lower := strings.ToLower(msg)
+
+	if strings.Contains(msg, "BadAuthentication") || strings.Contains(msg, "401") || strings.Contains(lower, "unauthorized") {
+		return errors.New("Token expired or rejected by Google. Please obtain a fresh token.")
+	}
+	if strings.Contains(msg, "NeedsBrowser") || strings.Contains(lower, "needsbrowser") {
+		return errors.New("Google requires browser verification for this account.")
+	}
+	if strings.Contains(msg, "AccountDisabled") || strings.Contains(msg, "AccountDeleted") || strings.Contains(lower, "restricted") {
+		return errors.New("This Google account has been disabled or restricted by Google.")
+	}
+	if strings.Contains(lower, "timeout") || strings.Contains(lower, "deadline") {
+		return errors.New("Connection timed out. Please check your network connection.")
+	}
+	if strings.Contains(lower, "connection refused") || strings.Contains(lower, "no such host") || strings.Contains(lower, "reset by peer") {
+		return errors.New("Connection failed. Please check your internet or proxy settings.")
+	}
+	if strings.Contains(lower, "format") || strings.Contains(lower, "missing") {
+		return errors.New("Invalid credential format. Expected Email and Token.")
+	}
+	return err
+}
+
 func newGoogleAuthHTTPClient(proxyURL string) (*http.Client, error) {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	if transport.TLSClientConfig == nil {
@@ -316,6 +417,11 @@ func upsertCredential(credential string) error {
 		return fmt.Errorf("parse generated credential: %w", err)
 	}
 	email := values.Get("Email")
+
+	// Store sensitive credential in OS keyring
+	if kr := GetGlobalKeyring(); kr != nil {
+		_ = kr.StoreCredential(email, credential)
+	}
 
 	configMu.Lock()
 	defer configMu.Unlock()

@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lumen Desktop - Option A (Rail + List)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      user-select: none;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* M3 Expressive Tokens - Single Blue Seed + Success Green + Error Red */
+    :root {
+      --md-sys-color-background: #0b0f17;
+      --md-sys-color-surface: #10151f;
+      --md-sys-color-surface-container-low: #141b27;
+      --md-sys-color-surface-container: #192231;
+      --md-sys-color-surface-container-high: #202b3d;
+      --md-sys-color-surface-container-highest: #28354b;
+      
+      --md-sys-color-primary: #a8c7fa;
+      --md-sys-color-on-primary: #062e6f;
+      --md-sys-color-primary-container: #1b4485;
+      --md-sys-color-on-primary-container: #d3e3fd;
+
+      --md-sys-color-success-container: #0f3822;
+      --md-sys-color-on-success-container: #a3f3c4;
+      --md-sys-color-success: #6dd58c;
+
+      --md-sys-color-error-container: #441414;
+      --md-sys-color-on-error-container: #f9dedc;
+      --md-sys-color-error: #f2b8b5;
+
+      --md-sys-color-outline: #414d62;
+      --md-sys-color-outline-variant: #283344;
+      --md-sys-color-on-surface: #e2e8f0;
+      --md-sys-color-on-surface-variant: #94a3b8;
+    }
+
+    /* Wavy Progress Bar Animation */
+    @keyframes waveMove {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-40px); }
+    }
+    .wavy-track {
+      background-image: radial-gradient(circle at 10px 0, transparent 8px, var(--md-sys-color-primary) 8.5px, var(--md-sys-color-primary) 11.5px, transparent 12px),
+                        radial-gradient(circle at 30px 14px, transparent 8px, var(--md-sys-color-primary) 8.5px, var(--md-sys-color-primary) 11.5px, transparent 12px);
+      background-size: 40px 14px;
+      animation: waveMove 1.6s linear infinite;
+    }
+
+    /* Custom range slider with neutral track and primary thumb */
+    input[type=range] {
+      -webkit-appearance: none;
+      background: transparent;
+    }
+    input[type=range]::-webkit-slider-runnable-track {
+      height: 12px;
+      border-radius: 9999px;
+      background: var(--md-sys-color-surface-container-highest);
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      height: 24px;
+      width: 24px;
+      border-radius: 9999px;
+      background: var(--md-sys-color-primary);
+      margin-top: -6px;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+      transition: transform 0.15s ease;
+    }
+    input[type=range]::-webkit-slider-thumb:hover {
+      transform: scale(1.15);
+    }
+
+    /* Custom scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: var(--md-sys-color-outline-variant);
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--md-sys-color-outline);
+    }
+  </style>
+</head>
+<body class="bg-[#070a0f] text-[#e2e8f0] min-h-screen flex items-center justify-center p-4">
+
+  <!-- Desktop App Window Frame (1100x700 simulated) -->
+  <div class="w-[1100px] h-[720px] bg-[var(--md-sys-color-background)] rounded-[28px] border border-[var(--md-sys-color-outline-variant)] shadow-2xl flex flex-col overflow-hidden relative">
+    
+    <!-- Titlebar & Quick State Switcher for Prototyping -->
+    <header class="h-11 bg-[var(--md-sys-color-surface)] border-b border-[var(--md-sys-color-outline-variant)] px-4 flex items-center justify-between z-20 flex-shrink-0">
+      <div class="flex items-center space-x-2">
+        <span class="w-3 h-3 rounded-full bg-[#334155] inline-block"></span>
+        <span class="w-3 h-3 rounded-full bg-[#334155] inline-block"></span>
+        <span class="w-3 h-3 rounded-full bg-[#334155] inline-block"></span>
+        <span class="ml-3 text-xs font-semibold tracking-wider text-[var(--md-sys-color-on-surface-variant)] uppercase">Lumen &bull; Google Photos Desktop</span>
+      </div>
+
+      <!-- Simulation State Navigator (Switches between the 4 asked states) -->
+      <div class="flex items-center bg-[var(--md-sys-color-surface-container)] rounded-full p-0.5 border border-[var(--md-sys-color-outline-variant)] text-xs font-medium">
+        <button onclick="setScreen('upload-empty')" id="btn-state-empty" class="state-btn px-2.5 py-1 rounded-full text-[var(--md-sys-color-on-surface-variant)] hover:text-white transition">1. Empty</button>
+        <button onclick="setScreen('upload-progress')" id="btn-state-progress" class="state-btn px-2.5 py-1 rounded-full text-[var(--md-sys-color-on-surface-variant)] hover:text-white transition">2. In Progress</button>
+        <button onclick="setScreen('upload-results')" id="btn-state-results" class="state-btn px-2.5 py-1 rounded-full text-[var(--md-sys-color-on-surface-variant)] hover:text-white transition">3. Results</button>
+        <button onclick="setScreen('settings')" id="btn-state-settings" class="state-btn px-2.5 py-1 rounded-full text-[var(--md-sys-color-on-surface-variant)] hover:text-white transition">4. Settings</button>
+      </div>
+
+      <div class="text-[11px] text-[var(--md-sys-color-primary)] font-medium px-2 py-0.5 rounded-full bg-[var(--md-sys-color-primary-container)] bg-opacity-40">
+        Option A: Rail + List
+      </div>
+    </header>
+
+    <!-- Main Body: Navigation Rail + Main Content Area -->
+    <div class="flex-1 flex overflow-hidden">
+      
+      <!-- Left Navigation Rail (M3 Expressive Style) -->
+      <nav class="w-20 bg-[var(--md-sys-color-surface)] border-r border-[var(--md-sys-color-outline-variant)] flex flex-col items-center py-4 justify-between flex-shrink-0 z-10">
+        
+        <!-- Top App Mark & Rail Items -->
+        <div class="flex flex-col items-center w-full space-y-3">
+          <!-- Logo Mark -->
+          <div class="w-10 h-10 rounded-2xl bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-primary)] flex items-center justify-center font-bold text-lg mb-2 shadow-inner">
+            <svg class="w-5 h-5 fill-current" viewBox="0 0 24 24">
+              <path d="M12 2L14.39 8.26L21 9.27L16.27 14.14L17.5 21.02L12 17.77L6.5 21.02L7.73 14.14L3 9.27L9.61 8.26L12 2Z"/>
+            </svg>
+          </div>
+
+          <!-- 1. Upload Item -->
+          <button onclick="setNav('upload')" id="nav-upload" class="nav-item group flex flex-col items-center justify-center w-14 py-1.5 rounded-2xl text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container)] transition">
+            <div class="indicator w-12 h-7 rounded-full flex items-center justify-center transition-all group-hover:scale-105">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+              </svg>
+            </div>
+            <span class="text-[11px] font-medium mt-1">Upload</span>
+          </button>
+
+          <!-- 2. Activity Item -->
+          <button onclick="setNav('activity')" id="nav-activity" class="nav-item group flex flex-col items-center justify-center w-14 py-1.5 rounded-2xl text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container)] transition">
+            <div class="indicator w-12 h-7 rounded-full flex items-center justify-center transition-all group-hover:scale-105">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+              </svg>
+            </div>
+            <span class="text-[11px] font-medium mt-1">Activity</span>
+          </button>
+
+          <!-- 3. Accounts Item -->
+          <button onclick="setNav('accounts')" id="nav-accounts" class="nav-item group flex flex-col items-center justify-center w-14 py-1.5 rounded-2xl text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container)] transition">
+            <div class="indicator w-12 h-7 rounded-full flex items-center justify-center transition-all group-hover:scale-105">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
+              </svg>
+            </div>
+            <span class="text-[11px] font-medium mt-1">Accounts</span>
+          </button>
+
+          <!-- 4. Settings Item -->
+          <button onclick="setNav('settings')" id="nav-settings" class="nav-item group flex flex-col items-center justify-center w-14 py-1.5 rounded-2xl text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container)] transition">
+            <div class="indicator w-12 h-7 rounded-full flex items-center justify-center transition-all group-hover:scale-105">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+              </svg>
+            </div>
+            <span class="text-[11px] font-medium mt-1">Settings</span>
+          </button>
+
+          <!-- 5. About Item -->
+          <button onclick="setNav('about')" id="nav-about" class="nav-item group flex flex-col items-center justify-center w-14 py-1.5 rounded-2xl text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container)] transition">
+            <div class="indicator w-12 h-7 rounded-full flex items-center justify-center transition-all group-hover:scale-105">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+              </svg>
+            </div>
+            <span class="text-[11px] font-medium mt-1">About</span>
+          </button>
+        </div>
+
+        <!-- Bottom: Small Account Chip (Avatar + Name only, no big card) -->
+        <div class="w-full px-2 flex justify-center">
+          <div class="flex items-center p-1 bg-[var(--md-sys-color-surface-container)] rounded-full border border-[var(--md-sys-color-outline-variant)] hover:bg-[var(--md-sys-color-surface-container-high)] cursor-pointer transition title="Signed in as Reiux"">
+            <div class="w-7 h-7 rounded-full bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-primary)] flex items-center justify-center font-bold text-xs">
+              R
+            </div>
+          </div>
+        </div>
+      </nav>
+
+      <!-- Main Stage Container with Max-Width constraint -->
+      <main class="flex-1 overflow-y-auto p-8 flex justify-center">
+        <div class="w-full max-w-3xl flex flex-col">
+
+          <!-- ================= SCREEN 1: UPLOAD, EMPTY ================= -->
+          <section id="screen-upload-empty" class="screen-view flex flex-col h-full justify-center">
+            <!-- Expressive Title -->
+            <div class="mb-6">
+              <h1 class="text-4xl font-normal tracking-tight text-[var(--md-sys-color-on-surface)]">Upload photos</h1>
+              <p class="text-sm text-[var(--md-sys-color-on-surface-variant)] mt-1">Original quality backup to Google Photos storage</p>
+            </div>
+
+            <!-- Big M3 Expressive Drop Zone -->
+            <div class="bg-[var(--md-sys-color-surface-container)] border-2 border-dashed border-[var(--md-sys-color-outline)] rounded-[28px] p-12 flex flex-col items-center justify-center text-center transition hover:border-[var(--md-sys-color-primary)] hover:bg-[var(--md-sys-color-surface-container-high)] group cursor-pointer shadow-lg">
+              
+              <div class="w-20 h-20 rounded-[28px] bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-primary)] flex items-center justify-center mb-5 group-hover:scale-110 transition duration-300">
+                <svg class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+                </svg>
+              </div>
+
+              <!-- Main Drop Notice -->
+              <h2 class="text-2xl font-medium text-[var(--md-sys-color-on-surface)]">Drop photos here</h2>
+              <p class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-1 max-w-sm">Drag and drop raw images, motion photos, or albums from your local directories</p>
+
+              <!-- Buttons directly under the text -->
+              <div class="flex items-center space-x-3 mt-6">
+                <!-- Choose Files: Primary Filled Pill Button -->
+                <button class="bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] hover:brightness-105 active:scale-95 font-medium text-sm px-6 py-3 rounded-full flex items-center space-x-2 transition shadow-md">
+                  <svg class="w-4 h-4 fill-current" viewBox="0 0 20 20">
+                    <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd"/>
+                  </svg>
+                  <span>Choose files</span>
+                </button>
+
+                <!-- Choose Folder: Tonal Container Pill Button -->
+                <button class="bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-on-surface)] hover:bg-opacity-80 active:scale-95 font-medium text-sm px-6 py-3 rounded-full flex items-center space-x-2 transition border border-[var(--md-sys-color-outline-variant)]">
+                  <svg class="w-4 h-4 fill-current text-[var(--md-sys-color-primary)]" viewBox="0 0 20 20">
+                    <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z"/>
+                  </svg>
+                  <span>Choose folder</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Subtle device pairing notice -->
+            <div class="mt-8 flex items-center justify-between text-xs text-[var(--md-sys-color-on-surface-variant)] px-4">
+              <span class="flex items-center space-x-1.5">
+                <span class="w-2 h-2 rounded-full bg-[var(--md-sys-color-primary)]"></span>
+                <span>Spoofed Hardware: Pixel XL Unlimited Saver</span>
+              </span>
+              <span>Encrypted tokens stored locally</span>
+            </div>
+          </section>
+
+          <!-- ================= SCREEN 2: UPLOAD, IN PROGRESS ================= -->
+          <section id="screen-upload-progress" class="screen-view hidden flex-col">
+            <!-- Slim drop strip on top -->
+            <div class="h-11 bg-[var(--md-sys-color-surface-container-low)] border border-dashed border-[var(--md-sys-color-outline)] rounded-2xl flex items-center justify-center space-x-2 text-xs text-[var(--md-sys-color-on-surface-variant)] mb-4 hover:border-[var(--md-sys-color-primary)] hover:text-white cursor-pointer transition flex-shrink-0">
+              <svg class="w-4 h-4 text-[var(--md-sys-color-primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path>
+              </svg>
+              <span>Drop more photos or folders here anytime to append to queue</span>
+            </div>
+
+            <!-- Summary Header Card (28px rounded) -->
+            <div class="bg-[var(--md-sys-color-surface-container)] rounded-[28px] p-6 border border-[var(--md-sys-color-outline-variant)] mb-4 shadow-md">
+              <div class="flex items-start justify-between">
+                <div>
+                  <span class="text-xs font-semibold tracking-wider uppercase text-[var(--md-sys-color-primary)]">Uploading batch #104</span>
+                  <h2 class="text-3xl font-semibold tracking-tight text-[var(--md-sys-color-on-surface)] mt-0.5">13 of 48 items</h2>
+                </div>
+                <!-- Cancel Button -->
+                <button onclick="setScreen('upload-results')" class="px-5 py-2 rounded-full bg-[var(--md-sys-color-surface-container-highest)] hover:bg-[var(--md-sys-color-error-container)] hover:text-[var(--md-sys-color-on-error-container)] text-xs font-medium text-[var(--md-sys-color-on-surface)] transition active:scale-95 border border-[var(--md-sys-color-outline-variant)]">
+                  Cancel upload
+                </button>
+              </div>
+
+              <!-- Metrics -->
+              <div class="flex items-center space-x-6 text-xs text-[var(--md-sys-color-on-surface-variant)] mt-3">
+                <div class="flex items-center space-x-1.5">
+                  <svg class="w-4 h-4 text-[var(--md-sys-color-primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                  </svg>
+                  <span class="text-[var(--md-sys-color-on-surface)] font-medium">8.4 MB/s</span>
+                  <span>(3 workers)</span>
+                </div>
+                <div class="flex items-center space-x-1.5">
+                  <svg class="w-4 h-4 text-[var(--md-sys-color-primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                  </svg>
+                  <span>ETA: <strong class="text-[var(--md-sys-color-on-surface)]">3m 12s</strong></span>
+                </div>
+                <span>&bull;</span>
+                <span>142.6 MB / 512.0 MB</span>
+              </div>
+
+              <!-- M3 Expressive Wavy Progress Bar -->
+              <div class="mt-5 relative w-full h-3 rounded-full bg-[var(--md-sys-color-surface-container-highest)] overflow-hidden">
+                <div class="h-full bg-[var(--md-sys-color-primary)] rounded-full wavy-track relative" style="width: 28%;"></div>
+              </div>
+            </div>
+
+            <!-- Advanced: Worker Threads Expander (Collapsed by default) -->
+            <div class="bg-[var(--md-sys-color-surface-container)] rounded-[24px] border border-[var(--md-sys-color-outline-variant)] mb-4 overflow-hidden">
+              <button onclick="toggleExpander('expander-threads')" class="w-full px-5 py-3.5 flex items-center justify-between text-xs font-medium text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container-high)] transition">
+                <span class="flex items-center space-x-2">
+                  <svg class="w-4 h-4 text-[var(--md-sys-color-primary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path>
+                  </svg>
+                  <span>Advanced: worker threads & concurrency</span>
+                </span>
+                <svg id="expander-threads-icon" class="w-4 h-4 transform transition-transform text-[var(--md-sys-color-on-surface-variant)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+              </button>
+              
+              <div id="expander-threads-content" class="hidden px-5 pb-4 pt-1 border-t border-[var(--md-sys-color-outline-variant)]">
+                <div class="flex items-center justify-between text-xs mb-2 text-[var(--md-sys-color-on-surface-variant)]">
+                  <span>Concurrent upload connections</span>
+                  <span id="thread-value-label" class="font-bold text-[var(--md-sys-color-primary)]">3 threads</span>
+                </div>
+                <input type="range" min="1" max="8" value="3" class="w-full" oninput="document.getElementById('thread-value-label').innerText = this.value + ' threads'">
+                <p class="text-[11px] text-[var(--md-sys-color-on-surface-variant)] mt-2">Adjusting thread count tunes pipeline speed based on your broadband latency.</p>
+              </div>
+            </div>
+
+            <!-- File List (Dense List Rows) -->
+            <div class="bg-[var(--md-sys-color-surface-container)] rounded-[28px] border border-[var(--md-sys-color-outline-variant)] overflow-hidden shadow-sm">
+              <div class="px-5 py-3 border-b border-[var(--md-sys-color-outline-variant)] flex items-center justify-between text-[11px] uppercase tracking-wider text-[var(--md-sys-color-on-surface-variant)] font-semibold">
+                <span>File Queue</span>
+                <span>Status &bull; Progress</span>
+              </div>
+
+              <div class="divide-y divide-[var(--md-sys-color-outline-variant)] text-xs">
+                
+                <!-- Row 1: Uploading Active -->
+                <div class="px-5 py-3 flex items-center justify-between hover:bg-[var(--md-sys-color-surface-container-high)] transition">
+                  <div class="flex items-center space-x-3 min-w-0">
+                    <div class="w-9 h-9 rounded-xl bg-[var(--md-sys-color-surface-container-highest)] flex items-center justify-center text-[var(--md-sys-color-primary)] flex-shrink-0">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                    </div>
+                    <div class="truncate">
+                      <div class="font-medium text-[var(--md-sys-color-on-surface)] truncate">IMG_20261031_140210.dng</div>
+                      <div class="text-[11px] text-[var(--md-sys-color-on-surface-variant)]">28.4 MB &bull; RAW Image</div>
+                    </div>
+                  </div>
+                  <div class="flex items-center space-x-3 flex-shrink-0">
+                    <div class="w-24 bg-[var(--md-sys-color-surface-container-highest)] h-1.5 rounded-full overflow-hidden">
+                      <div class="bg-[var(--md-sys-color-primary)] h-full rounded-full" style="width: 68%;"></div>
+                    </div>
+                    <span class="px-2.5 py-0.5 rounded-full bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)] text-[10px] font-medium">68%</span>
+                  </div>
+                </div>
+
+                <!-- Row 2: Committing -->
+                <div class="px-5 py-3 flex items-center justify-between hover:bg-[var(--md-sys-color-surface-container-high)] transition">
+                  <div class="flex items-center space-x-3 min-w-0">
+                    <div class="w-9 h-9 rounded-xl bg-[var(--md-sys-color-surface-container-highest)] flex items-center justify-center text-[var(--md-sys-color-primary)] flex-shrink-0">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+                    </div>
+                    <div class="truncate">
+                      <div class="font-medium text-[var(--md-sys-color-on-surface)] truncate">PXL_20261029_092314_BURST.jpg</div>
+                      <div class="text-[11px] text-[var(--md-sys-color-on-surface-variant)]">7.1 MB &bull; Motion Photo</div>
+                    </div>
+                  </div>
+                  <div class="flex items-center space-x-3 flex-shrink-0">
+                    <span class="px-2.5 py-0.5 rounded-full bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-primary)] text-[10px] font-medium animate-pulse">Committing...</span>
+                  </div>
+                </div>
+
+                <!-- Row 3: Completed Row (Green Tone) -->
+                <div class="px-5 py-3 flex items-center justify-between hover:bg-[var(--md-sys-color-surface-container-high)] transition">
+                  <div class="flex items-center space-x-3 min-w-0">
+                    <div class="w-9 h-9 rounded-xl bg-[var(--md-sys-color-success-container)] text-[var(--md-sys-color-on-success-container)] flex items-center justify-center flex-shrink-0">
+                      <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                    </div>
+                    <div class="truncate">
+                      <div class="font-medium text-[var(--md-sys-color-on-surface)] truncate">VID_20261028_183204.mp4</div>
+                      <div class="text-[11px] text-[var(--md-sys-color-on-surface-variant)]">62.8 MB &bull; Uploaded</div>
+                    </div>
+                  </div>
+                  <span class="px-2.5 py-0.5 rounded-full bg-[var(--md-sys-color-success-container)] text-[var(--md-sys-color-on-success-container)] text-[10px] font-medium">Uploaded</span>
+                </div>
+
+                <!-- Row 4: Queued -->
+                <div class="px-5 py-3 flex items-center justify-between hover:bg-[var(--md-sys-color-surface-container-high)] transition opacity-60">
+                  <div class="flex items-center space-x-3 min-w-0">
+                    <div class="w-9 h-9 rounded-xl bg-[var(--md-sys-color-surface-container-highest)] flex items-center justify-center text-[var(--md-sys-color-on-surface-variant)] flex-shrink-0">
+                      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                    </div>
+                    <div class="truncate">
+                      <div class="font-medium text-[var(--md-sys-color-on-surface)] truncate">IMG_20261031_141105.jpg</div>
+                      <div class="text-[11px] text-[var(--md-sys-color-on-surface-variant)]">5.4 MB &bull; Waiting in queue</div>
+                    </div>
+                  </div>
+                  <span class="px-2.5 py-0.5 rounded-full bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-on-surface-variant)] text-[10px] font-medium">Queued</span>
+                </div>
+
+              </div>
+            </div>
+          </section>
+
+          <!-- ================= SCREEN 3: UPLOAD, RESULTS ================= -->
+          <section id="screen-upload-results" class="screen-view hidden flex-col">
+            <!-- Header -->
+            <div class="mb-5 flex items-center justify-between">
+              <div>
+                <h1 class="text-3xl font-normal tracking-tight text-[var(--md-sys-color-on-surface)]">Upload summary</h1>
+                <p class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-1">Batch completed in 4m 18s &bull; Total transferred: 412 MB</p>
+              </div>
+              <button onclick="setScreen('upload-empty')" class="px-5 py-2.5 rounded-full bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] text-xs font-semibold hover:brightness-105 transition shadow-sm">
+                Done & New Batch
+              </button>
+            </div>
+
+            <!-- Two Summary Tiles (Green Tonal Container + Red Tonal Container) -->
+            <div class="grid grid-cols-2 gap-4 mb-6">
+              <!-- Green Success Tile -->
+              <div class="bg-[var(--md-sys-color-success-container)] border border-[var(--md-sys-color-success)] border-opacity-30 rounded-[28px] p-5 flex items-center justify-between shadow-sm">
+                <div>
+                  <span class="text-xs font-medium text-[var(--md-sys-color-on-success-container)] uppercase tracking-wider">Successful</span>
+                  <div class="text-3xl font-bold text-[var(--md-sys-color-on-success-container)] mt-1">42 uploaded</div>
+                  <p class="text-[11px] text-[var(--md-sys-color-on-success-container)] opacity-80 mt-1">Backed up in Original Quality</p>
+                </div>
+                <div class="w-12 h-12 rounded-2xl bg-[var(--md-sys-color-success)] bg-opacity-20 text-[var(--md-sys-color-success)] flex items-center justify-center">
+                  <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                </div>
+              </div>
+
+              <!-- Red Error Tile -->
+              <div class="bg-[var(--md-sys-color-error-container)] border border-[var(--md-sys-color-error)] border-opacity-30 rounded-[28px] p-5 flex items-center justify-between shadow-sm">
+                <div>
+                  <span class="text-xs font-medium text-[var(--md-sys-color-on-error-container)] uppercase tracking-wider">Unsuccessful</span>
+                  <div class="text-3xl font-bold text-[var(--md-sys-color-on-error-container)] mt-1">3 failed</div>
+                  <p class="text-[11px] text-[var(--md-sys-color-on-error-container)] opacity-80 mt-1">Ready for single-click retry</p>
+                </div>
+                <div class="w-12 h-12 rounded-2xl bg-[var(--md-sys-color-error)] bg-opacity-20 text-[var(--md-sys-color-error)] flex items-center justify-center">
+                  <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
+                </div>
+              </div>
+            </div>
+
+            <!-- "View Failed Items" Section -->
+            <div class="bg-[var(--md-sys-color-surface-container)] rounded-[28px] border border-[var(--md-sys-color-outline-variant)] overflow-hidden shadow-sm">
+              <div class="px-6 py-4 border-b border-[var(--md-sys-color-outline-variant)] flex items-center justify-between">
+                <div>
+                  <h3 class="text-sm font-semibold text-[var(--md-sys-color-on-surface)]">Failed items (3)</h3>
+                  <p class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5">Plain-language diagnosis from Google Photos API</p>
+                </div>
+                <!-- Retry All Button -->
+                <button class="px-4 py-1.5 rounded-full bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)] hover:brightness-110 text-xs font-medium transition active:scale-95">
+                  Retry all failed
+                </button>
+              </div>
+
+              <!-- Failed Item Rows -->
+              <div class="divide-y divide-[var(--md-sys-color-outline-variant)] text-xs">
+                
+                <!-- Failed Row 1 -->
+                <div class="p-4 flex items-center justify-between hover:bg-[var(--md-sys-color-surface-container-high)] transition">
+                  <div class="flex items-center space-x-3 min-w-0 pr-4">
+                    <div class="w-8 h-8 rounded-xl bg-[var(--md-sys-color-error-container)] text-[var(--md-sys-color-error)] flex items-center justify-center flex-shrink-0 font-bold">!</div>
+                    <div class="truncate">
+                      <div class="font-medium text-[var(--md-sys-color-on-surface)] truncate">DJI_20261027_1120.mp4</div>
+                      <div class="text-[11px] text-[var(--md-sys-color-error)] mt-0.5 font-normal">Network timeout during final commit. Server did not acknowledge bytes.</div>
+                    </div>
+                  </div>
+                  <button class="px-3.5 py-1.5 rounded-full bg-[var(--md-sys-color-surface-container-highest)] hover:bg-[var(--md-sys-color-primary-container)] hover:text-[var(--md-sys-color-on-primary-container)] text-[11px] font-medium text-[var(--md-sys-color-on-surface)] transition active:scale-95 flex-shrink-0 border border-[var(--md-sys-color-outline-variant)]">
+                    Retry
+                  </button>
+                </div>
+
+                <!-- Failed Row 2 -->
+                <div class="p-4 flex items-center justify-between hover:bg-[var(--md-sys-color-surface-container-high)] transition">
+                  <div class="flex items-center space-x-3 min-w-0 pr-4">
+                    <div class="w-8 h-8 rounded-xl bg-[var(--md-sys-color-error-container)] text-[var(--md-sys-color-error)] flex items-center justify-center flex-shrink-0 font-bold">!</div>
+                    <div class="truncate">
+                      <div class="font-medium text-[var(--md-sys-color-on-surface)] truncate">IMG_ARCHIVE_9921.jpg</div>
+                      <div class="text-[11px] text-[var(--md-sys-color-error)] mt-0.5 font-normal">File unreadable or corrupted on local disk (0-byte header).</div>
+                    </div>
+                  </div>
+                  <button class="px-3.5 py-1.5 rounded-full bg-[var(--md-sys-color-surface-container-highest)] hover:bg-[var(--md-sys-color-primary-container)] hover:text-[var(--md-sys-color-on-primary-container)] text-[11px] font-medium text-[var(--md-sys-color-on-surface)] transition active:scale-95 flex-shrink-0 border border-[var(--md-sys-color-outline-variant)]">
+                    Retry
+                  </button>
+                </div>
+
+                <!-- Failed Row 3 -->
+                <div class="p-4 flex items-center justify-between hover:bg-[var(--md-sys-color-surface-container-high)] transition">
+                  <div class="flex items-center space-x-3 min-w-0 pr-4">
+                    <div class="w-8 h-8 rounded-xl bg-[var(--md-sys-color-error-container)] text-[var(--md-sys-color-error)] flex items-center justify-center flex-shrink-0 font-bold">!</div>
+                    <div class="truncate">
+                      <div class="font-medium text-[var(--md-sys-color-on-surface)] truncate">RAW_DSC03912.arw</div>
+                      <div class="text-[11px] text-[var(--md-sys-color-error)] mt-0.5 font-normal">Temporary Google Photos rate limit (HTTP 429). Cooldown elapsed.</div>
+                    </div>
+                  </div>
+                  <button class="px-3.5 py-1.5 rounded-full bg-[var(--md-sys-color-surface-container-highest)] hover:bg-[var(--md-sys-color-primary-container)] hover:text-[var(--md-sys-color-on-primary-container)] text-[11px] font-medium text-[var(--md-sys-color-on-surface)] transition active:scale-95 flex-shrink-0 border border-[var(--md-sys-color-outline-variant)]">
+                    Retry
+                  </button>
+                </div>
+
+              </div>
+            </div>
+          </section>
+
+          <!-- ================= SCREEN 4: SETTINGS ================= -->
+          <section id="screen-settings" class="screen-view hidden flex-col">
+            <div class="mb-5">
+              <h1 class="text-3xl font-normal tracking-tight text-[var(--md-sys-color-on-surface)]">Settings</h1>
+              <p class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-1">Configure storage saver, concurrency, and security policies</p>
+            </div>
+
+            <!-- Two-pane settings layout: left section list + right grouped controls -->
+            <div class="grid grid-cols-12 gap-6 items-start">
+              
+              <!-- Left Section List (Sticky filter) -->
+              <div class="col-span-4 bg-[var(--md-sys-color-surface-container)] rounded-[28px] p-2 border border-[var(--md-sys-color-outline-variant)]">
+                <nav class="flex flex-col space-y-1 text-xs">
+                  <button class="w-full text-left px-4 py-2.5 rounded-2xl bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)] font-semibold transition">Appearance</button>
+                  <button class="w-full text-left px-4 py-2.5 rounded-2xl text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)] font-medium transition">Uploads & Storage</button>
+                  <button class="w-full text-left px-4 py-2.5 rounded-2xl text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)] font-medium transition">Performance</button>
+                  <button class="w-full text-left px-4 py-2.5 rounded-2xl text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)] font-medium transition">Updates & Privacy</button>
+                  <button class="w-full text-left px-4 py-2.5 rounded-2xl text-[var(--md-sys-color-error)] hover:bg-[var(--md-sys-color-error-container)] font-medium transition">Danger zone</button>
+                </nav>
+              </div>
+
+              <!-- Right Column of Grouped List Rows -->
+              <div class="col-span-8 flex flex-col space-y-5">
+                
+                <!-- Group 1: Switches with M3 Checkbox-when-on spec -->
+                <div class="bg-[var(--md-sys-color-surface-container)] rounded-[28px] border border-[var(--md-sys-color-outline-variant)] overflow-hidden shadow-sm">
+                  <div class="px-5 py-3 border-b border-[var(--md-sys-color-outline-variant)] text-[11px] uppercase tracking-wider font-semibold text-[var(--md-sys-color-primary)]">
+                    Upload Behavior
+                  </div>
+
+                  <!-- Row 1: M3 Switch ON -->
+                  <div class="p-5 flex items-center justify-between border-b border-[var(--md-sys-color-outline-variant)]">
+                    <div class="pr-4">
+                      <div class="text-sm font-medium text-[var(--md-sys-color-on-surface)]">Preserve motion photo bundle</div>
+                      <div class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5">Embed micro-video payload directly with JPEG metadata</div>
+                    </div>
+                    <!-- M3 Switch Component (ON state: check icon visible) -->
+                    <div onclick="toggleSwitch(this)" class="m3-switch w-[52px] h-8 rounded-full bg-[var(--md-sys-color-primary)] p-1 flex items-center justify-end cursor-pointer transition-colors shadow-inner flex-shrink-0" data-checked="true">
+                      <div class="w-6 h-6 rounded-full bg-[var(--md-sys-color-on-primary)] flex items-center justify-center transition-transform">
+                        <svg class="w-3.5 h-3.5 text-[var(--md-sys-color-primary)] stroke-current" fill="none" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
+                        </svg>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Row 2: M3 Switch OFF -->
+                  <div class="p-5 flex items-center justify-between">
+                    <div class="pr-4">
+                      <div class="text-sm font-medium text-[var(--md-sys-color-on-surface)]">Automatic update checks</div>
+                      <div class="text-xs text-[var(--md-sys-color-on-surface-variant)] mt-0.5">Periodically query GitHub releases in background</div>
+                    </div>
+                    <!-- M3 Switch Component (OFF state: smaller thumb, no checkmark) -->
+                    <div onclick="toggleSwitch(this)" class="m3-switch w-[52px] h-8 rounded-full bg-[var(--md-sys-color-surface-container-highest)] border border-[var(--md-sys-color-outline)] p-1 flex items-center justify-start cursor-pointer transition-colors flex-shrink-0" data-checked="false">
+                      <div class="w-4 h-4 rounded-full bg-[var(--md-sys-color-outline)] transition-transform"></div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Group 2: Slider Rows with Value Label -->
+                <div class="bg-[var(--md-sys-color-surface-container)] rounded-[28px] border border-[var(--md-sys-color-outline-variant)] p-5 shadow-sm">
+                  <div class="flex items-center justify-between mb-1">
+                    <span class="text-sm font-medium text-[var(--md-sys-color-on-surface)]">Upload Concurrency Threads</span>
+                    <span id="slider-val-threads" class="text-xs font-bold text-[var(--md-sys-color-primary)] px-2.5 py-0.5 rounded-full bg-[var(--md-sys-color-surface-container-highest)]">4 Workers</span>
+                  </div>
+                  <p class="text-xs text-[var(--md-sys-color-on-surface-variant)] mb-4">Number of parallel sockets streaming media bytes to Google Photos</p>
+                  <input type="range" min="1" max="8" value="4" class="w-full" oninput="document.getElementById('slider-val-threads').innerText = this.value + ' Workers'">
+
+                  <div class="mt-6 pt-5 border-t border-[var(--md-sys-color-outline-variant)]">
+                    <div class="flex items-center justify-between mb-1">
+                      <span class="text-sm font-medium text-[var(--md-sys-color-on-surface)]">Bandwidth Throttling</span>
+                      <span id="slider-val-bw" class="text-xs font-bold text-[var(--md-sys-color-primary)] px-2.5 py-0.5 rounded-full bg-[var(--md-sys-color-surface-container-highest)]">Unlimited</span>
+                    </div>
+                    <p class="text-xs text-[var(--md-sys-color-on-surface-variant)] mb-4">Limit maximum outbound upload rate to keep home network responsive</p>
+                    <input type="range" min="5" max="100" value="100" class="w-full" oninput="document.getElementById('slider-val-bw').innerText = this.value == 100 ? 'Unlimited' : this.value + ' MB/s'">
+                  </div>
+                </div>
+
+                <!-- Group 3: Danger Zone (Error Tonal Container at bottom) -->
+                <div class="bg-[var(--md-sys-color-error-container)] border border-[var(--md-sys-color-error)] border-opacity-30 rounded-[28px] p-5 shadow-sm">
+                  <div class="flex items-start justify-between">
+                    <div>
+                      <h4 class="text-sm font-bold text-[var(--md-sys-color-on-error-container)]">Danger Zone &bull; Reset Data</h4>
+                      <p class="text-xs text-[var(--md-sys-color-on-error-container)] opacity-80 mt-1 max-w-sm">Wipes cached SHA-1 deduplication indexes, local session tokens, and encrypted keys from OS keyring.</p>
+                    </div>
+                    <button class="px-4 py-2 rounded-full bg-[var(--md-sys-color-surface-container-highest)] hover:bg-black text-[var(--md-sys-color-error)] text-xs font-semibold border border-[var(--md-sys-color-error)] border-opacity-40 transition active:scale-95">
+                      Clear Cache
+                    </button>
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </section>
+
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <script>
+    // Navigation and screen switching state logic
+    function setScreen(screenId) {
+      document.querySelectorAll('.screen-view').forEach(el => el.classList.add('hidden'));
+      const activeScreen = document.getElementById('screen-' + screenId);
+      if (activeScreen) {
+        activeScreen.classList.remove('hidden');
+        activeScreen.classList.add('flex');
+      }
+
+      // Update prototype state buttons
+      document.querySelectorAll('.state-btn').forEach(btn => {
+        btn.classList.remove('bg-[var(--md-sys-color-primary)]', 'text-[var(--md-sys-color-on-primary)]', 'font-semibold');
+        btn.classList.add('text-[var(--md-sys-color-on-surface-variant)]');
+      });
+
+      const activeBtnMap = {
+        'upload-empty': 'btn-state-empty',
+        'upload-progress': 'btn-state-progress',
+        'upload-results': 'btn-state-results',
+        'settings': 'btn-state-settings'
+      };
+      
+      const activeBtn = document.getElementById(activeBtnMap[screenId]);
+      if (activeBtn) {
+        activeBtn.classList.add('bg-[var(--md-sys-color-primary)]', 'text-[var(--md-sys-color-on-primary)]', 'font-semibold');
+        activeBtn.classList.remove('text-[var(--md-sys-color-on-surface-variant)]');
+      }
+
+      // Sync rail item highlight
+      document.querySelectorAll('.nav-item .indicator').forEach(ind => {
+        ind.classList.remove('bg-[var(--md-sys-color-primary-container)]', 'text-[var(--md-sys-color-primary)]');
+      });
+      document.querySelectorAll('.nav-item').forEach(item => {
+        item.classList.remove('text-[var(--md-sys-color-primary)]', 'font-semibold');
+        item.classList.add('text-[var(--md-sys-color-on-surface-variant)]');
+      });
+
+      const navKey = screenId === 'settings' ? 'nav-settings' : 'nav-upload';
+      const navItem = document.getElementById(navKey);
+      if (navItem) {
+        const ind = navItem.querySelector('.indicator');
+        ind.classList.add('bg-[var(--md-sys-color-primary-container)]', 'text-[var(--md-sys-color-primary)]');
+        navItem.classList.add('text-[var(--md-sys-color-primary)]', 'font-semibold');
+        navItem.classList.remove('text-[var(--md-sys-color-on-surface-variant)]');
+      }
+    }
+
+    function setNav(navTarget) {
+      if (navTarget === 'upload') setScreen('upload-empty');
+      else if (navTarget === 'settings') setScreen('settings');
+      else {
+        // Just highlight nav item for dummy mock tabs
+        document.querySelectorAll('.nav-item .indicator').forEach(ind => {
+          ind.classList.remove('bg-[var(--md-sys-color-primary-container)]', 'text-[var(--md-sys-color-primary)]');
+        });
+        const activeNav = document.getElementById('nav-' + navTarget);
+        if (activeNav) {
+          activeNav.querySelector('.indicator').classList.add('bg-[var(--md-sys-color-primary-container)]', 'text-[var(--md-sys-color-primary)]');
+        }
+      }
+    }
+
+    function toggleExpander(id) {
+      const content = document.getElementById(id + '-content');
+      const icon = document.getElementById(id + '-icon');
+      if (content.classList.contains('hidden')) {
+        content.classList.remove('hidden');
+        icon.classList.add('rotate-180');
+      } else {
+        content.classList.add('hidden');
+        icon.classList.remove('rotate-180');
+      }
+    }
+
+    // Material 3 Switch: check icon only when ON
+    function toggleSwitch(element) {
+      const isChecked = element.getAttribute('data-checked') === 'true';
+      if (isChecked) {
+        // Turn OFF
+        element.setAttribute('data-checked', 'false');
+        element.className = 'm3-switch w-[52px] h-8 rounded-full bg-[var(--md-sys-color-surface-container-highest)] border border-[var(--md-sys-color-outline)] p-1 flex items-center justify-start cursor-pointer transition-colors flex-shrink-0';
+        element.innerHTML = '<div class="w-4 h-4 rounded-full bg-[var(--md-sys-color-outline)] transition-transform"></div>';
+      } else {
+        // Turn ON
+        element.setAttribute('data-checked', 'true');
+        element.className = 'm3-switch w-[52px] h-8 rounded-full bg-[var(--md-sys-color-primary)] p-1 flex items-center justify-end cursor-pointer transition-colors shadow-inner flex-shrink-0';
+        element.innerHTML = `
+          <div class="w-6 h-6 rounded-full bg-[var(--md-sys-color-on-primary)] flex items-center justify-center transition-transform">
+            <svg class="w-3.5 h-3.5 text-[var(--md-sys-color-primary)] stroke-current" fill="none" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"></path>
+            </svg>
+          </div>
+        `;
+      }
+    }
+
+    // Initialize to upload in-progress to inspect list state right away
+    setScreen('upload-progress');
+  </script>
+</body>
+</html>

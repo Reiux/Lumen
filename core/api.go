@@ -30,8 +30,10 @@ type Api struct {
 	userAgent         string
 	language          string
 	authData          string
+	accountEmail      string
 	client            *http.Client
 	authResponseCache map[string]string
+	tokenManager      *TokenManager
 	commitEndpoint    string
 	commitRetryConfig *RetryConfig
 	saver             bool
@@ -64,18 +66,9 @@ func NewApi(opts ApiOptions) (*Api, error) {
 	if email == "" {
 		return nil, fmt.Errorf("no account is selected")
 	}
-	credentials := ""
-	for _, c := range account.Credentials {
-		params, err := url.ParseQuery(c)
-		if err != nil {
-			continue
-		}
-		if strings.EqualFold(params.Get("Email"), email) {
-			credentials = c
-		}
-	}
-	if len(credentials) == 0 {
-		return nil, fmt.Errorf("no credentials found for account %s", email)
+	credentials, err := GetCredentialForAccount(email)
+	if err != nil {
+		return nil, err
 	}
 
 	api, err := newAPIFromCredential(credentials, opts.Proxy)
@@ -85,6 +78,7 @@ func NewApi(opts ApiOptions) (*Api, error) {
 	api.saver = opts.Saver
 	api.useQuota = opts.UseQuota
 	api.speedLimitKBps = opts.SpeedLimitKBps
+	api.applyDeviceProfile()
 	return api, nil
 }
 
@@ -99,6 +93,7 @@ func newAPIFromCredential(credentials string, proxy string) (*Api, error) {
 		return nil, fmt.Errorf("failed to create HTTP client: %w", err)
 	}
 
+	email := params.Get("Email")
 	api := &Api{
 		androidAPIVersion: 28,
 		model:             "Pixel XL",
@@ -106,12 +101,32 @@ func newAPIFromCredential(credentials string, proxy string) (*Api, error) {
 		clientVersionCode: 49029607,
 		language:          params.Get("lang"),
 		authData:          strings.TrimSpace(credentials),
+		accountEmail:      email,
 		client:            client,
 		authResponseCache: map[string]string{
 			"Expiry": "0",
 			"Auth":   "",
 		},
 	}
+	api.tokenManager = NewTokenManager(email, func(ctx context.Context, _ string) (string, time.Time, error) {
+		resp, err := api.getAuthToken()
+		if err != nil {
+			return "", time.Time{}, err
+		}
+		token := resp["Auth"]
+		if token == "" {
+			return "", time.Time{}, errors.New("auth response missing Auth token")
+		}
+		expiryStr := resp["Expiry"]
+		expirySec, err := strconv.ParseInt(expiryStr, 10, 64)
+		var expiresAt time.Time
+		if err == nil && expirySec > 0 {
+			expiresAt = time.Unix(expirySec, 0)
+		} else {
+			expiresAt = time.Now().Add(1 * time.Hour)
+		}
+		return token, expiresAt, nil
+	})
 
 	api.userAgent = fmt.Sprintf(
 		"com.google.android.apps.photos/%d (Linux; U; Android 9; %s; %s; Build/PQ2A.190205.001; Cronet/127.0.6510.5) (gzip)",
@@ -123,7 +138,59 @@ func newAPIFromCredential(credentials string, proxy string) (*Api, error) {
 	return api, nil
 }
 
+func (a *Api) applyDeviceProfile() {
+	if a.useQuota {
+		a.model = "Pixel 8"
+		a.androidAPIVersion = 34
+		a.userAgent = fmt.Sprintf(
+			"com.google.android.apps.photos/%d (Linux; U; Android 14; %s; %s; Build/UD1A.230803.041; Cronet/127.0.6510.5) (gzip)",
+			a.clientVersionCode,
+			a.language,
+			a.model,
+		)
+	} else if a.saver {
+		a.model = "Pixel 2"
+		a.androidAPIVersion = 28
+		a.userAgent = fmt.Sprintf(
+			"com.google.android.apps.photos/%d (Linux; U; Android 9; %s; %s; Build/PQ2A.190205.001; Cronet/127.0.6510.5) (gzip)",
+			a.clientVersionCode,
+			a.language,
+			a.model,
+		)
+	} else {
+		a.model = "Pixel XL"
+		a.androidAPIVersion = 28
+		a.userAgent = fmt.Sprintf(
+			"com.google.android.apps.photos/%d (Linux; U; Android 9; %s; %s; Build/PQ2A.190205.001; Cronet/127.0.6510.5) (gzip)",
+			a.clientVersionCode,
+			a.language,
+			a.model,
+		)
+	}
+}
+
+// SetTokenManager assigns a shared TokenManager instance to this Api client.
+func (a *Api) SetTokenManager(tm *TokenManager) {
+	a.tokenManager = tm
+}
+
+// AccountEmail returns the email address associated with this Api client.
+func (a *Api) AccountEmail() string {
+	if a == nil {
+		return ""
+	}
+	return a.accountEmail
+}
+
 func (a *Api) BearerToken() (string, error) {
+	return a.BearerTokenWithContext(context.Background())
+}
+
+func (a *Api) BearerTokenWithContext(ctx context.Context) (string, error) {
+	if a.tokenManager != nil {
+		return a.tokenManager.GetToken(ctx)
+	}
+
 	expiryStr := a.authResponseCache["Expiry"]
 	expiry, err := strconv.ParseInt(expiryStr, 10, 64)
 	if err != nil {
@@ -143,6 +210,16 @@ func (a *Api) BearerToken() (string, error) {
 	}
 
 	return "", errors.New("auth response does not contain bearer token")
+}
+
+func (a *Api) InvalidateToken() {
+	if a.tokenManager != nil {
+		a.tokenManager.InvalidateToken(a.accountEmail)
+	}
+	a.authResponseCache = map[string]string{
+		"Expiry": "0",
+		"Auth":   "",
+	}
 }
 
 func (a *Api) getAuthToken() (map[string]string, error) {
@@ -295,6 +372,9 @@ func (a *Api) GetUploadToken(shaHashB64 string, fileSize int64) (string, error) 
 	defer func() { _ = resp.Body.Close() }()
 
 	// Check for errors
+	if resp.StatusCode == 401 {
+		a.InvalidateToken()
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := ReadResponseBody(resp)
 		return "", fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
@@ -367,6 +447,9 @@ func (a *Api) FindRemoteMediaByHash(shaHash []byte) (string, error) {
 	defer func() { _ = resp.Body.Close() }()
 
 	// Check for errors
+	if resp.StatusCode == 401 {
+		a.InvalidateToken()
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := ReadResponseBody(resp)
 		return "", fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))
@@ -461,6 +544,11 @@ func (a *Api) UploadFileWithProgress(ctx context.Context, filePath string, uploa
 		if ctx.Err() != nil {
 			return ScottyFinalizeToken{}, ctx.Err()
 		}
+
+		// Never retry non-transient errors (such as SIGN_IN_REQUIRED or ACCOUNT_RESTRICTED)
+		if !IsRetryable(err) {
+			return ScottyFinalizeToken{}, err
+		}
 	}
 
 	return ScottyFinalizeToken{}, fmt.Errorf("upload failed after %d attempts: %w", retryConfig.MaxRetries+1, lastErr)
@@ -521,13 +609,8 @@ func (a *Api) CommitUpload(
 	}
 
 	var qualityVal int64 = 3
-	if a.saver {
+	if a.saver && !a.useQuota {
 		qualityVal = 1
-		a.model = "Pixel 2"
-	}
-
-	if a.useQuota {
-		a.model = "Pixel 8"
 	}
 
 	unknownInt := int64(46000000)
@@ -597,7 +680,7 @@ func (a *Api) commitSerialized(serializedData []byte) (string, error) {
 			return mediaKey, nil
 		}
 		lastErr = err
-		if !retryable {
+		if !retryable || !IsRetryable(err) {
 			return "", fmt.Errorf("commit failed after %d attempt(s): %w", attempt+1, lastErr)
 		}
 	}
@@ -747,6 +830,9 @@ func (a *Api) CreateAlbum(albumName string, mediaKeys []string) (string, error) 
 	defer func() { _ = resp.Body.Close() }()
 
 	// Check for errors
+	if resp.StatusCode == 401 {
+		a.InvalidateToken()
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := ReadResponseBody(resp)
 		return "", fmt.Errorf("request failed with status %d: %s", resp.StatusCode, string(body))

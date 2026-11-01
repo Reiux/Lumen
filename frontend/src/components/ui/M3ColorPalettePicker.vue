@@ -11,6 +11,7 @@ import {
   type M3PaletteVariant,
 } from '../../utils/theme'
 import M3Icon from './M3Icon.vue'
+import M3Button from './M3Button.vue'
 
 const currentPreset = computed(() => {
   return THEME_PRESETS.find(p => p.seed.toLowerCase() === currentThemeSeed.value.toLowerCase()) || THEME_PRESETS[0]
@@ -34,14 +35,14 @@ function selectVariant(variant: M3PaletteVariant) {
     <!-- Header with Active Info -->
     <div class="flex items-center justify-between px-0.5">
       <div class="flex flex-col">
-        <span class="text-xs font-semibold text-[var(--md-sys-color-on-surface)]">
+        <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
           Color Palette
         </span>
-        <span class="text-[11px] text-[var(--md-sys-color-on-surface-variant)]">
-          Active: <strong class="text-[var(--md-sys-color-primary)] font-medium">{{ currentPreset.name }}</strong> ({{ activeVariantMeta.label }})
+        <span class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)]">
+          Active: <strong class="text-[var(--md-sys-color-primary)]">{{ currentPreset.name }}</strong> ({{ activeVariantMeta.label }})
         </span>
       </div>
-      <span class="rounded-full bg-[var(--md-sys-color-primary-container)] px-2.5 py-0.5 text-[10px] font-semibold text-[var(--md-sys-color-on-primary-container)] uppercase tracking-wider">
+      <span class="rounded-full bg-[var(--md-sys-color-primary-container)] px-2.5 py-0.5 m3-label-small text-[var(--md-sys-color-on-primary-container)]">
         Material You
       </span>
     </div>
@@ -49,10 +50,10 @@ function selectVariant(variant: M3PaletteVariant) {
     <!-- Palette Style Segmented Control (Tonal spot / Vibrant / Expressive) -->
     <div class="flex flex-col gap-1.5">
       <div class="flex items-center justify-between px-0.5">
-        <span class="text-[11px] font-medium text-[var(--md-sys-color-on-surface-variant)]">
+        <span class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)]">
           Palette Style
         </span>
-        <span class="text-[10px] text-[var(--md-sys-color-on-surface-variant)]/80 italic">
+        <span class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)]/80 italic">
           {{ activeVariantMeta.description }}
         </span>
       </div>
@@ -61,25 +62,20 @@ function selectVariant(variant: M3PaletteVariant) {
         role="tablist"
         aria-label="Palette variant options"
       >
-        <button
+        <M3Button
           v-for="variant in PALETTE_VARIANTS"
           :key="variant.id"
-          type="button"
           role="tab"
-          :aria-selected="currentPaletteVariant === variant.id"
-          class="no-state-layer relative flex items-center justify-center gap-1.5 rounded-full py-1.5 px-2 text-xs transition-all duration-200 cursor-pointer focus:outline-none"
-          :class="currentPaletteVariant === variant.id
-            ? 'bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)] font-semibold shadow-xs'
-            : 'text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container-highest)]/60 font-medium'"
+          size="xs"
+          :toggle="true"
+          :selected="currentPaletteVariant === variant.id"
+          :variant="currentPaletteVariant === variant.id ? 'tonal' : 'text'"
+          :icon="variant.icon"
+          class="w-full justify-center !min-w-0"
           @click="selectVariant(variant.id)"
         >
-          <M3Icon
-            :name="variant.icon"
-            :size="15"
-            :filled="currentPaletteVariant === variant.id"
-          />
           <span class="truncate">{{ variant.label }}</span>
-        </button>
+        </M3Button>
       </div>
     </div>
 
@@ -133,9 +129,9 @@ function selectVariant(variant: M3PaletteVariant) {
 
         <!-- Preset Label -->
         <span
-          class="text-[10px] font-medium tracking-tight truncate max-w-[72px] text-center transition-colors"
+          class="m3-rail-label truncate max-w-[72px] text-center transition-colors"
           :class="currentThemeSeed.toLowerCase() === preset.seed.toLowerCase()
-            ? 'font-bold text-[var(--md-sys-color-primary)]'
+            ? 'text-[var(--md-sys-color-primary)]'
             : 'text-[var(--md-sys-color-on-surface-variant)] group-hover:text-[var(--md-sys-color-on-surface)]'"
         >
           {{ preset.name }}
