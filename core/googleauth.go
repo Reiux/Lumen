@@ -420,7 +420,9 @@ func upsertCredential(credential string) error {
 
 	// Store sensitive credential in OS keyring
 	if kr := GetGlobalKeyring(); kr != nil {
-		_ = kr.StoreCredential(email, credential)
+		if err := kr.StoreCredential(email, credential); err == nil {
+			MarkAccountInKeyring(email, true)
+		}
 	}
 
 	configMu.Lock()

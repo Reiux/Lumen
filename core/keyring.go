@@ -217,6 +217,33 @@ func GetCredentialForAccount(email string) (string, error) {
 	return "", fmt.Errorf("no credentials found for account %s", email)
 }
 
+var (
+	keyringAccountsMu sync.RWMutex
+	keyringSecured    = make(map[string]bool)
+)
+
+// MarkAccountInKeyring records whether an account's token is stored in the OS keyring.
+func MarkAccountInKeyring(email string, secured bool) {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" {
+		return
+	}
+	keyringAccountsMu.Lock()
+	defer keyringAccountsMu.Unlock()
+	keyringSecured[email] = secured
+}
+
+// IsAccountInKeyring checks if an account's token is known to be stored in the OS keyring.
+func IsAccountInKeyring(email string) bool {
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" {
+		return false
+	}
+	keyringAccountsMu.RLock()
+	defer keyringAccountsMu.RUnlock()
+	return keyringSecured[email]
+}
+
 // MigrateCredentialsToKeyring inspects AppConfig.Account.Credentials. If any
 // plaintext tokens exist, it moves them into the OS keyring and clears the
 // sensitive Token parameter from the on-disk config copy.
@@ -250,6 +277,8 @@ func MigrateCredentialsToKeyring(config *Config) bool {
 			// to preserve fallback access.
 			continue
 		}
+
+		MarkAccountInKeyring(email, true)
 
 		// Successfully stored in keyring: clear the plaintext Token from the config
 		params.Del("Token")
