@@ -190,6 +190,18 @@ Alternatively, if you use [Task](https://taskfile.dev):
 task build
 ```
 
+### Packaging & macOS DMG Background
+
+To regenerate the macOS DMG installer background images from the vector source:
+
+```shell
+./scripts/build-dmg-background.sh
+```
+
+This exports `build/darwin/dmg/background.png` (540x380) and `build/darwin/dmg/background@2x.png` (1080x760) from `build/darwin/dmg/background.svg`.
+
+> **Icon Safe Area Rule:** When modifying `background.svg`, keep the areas around the App icon at `(151, 164)` and Applications shortcut at `(388, 164)` clean (approx 128x128 centered on each coordinate plus 24px label room: `x: 87..215` and `x: 324..452`, `y: 100..252`). These zones must remain flat light neutral surface (`#EEF2F6`) without gradients, glows, or graphics so Finder's icon labels remain legible.
+
 ---
 
 ## Account Safety & Risks
