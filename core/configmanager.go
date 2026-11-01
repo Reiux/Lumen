@@ -392,7 +392,7 @@ func (g *ConfigManager) GetWatchedFolderConfigs() []WatchedFolderConfig {
 			Path:              f,
 			AccountEmail:      selected,
 			Enabled:           true,
-			IncludeSubfolders: false,
+			IncludeSubfolders: true,
 			AlbumMode:         "none",
 		})
 	}
@@ -519,7 +519,7 @@ func (g *ConfigManager) AddWatchedFolderWithAccount(folder string, accountEmail 
 			Path:              folder,
 			AccountEmail:      accountEmail,
 			Enabled:           true,
-			IncludeSubfolders: false,
+			IncludeSubfolders: true,
 			AlbumMode:         "none",
 		})
 	}

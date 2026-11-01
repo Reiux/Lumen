@@ -321,6 +321,13 @@ func runGUI() {
 					if folderCfg.IncludeSubfolders {
 						opts.Recursive = true
 					}
+				} else {
+					for _, path := range data.Files {
+						if info, err := os.Stat(path); err == nil && info.IsDir() {
+							opts.Recursive = true
+							break
+						}
+					}
 				}
 			}
 			wailsApp.Logger.Info("Starting upload", "fileCount", len(data.Files), "albumName", opts.AlbumName, "albumAutoMode", opts.AlbumAutoMode)

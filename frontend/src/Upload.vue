@@ -77,7 +77,10 @@ const threadsList = computed(() => {
 })
 
 const effectiveTotalFiles = computed(() => {
-  return Math.max(state.totalFiles, threadsList.value.length + state.uploadedFiles + state.results.fail.length)
+  if (state.totalFiles > 0) {
+    return Math.max(state.totalFiles, state.uploadedFiles + state.results.fail.length)
+  }
+  return threadsList.value.length + state.uploadedFiles + state.results.fail.length
 })
 
 const progressPercent = computed(() => {
