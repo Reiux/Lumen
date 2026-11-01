@@ -5,7 +5,7 @@
 !include "FileFunc.nsh"
 
 !ifndef INFO_PROJECTNAME
-    !define INFO_PROJECTNAME "Lumen"
+    !define INFO_PROJECTNAME "lumen"
 !endif
 !ifndef INFO_COMPANYNAME
     !define INFO_COMPANYNAME "Reiux"
@@ -14,7 +14,7 @@
     !define INFO_PRODUCTNAME "Lumen"
 !endif
 !ifndef INFO_PRODUCTVERSION
-    !define INFO_PRODUCTVERSION "1.0.0"
+    !define INFO_PRODUCTVERSION "0.9.0"
 !endif
 !ifndef INFO_COPYRIGHT
     !define INFO_COPYRIGHT "© now, My Company"
