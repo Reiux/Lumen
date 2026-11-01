@@ -165,9 +165,7 @@ tasks:
       - "darwin/icons.icns"
       - "windows/icon.ico"
     cmds:
-      - wails3 generate icons -input appicon.png -macfilename darwin/icons.icns -windowsfilename /tmp/lumen-temp.ico
-      - wails3 generate icons -input appicon-windows.png -macfilename /tmp/lumen-temp.icns -windowsfilename windows/icon.ico
-      - rm -f /tmp/lumen-temp.ico /tmp/lumen-temp.icns
+      - go run ./scripts/generate-icons.go
 
   dev:frontend:
     summary: Runs the frontend in development mode
