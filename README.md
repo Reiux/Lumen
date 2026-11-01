@@ -39,6 +39,22 @@ Everything runs on your computer. No middleman servers, no paid accounts, no ads
 
 ---
 
+## Screenshots
+
+| Upload & Progress | Live Activity & Logs |
+| :---: | :---: |
+| <img src="readme_assets/screenshot_upload.png" width="100%" alt="Upload View" /> | <img src="readme_assets/screenshot_activity.png" width="100%" alt="Activity View" /> |
+
+| Watched Folders | Multi-Account Switching |
+| :---: | :---: |
+| <img src="readme_assets/screenshot_folders.png" width="100%" alt="Watched Folders" /> | <img src="readme_assets/screenshot_accounts.png" width="100%" alt="Accounts Manager" /> |
+
+| Material 3 Expressive Settings | About & Updates |
+| :---: | :---: |
+| <img src="readme_assets/screenshot_settings.png" width="100%" alt="Settings View" /> | <img src="readme_assets/screenshot_about.png" width="100%" alt="About View" /> |
+
+---
+
 ## Security & Account Access
 
 **Your password is never requested, stored, or seen by Lumen.**
