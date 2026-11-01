@@ -77,11 +77,69 @@ func TestExistingLocalConfig(t *testing.T) {
 	if path, ok := existingLocalConfig(dir); ok || path != "" {
 		t.Fatalf("found config in empty directory: %q", path)
 	}
-	want := filepath.Join(dir, "gotohp.config")
-	if err := os.WriteFile(want, []byte{}, 0o600); err != nil {
+
+	// 1. Fallback to legacy gotohp.config
+	legacyWant := filepath.Join(dir, "gotohp.config")
+	if err := os.WriteFile(legacyWant, []byte{}, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if path, ok := existingLocalConfig(dir); !ok || path != want {
-		t.Fatalf("existingLocalConfig() = %q, %v; want %q, true", path, ok, want)
+	if path, ok := existingLocalConfig(dir); !ok || path != legacyWant {
+		t.Fatalf("existingLocalConfig() = %q, %v; want %q, true", path, ok, legacyWant)
+	}
+
+	// 2. lumen.config takes priority over legacy gotohp.config
+	lumenWant := filepath.Join(dir, "lumen.config")
+	if err := os.WriteFile(lumenWant, []byte{}, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if path, ok := existingLocalConfig(dir); !ok || path != lumenWant {
+		t.Fatalf("existingLocalConfig() = %q, %v; want %q, true", path, ok, lumenWant)
+	}
+}
+
+func TestDetermineConfigPath_MigratesGotohpToLumen(t *testing.T) {
+	restoreConfigGlobals(t)
+
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+
+	// Set up legacy ~/.config/gotohp/gotohp.config and hash_cache.db
+	legacyDir := filepath.Join(configHome, "gotohp")
+	if err := os.MkdirAll(legacyDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacyConfig := filepath.Join(legacyDir, "gotohp.config")
+	configContent := "preferences:\n  upload_threads: 5\n"
+	if err := os.WriteFile(legacyConfig, []byte(configContent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	legacyDB := filepath.Join(legacyDir, "hash_cache.db")
+	if err := os.WriteFile(legacyDB, []byte("mock-db-content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Call determineConfigPath
+	determineConfigPath()
+
+	expectedPath := filepath.Join(configHome, "lumen", "lumen.config")
+	if ConfigPath != expectedPath {
+		t.Fatalf("ConfigPath = %q, want %q", ConfigPath, expectedPath)
+	}
+
+	// Verify migrated files exist in ~/.config/lumen
+	migratedConfig, err := os.ReadFile(expectedPath)
+	if err != nil {
+		t.Fatalf("migrated config not found: %v", err)
+	}
+	if string(migratedConfig) != configContent {
+		t.Fatalf("migrated config content = %q, want %q", string(migratedConfig), configContent)
+	}
+
+	migratedDB, err := os.ReadFile(filepath.Join(configHome, "lumen", "hash_cache.db"))
+	if err != nil {
+		t.Fatalf("migrated hash_cache.db not found: %v", err)
+	}
+	if string(migratedDB) != "mock-db-content" {
+		t.Fatalf("migrated db content = %q, want mock-db-content", string(migratedDB))
 	}
 }

@@ -67,7 +67,7 @@ type Preferences struct {
 	AlbumAutoMode bool   `json:"albumAutoMode" koanf:"-"`
 }
 
-// Config is the on-disk layout of gotohp.config.
+// Config is the on-disk layout of lumen.config (or legacy gotohp.config).
 type Config struct {
 	Account     AccountConfig `json:"account" koanf:"account"`
 	Preferences Preferences   `json:"preferences" koanf:"preferences"`
@@ -889,7 +889,7 @@ func listADBDevices() ([]string, error) {
 // sqlite3 binary, so the database is queried locally instead of on-device. The
 // returned cleanup function removes the temporary files.
 func pullAccountsDB(device string) (string, func(), error) {
-	tmpDir, err := os.MkdirTemp("", "gotohp-adb-")
+	tmpDir, err := os.MkdirTemp("", "lumen-adb-")
 	if err != nil {
 		return "", nil, fmt.Errorf("failed to create temp dir: %w", err)
 	}
@@ -981,8 +981,8 @@ func cleanADBError(out string) string {
 }
 
 // determineConfigPath picks the config location when none was given explicitly:
-// a portable gotohp.config next to the executable or in the working directory
-// wins over the user config dir.
+// a portable lumen.config (or legacy gotohp.config) next to the executable
+// or in the working directory wins over the user config dir (~/.config/lumen/lumen.config).
 func determineConfigPath() {
 	exePath, err := os.Executable()
 	if err == nil {
@@ -1000,17 +1000,62 @@ func determineConfigPath() {
 		}
 	}
 
-	// Fall back to default location
-	userConfigDir := filepath.Join(getUserConfigDir(), "/gotohp")
-	ConfigPath = filepath.Join(userConfigDir, "gotohp.config")
+	// User config directory: prefer ~/.config/lumen/lumen.config
+	lumenDir := filepath.Join(getUserConfigDir(), "lumen")
+	lumenConfig := filepath.Join(lumenDir, "lumen.config")
+
+	// If lumen.config already exists, use it
+	if _, err := os.Stat(lumenConfig); err == nil {
+		ConfigPath = lumenConfig
+		return
+	}
+
+	// Migration check: if legacy gotohp.config exists in ~/.config/gotohp, migrate it
+	legacyDir := filepath.Join(getUserConfigDir(), "gotohp")
+	legacyConfig := filepath.Join(legacyDir, "gotohp.config")
+	if _, err := os.Stat(legacyConfig); err == nil {
+		_ = os.MkdirAll(lumenDir, 0o700)
+		if copyConfigFile(legacyConfig, lumenConfig) == nil {
+			legacyDB := filepath.Join(legacyDir, "hash_cache.db")
+			if _, err := os.Stat(legacyDB); err == nil {
+				_ = copyConfigFile(legacyDB, filepath.Join(lumenDir, "hash_cache.db"))
+			}
+			legacyReg := filepath.Join(legacyDir, "album_registry.json")
+			if _, err := os.Stat(legacyReg); err == nil {
+				_ = copyConfigFile(legacyReg, filepath.Join(lumenDir, "album_registry.json"))
+			}
+			ConfigPath = lumenConfig
+			return
+		}
+		// If copy failed, fall back to legacy path
+		ConfigPath = legacyConfig
+		return
+	}
+
+	// Default to new lumen path
+	ConfigPath = lumenConfig
 }
 
 func existingLocalConfig(dir string) (string, bool) {
-	path := filepath.Join(dir, "gotohp.config")
+	// Prefer lumen.config locally
+	path := filepath.Join(dir, "lumen.config")
 	if _, err := os.Stat(path); err == nil {
 		return path, true
 	}
+	// Fall back to legacy gotohp.config
+	legacyPath := filepath.Join(dir, "gotohp.config")
+	if _, err := os.Stat(legacyPath); err == nil {
+		return legacyPath, true
+	}
 	return "", false
+}
+
+func copyConfigFile(src, dst string) error {
+	data, err := os.ReadFile(src)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(dst, data, 0o600)
 }
 
 func getUserConfigDir() string {
@@ -1181,7 +1226,7 @@ func saveAppConfigLocked() error {
 
 func writeConfigAtomically(path string, contents []byte) error {
 	directory := filepath.Dir(path)
-	temporary, err := os.CreateTemp(directory, ".gotohp-config-*")
+	temporary, err := os.CreateTemp(directory, ".lumen-config-*")
 	if err != nil {
 		return err
 	}
