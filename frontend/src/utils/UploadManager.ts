@@ -158,8 +158,9 @@ class UploadManager {
   private setupEventListeners() {
     // Handle upload start
     Events.On("uploadStart", (event: { data: UploadBatchStart }) => {
-      this.state.totalFiles = event.data.Total;
-      this.state.totalBytes = event.data.TotalBytes; // May be 0 initially
+      const data = (event?.data || {}) as Record<string, any>;
+      this.state.totalFiles = Number(data.Total ?? data.total ?? 0);
+      this.state.totalBytes = Number(data.TotalBytes ?? data.totalBytes ?? 0); // May be 0 initially
       this.state.uploadedFiles = 0;
       this.state.uploadedBytes = 0;
       this.state.isUploading = true;
