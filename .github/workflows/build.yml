@@ -136,38 +136,42 @@ jobs:
       # -----------------------------------------------------------------------
       # Windows Build
       # -----------------------------------------------------------------------
-      - name: Build Windows App (Production)
+        - name: Build Windows App (Production)
         if: matrix.platform == 'windows'
         shell: pwsh
         run: |
-          mkdir -p release
-          wails3 doctor
+            mkdir -p release
+            wails3 doctor
 
-          # Update build assets
-          task common:update:build-assets
+            task common:update:build-assets
 
-          # Build the GUI application with production flags
-          task windows:build
-          Move-Item -Path "bin\lumen.exe" -Destination "release\lumen-x64.exe"
+            task windows:build
+            Move-Item -Path "bin\lumen.exe" -Destination "release\lumen-x64.exe"
 
-          # Build standalone CLI binary without Wails/WebView dependencies
-          $env:CGO_ENABLED="0"
-          $env:GOOS="windows"
-          $env:GOARCH="amd64"
-          go build -tags cli -trimpath -buildvcs=false -ldflags="-w -s" -o "release\lumen-cli-x64.exe"
+            task windows:package
+            Move-Item -Path "bin\*installer.exe" -Destination "release\lumen-x64-setup.exe"
 
-      - name: Build Windows App (Debug)
+            $env:CGO_ENABLED="0"
+            $env:GOOS="windows"
+            $env:GOARCH="amd64"
+            go build -tags cli -trimpath -buildvcs=false -ldflags="-w -s" -o "release\lumen-cli-x64.exe"
+
+        - name: Build Windows App (Debug)
         if: matrix.platform == 'windows' && ((github.event_name == 'workflow_dispatch' && inputs.build_debug) || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')))
         shell: pwsh
         run: |
-          Remove-Item -Path "bin\lumen.exe" -ErrorAction SilentlyContinue
-          Remove-Item -Path "bin\lumen-cli.exe" -ErrorAction SilentlyContinue
-          wails3 build DEV=true
-          Move-Item -Path "bin\lumen.exe" -Destination "release\lumen-x64_debug.exe"
-          $env:CGO_ENABLED="0"
-          $env:GOOS="windows"
-          $env:GOARCH="amd64"
-          go build -tags cli -buildvcs=false -gcflags=all="-l" -o "release\lumen-cli-x64_debug.exe"
+            Remove-Item -Path "bin\lumen.exe" -ErrorAction SilentlyContinue
+            Remove-Item -Path "bin\lumen-cli.exe" -ErrorAction SilentlyContinue
+            Remove-Item -Path "bin\*installer.exe" -ErrorAction SilentlyContinue
+
+            task windows:package DEV=true
+            Move-Item -Path "bin\lumen.exe" -Destination "release\lumen-x64_debug.exe"
+            Move-Item -Path "bin\*installer.exe" -Destination "release\lumen-x64_debug-setup.exe"
+
+            $env:CGO_ENABLED="0"
+            $env:GOOS="windows"
+            $env:GOARCH="amd64"
+            go build -tags cli -buildvcs=false -gcflags=all="-l" -o "release\lumen-cli-x64_debug.exe"
 
       # -----------------------------------------------------------------------
       # macOS Build

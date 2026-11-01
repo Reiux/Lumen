@@ -55,7 +55,7 @@ func runGUI() {
 	var window *application.WebviewWindow
 
 	wailsApp := application.New(application.Options{
-		Name:        "com.reiux.lumen",
+		Name:        "Lumen",
 		Description: "Google Photos unofficial client",
 		Services: []application.Service{
 			application.NewService(configManager),
@@ -65,7 +65,7 @@ func runGUI() {
 			Handler: application.BundledAssetFileServer(assets),
 		},
 		Mac: application.MacOptions{
-			ApplicationShouldTerminateAfterLastWindowClosed: true,
+			ApplicationShouldTerminateAfterLastWindowClosed: false,
 		},
 		SingleInstance: &application.SingleInstanceOptions{
 			UniqueID: "com.reiux.lumen",
@@ -90,6 +90,7 @@ func runGUI() {
 		EnableFileDrop:      true,
 		DisableResize:       false,
 		MaximiseButtonState: application.ButtonEnabled,
+		BackgroundColour:    application.NewRGB(20, 20, 22),
 		BackgroundType:      application.BackgroundTypeTranslucent,
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 0,
@@ -117,6 +118,7 @@ func runGUI() {
 
 	if tray != nil && traySupported {
 		tray.SetIcon(trayIcon)
+		tray.SetLabel("Lumen")
 		tray.SetTooltip("Lumen")
 		trayMenu := application.NewMenu()
 		trayMenu.Add("Show").OnClick(func(ctx *application.Context) {
@@ -141,7 +143,7 @@ func runGUI() {
 	}
 
 	// Intercept window close if MinimizeToTray preference is enabled and tray is available
-	window.OnWindowEvent(events.Common.WindowClosing, func(event *application.WindowEvent) {
+	window.RegisterHook(events.Common.WindowClosing, func(event *application.WindowEvent) {
 		if configManager.GetSettings().MinimizeToTray && core.TrayAvailable && tray != nil {
 			event.Cancel()
 			window.Hide()

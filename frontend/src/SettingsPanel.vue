@@ -164,7 +164,12 @@ async function clearHashCache() {
 
 onMounted(async () => {
   try {
-    const config = await ConfigManager.GetSettings()
+    const [config, hashCount, trayAvail] = await Promise.all([
+      ConfigManager.GetSettings(),
+      ConfigManager.GetHashCacheCount(),
+      ConfigManager.IsTrayAvailable(),
+      refreshActiveAccount(),
+    ])
     settings.value = {
       proxy: config.proxy || '',
       useQuota: config.useQuota || false,
@@ -185,26 +190,32 @@ onMounted(async () => {
       watchFoldersEnabled: config.watchFoldersEnabled || false,
       watchedFolders: config.watchedFolders || [],
     }
-    hashCacheCount.value = await ConfigManager.GetHashCacheCount()
-    isTrayAvailable.value = await ConfigManager.IsTrayAvailable()
+    hashCacheCount.value = hashCount
+    isTrayAvailable.value = trayAvail
     if (!isTrayAvailable.value) {
       settings.value.minimizeToTray = false
     }
     preferencesState.useQuota = settings.value.useQuota
     preferencesState.saver = settings.value.saver
-    await refreshActiveAccount()
   } finally {
     await nextTick()
     isHydrating.value = false
   }
 
-  // Setup scroll-spy inside the tab pane container
+  // Setup scroll-spy inside the tab pane container with rAF throttle
   const scrollRoot = document.querySelector('[data-tab="settings"]') || null
+  let scrollTicking = false
   observer = new IntersectionObserver(
     (entries) => {
       for (const entry of entries) {
-        if (entry.isIntersecting) {
-          activeSectionId.value = entry.target.id
+        if (entry.isIntersecting && activeSectionId.value !== entry.target.id) {
+          if (!scrollTicking) {
+            scrollTicking = true
+            requestAnimationFrame(() => {
+              activeSectionId.value = entry.target.id
+              scrollTicking = false
+            })
+          }
           break
         }
       }
@@ -367,7 +378,7 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
       <!-- Right Column: max-w-[880px], flat grouped sections with thin dividers -->
       <div class="flex flex-col gap-8 w-full max-w-[880px] min-w-0">
         <!-- 1. Section: Appearance -->
-        <div id="section-appearance" class="flex flex-col gap-2.5 scroll-mt-6">
+        <div id="section-appearance" class="m3-settings-section flex flex-col gap-2.5 scroll-mt-6">
           <div class="flex items-center gap-2 px-1 text-[var(--md-sys-color-primary)]">
             <M3Icon name="palette" :size="20" />
             <h2 class="m3-headline-small text-[var(--md-sys-color-on-surface)]">
@@ -450,7 +461,7 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
         </div>
 
         <!-- 2. Section: Uploads -->
-        <div id="section-uploads" class="flex flex-col gap-2.5 scroll-mt-6">
+        <div id="section-uploads" class="m3-settings-section flex flex-col gap-2.5 scroll-mt-6">
           <div class="flex items-center gap-2 px-1 text-[var(--md-sys-color-primary)]">
             <M3Icon name="cloud_upload" :size="20" />
             <h2 class="m3-headline-small text-[var(--md-sys-color-on-surface)]">
@@ -650,7 +661,7 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
         </div>
 
         <!-- 3. Section: Performance -->
-        <div id="section-performance" class="flex flex-col gap-2.5 scroll-mt-6">
+        <div id="section-performance" class="m3-settings-section flex flex-col gap-2.5 scroll-mt-6">
           <div class="flex items-center gap-2 px-1 text-[var(--md-sys-color-primary)]">
             <M3Icon name="speed" :size="20" />
             <h2 class="m3-headline-small text-[var(--md-sys-color-on-surface)]">
@@ -734,7 +745,7 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
         </div>
 
         <!-- 4. Section: Background -->
-        <div id="section-background" class="flex flex-col gap-2.5 scroll-mt-6">
+        <div id="section-background" class="m3-settings-section flex flex-col gap-2.5 scroll-mt-6">
           <div class="flex items-center gap-2 px-1 text-[var(--md-sys-color-primary)]">
             <M3Icon name="notifications" :size="20" />
             <h2 class="m3-headline-small text-[var(--md-sys-color-on-surface)]">
@@ -788,7 +799,7 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
         </div>
 
         <!-- 5. Section: Danger zone -->
-        <div id="section-danger" class="flex flex-col gap-2.5 scroll-mt-6">
+        <div id="section-danger" class="m3-settings-section flex flex-col gap-2.5 scroll-mt-6">
           <div class="flex items-center gap-2 px-1 text-[var(--md-sys-color-error)]">
             <M3Icon name="local_fire_department" :size="20" />
             <h2 class="m3-headline-small text-[var(--md-sys-color-error)]">

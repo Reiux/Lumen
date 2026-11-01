@@ -1839,3 +1839,8 @@ html[data-nostate] .m3-interactive::before {
   opacity: 0 !important;
 }
 
+.m3-settings-section {
+  content-visibility: auto;
+  contain-intrinsic-size: 0 350px;
+}
+
