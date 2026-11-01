@@ -7,7 +7,7 @@
 		<key>CFBundleExecutable</key>
 		<string>lumen</string>
 		<key>CFBundleGetInfoString</key>
-		<string>Google Photos Unofficial Client</string>
+		<string>This is a comment</string>
 		<key>CFBundleIconFile</key>
 		<string>icons</string>
 		<key>CFBundleIdentifier</key>
@@ -25,6 +25,6 @@
 		<key>NSHighResolutionCapable</key>
 		<string>true</string>
 		<key>NSHumanReadableCopyright</key>
-		<string>© 2026 Reiux. All rights reserved.</string>
+		<string>© 2026 Reiux</string>
 	</dict>
 </plist>
