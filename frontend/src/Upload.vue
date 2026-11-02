@@ -84,13 +84,10 @@ const effectiveTotalFiles = computed(() => {
 })
 
 const progressPercent = computed(() => {
-  const total = effectiveTotalFiles.value
-  if (total > 0 && state.uploadedFiles >= total) {
-    return 100
-  }
   if (state.totalBytes > 0) {
     return Math.min(100, Math.max(0, Math.round((state.uploadedBytes / state.totalBytes) * 100)))
   }
+  const total = effectiveTotalFiles.value
   if (total === 0) return 0
   return Math.min(100, Math.max(0, Math.round((state.uploadedFiles / total) * 100)))
 })
@@ -430,7 +427,7 @@ const totalQueueCount = computed(() => {
               <span class="m3-label-small text-[var(--md-sys-color-primary)] block">
                 Uploading batch &bull; {{ progressPercent }}%
               </span>
-              <h2 class="m3-display text-[var(--md-sys-color-on-surface)] mt-0.5 tabular-nums truncate">
+              <h2 class="text-2xl sm:text-3xl font-bold text-[var(--md-sys-color-on-surface)] mt-0.5 tabular-nums">
                 {{ displayUploadedFiles }} of {{ effectiveTotalFiles }} items
               </h2>
               <div

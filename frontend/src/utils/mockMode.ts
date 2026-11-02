@@ -311,7 +311,14 @@ function simulateUploadProgress() {
   mockProgressInterval = setInterval(() => {
     if (state.uploadedFiles < state.totalFiles) {
       state.uploadedFiles += 1
-      state.uploadedBytes = Math.min(state.totalBytes, state.uploadedBytes + 4 * 1024 * 1024)
+      const remainingFiles = state.totalFiles - state.uploadedFiles
+      if (remainingFiles <= 0) {
+        state.uploadedBytes = state.totalBytes
+      } else {
+        const remainingBytes = state.totalBytes - state.uploadedBytes
+        const bytesToAdd = Math.max(1024 * 1024, Math.round(remainingBytes / (remainingFiles + 1)))
+        state.uploadedBytes = Math.min(state.totalBytes, state.uploadedBytes + bytesToAdd)
+      }
       state.uploadSpeed = (16 + Math.random() * 6) * 1024 * 1024
     } else {
       setMockView('results')

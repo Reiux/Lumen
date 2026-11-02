@@ -6,9 +6,6 @@ function calculateProgressPercent(
   totalBytes: number,
   uploadedBytes: number
 ): number {
-  if (totalFiles > 0 && uploadedFiles >= totalFiles) {
-    return 100
-  }
   if (totalBytes > 0) {
     return Math.min(100, Math.max(0, Math.round((uploadedBytes / totalBytes) * 100)))
   }
@@ -54,14 +51,15 @@ describe('Upload Progress Calculation', () => {
     expect(percent).toBe(9)
   })
 
-  it('reports 100% when all files are completed regardless of slight byte rounding', () => {
-    const totalFiles = 50
-    const uploadedFiles = 50
-    const totalBytes = 1000
-    const uploadedBytes = 998
+  it('strictly calculates bytes transferred even if item count is full', () => {
+    const totalFiles = 48
+    const uploadedFiles = 48
+    const totalBytes = 256 * 1024 * 1024
+    const uploadedBytes = 208 * 1024 * 1024
 
     const percent = calculateProgressPercent(totalFiles, uploadedFiles, totalBytes, uploadedBytes)
-    expect(percent).toBe(100)
+    // 208 / 256 = 81.25% -> 81%
+    expect(percent).toBe(81)
   })
 
   it('falls back to item count when totalBytes is 0', () => {
