@@ -152,7 +152,7 @@ function onCopyClick() {
           <span class="m3-display tabular-nums">
             {{ displaySuccess }}
           </span>
-          <span class="m3-label-large opacity-90 truncate">
+          <span class="m3-label-large opacity-90 leading-tight">
             Successful Uploads
           </span>
         </div>
@@ -175,7 +175,7 @@ function onCopyClick() {
           <span class="m3-display tabular-nums">
             {{ displaySkipped }}
           </span>
-          <span class="m3-label-large opacity-90 truncate">
+          <span class="m3-label-large opacity-90 leading-tight">
             Already in Google Photos
           </span>
         </div>
@@ -207,7 +207,7 @@ function onCopyClick() {
           >
             {{ displayFail }}
           </span>
-          <span class="m3-label-large opacity-90 truncate">
+          <span class="m3-label-large opacity-90 leading-tight">
             {{ results.fail.length > 0 ? 'Failed Uploads' : 'No Failures' }}
           </span>
         </div>
