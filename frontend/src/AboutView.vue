@@ -116,10 +116,6 @@ async function checkForUpdates() {
 function onLogoTap() {
   logoRotation.value += 360
 
-  if (!isDevMode()) {
-    return
-  }
-
   if (devOptionsState.unlocked) {
     toast.info('Developer options are already active')
     return
@@ -257,9 +253,9 @@ function disableDevOptions() {
       </div>
     </div>
 
-    <!-- Developer Options Group (Shown when unlocked on debug builds only) -->
+    <!-- Developer Options Group (Shown when unlocked) -->
     <div
-      v-if="isDevMode() && devOptionsState.unlocked"
+      v-if="devOptionsState.unlocked"
       class="flex flex-col gap-3 rounded-[24px] border border-[var(--md-sys-color-primary)]/40 bg-[var(--md-sys-color-surface-container)] p-5 shadow-xs transition-all"
     >
       <div class="flex items-center justify-between px-1">
@@ -278,8 +274,11 @@ function disableDevOptions() {
       </div>
 
       <div class="flex flex-col gap-2">
-        <!-- Mock Mode Toggle -->
-        <div class="flex items-center justify-between gap-4 rounded-[18px] bg-[var(--md-sys-color-surface-container-low)] p-4 transition-colors hover:bg-[var(--md-sys-color-surface-container-high)]/60">
+        <!-- Mock Mode Toggle (Debug builds only) -->
+        <div
+          v-if="isDevMode()"
+          class="flex items-center justify-between gap-4 rounded-[18px] bg-[var(--md-sys-color-surface-container-low)] p-4 transition-colors hover:bg-[var(--md-sys-color-surface-container-high)]/60"
+        >
           <div class="flex flex-col min-w-0 pr-2">
             <label
               for="mock-mode-toggle"
