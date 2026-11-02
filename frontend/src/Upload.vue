@@ -78,15 +78,21 @@ const threadsList = computed(() => {
 
 const effectiveTotalFiles = computed(() => {
   if (state.totalFiles > 0) {
-    return Math.max(state.totalFiles, state.uploadedFiles + state.results.fail.length)
+    return Math.max(state.totalFiles, state.uploadedFiles)
   }
-  return threadsList.value.length + state.uploadedFiles + state.results.fail.length
+  return threadsList.value.length + state.uploadedFiles
 })
 
 const progressPercent = computed(() => {
   const total = effectiveTotalFiles.value
+  if (total > 0 && state.uploadedFiles >= total) {
+    return 100
+  }
+  if (state.totalBytes > 0) {
+    return Math.min(100, Math.max(0, Math.round((state.uploadedBytes / state.totalBytes) * 100)))
+  }
   if (total === 0) return 0
-  return Math.min(100, Math.round((state.uploadedFiles / total) * 100))
+  return Math.min(100, Math.max(0, Math.round((state.uploadedFiles / total) * 100)))
 })
 
 function formatBytes(bytes: number, decimals = 1): string {
