@@ -65,6 +65,32 @@ const searchQuery = ref('')
 const fetchedLogs = ref<LogEntry[]>([])
 const isFetchingLogs = ref(false)
 const copied = ref(false)
+const maskFilenames = ref(false)
+
+function anonymizeFileName(fileName?: string): string {
+  if (!fileName) return ''
+  const dotIndex = fileName.lastIndexOf('.')
+  const ext = dotIndex !== -1 ? fileName.substring(dotIndex) : ''
+  let hash = 0
+  for (let i = 0; i < fileName.length; i++) {
+    hash = (hash * 31 + fileName.charCodeAt(i)) >>> 0
+  }
+  const hex = hash.toString(16).padStart(4, '0').slice(-4)
+  return `media_${hex}${ext}`
+}
+
+function sanitizeUserMessage(msg?: string, fileName?: string): string {
+  if (!msg) return ''
+  let sanitized = msg
+  if (fileName) {
+    const masked = anonymizeFileName(fileName)
+    sanitized = sanitized.replaceAll(fileName, masked)
+  }
+  sanitized = sanitized.replace(/(?:[a-zA-Z]:[/\\]|\/)[^\s:]+[/\\]([^/\s:]+)/g, (_match, base) => {
+    return anonymizeFileName(base)
+  })
+  return sanitized
+}
 
 async function loadBackendLogs() {
   isFetchingLogs.value = true
@@ -105,10 +131,12 @@ const filteredLogs = computed(() => {
 
 function copyLogs() {
   const text = filteredLogs.value
-    .map(
-      (e) =>
-        `[${new Date(e.timestamp).toISOString()}] [${e.level}] [${e.category}] ${e.fileName ? e.fileName + ': ' : ''}${e.userMessage || e.rawError || ''}`
-    )
+    .map((e) => {
+      const fileName = maskFilenames.value && e.fileName ? anonymizeFileName(e.fileName) : e.fileName
+      const rawMsg = e.userMessage || e.rawError || ''
+      const msg = maskFilenames.value ? sanitizeUserMessage(rawMsg, e.fileName) : rawMsg
+      return `[${new Date(e.timestamp).toISOString()}] [${e.level}] [${e.category}] ${fileName ? fileName + ': ' : ''}${msg}`
+    })
     .join('\n')
   navigator.clipboard.writeText(text)
   copied.value = true
@@ -516,6 +544,17 @@ onMounted(async () => {
               </M3Button>
 
               <M3Button
+                variant="tonal"
+                size="s"
+                :toggle="true"
+                :selected="maskFilenames"
+                :icon="maskFilenames ? 'visibility_off' : 'visibility'"
+                @click="maskFilenames = !maskFilenames"
+              >
+                {{ maskFilenames ? 'Anonymized' : 'Anonymize' }}
+              </M3Button>
+
+              <M3Button
                 variant="outlined"
                 size="s"
                 destructive
@@ -556,10 +595,10 @@ onMounted(async () => {
 
             <div class="flex flex-col min-w-0 flex-1">
               <span v-if="entry.fileName" class="m3-title-medium text-[var(--md-sys-color-on-surface)] truncate">
-                {{ entry.fileName }}
+                {{ maskFilenames ? anonymizeFileName(entry.fileName) : entry.fileName }}
               </span>
               <span class="m3-body-medium text-[var(--md-sys-color-on-surface)] break-all">
-                {{ entry.userMessage || entry.rawError || '' }}
+                {{ maskFilenames ? sanitizeUserMessage(entry.userMessage || entry.rawError, entry.fileName) : (entry.userMessage || entry.rawError || '') }}
               </span>
             </div>
           </div>
