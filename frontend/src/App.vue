@@ -1465,7 +1465,7 @@ onUnmounted(() => {
           <!-- 2. Results State (Upload summary matching screen-upload-results) -->
           <div
             v-else-if="(mockState.enabled && mockState.currentView === 'results') || (!mockState.enabled && (uploadState.uploadedFiles > 0 || uploadState.results.fail.length > 0))"
-            class="h-full w-full flex flex-col pt-4 sm:pt-8 pb-12"
+            class="h-full w-full flex flex-col justify-center my-auto py-6"
             style="--wails-draggable: none"
           >
             <!-- Safety Circuit Breaker Alert Banner -->
