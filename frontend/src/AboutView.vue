@@ -11,7 +11,7 @@ import UpdateAvailableModal from './components/UpdateAvailableModal.vue'
 import LicensesModal from './components/LicensesModal.vue'
 import { toast } from 'vue-sonner'
 import { preferencesState, setAutoCheckUpdates } from './utils/configStore'
-import { devOptionsState, mockState, setDevOptionsUnlocked, toggleMockMode } from './utils/mockMode'
+import { devOptionsState, isDevMode, mockState, setDevOptionsUnlocked, toggleMockMode } from './utils/mockMode'
 import reiuxAvatar from './assets/credits/reiux.png'
 import xob0tAvatar from './assets/credits/xob0t.png'
 
@@ -115,6 +115,10 @@ async function checkForUpdates() {
 
 function onLogoTap() {
   logoRotation.value += 360
+
+  if (!isDevMode()) {
+    return
+  }
 
   if (devOptionsState.unlocked) {
     toast.info('Developer options are already active')
@@ -253,9 +257,9 @@ function disableDevOptions() {
       </div>
     </div>
 
-    <!-- Developer Options Group (Shown when unlocked) -->
+    <!-- Developer Options Group (Shown when unlocked on debug builds only) -->
     <div
-      v-if="devOptionsState.unlocked"
+      v-if="isDevMode() && devOptionsState.unlocked"
       class="flex flex-col gap-3 rounded-[24px] border border-[var(--md-sys-color-primary)]/40 bg-[var(--md-sys-color-surface-container)] p-5 shadow-xs transition-all"
     >
       <div class="flex items-center justify-between px-1">
