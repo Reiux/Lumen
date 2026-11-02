@@ -425,7 +425,7 @@ const totalQueueCount = computed(() => {
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
               <span class="m3-label-small text-[var(--md-sys-color-primary)] block">
-                Uploading batch &bull; {{ progressPercent }}%
+                Uploading batch
               </span>
               <h2 class="text-2xl sm:text-3xl font-bold text-[var(--md-sys-color-on-surface)] mt-0.5 tabular-nums">
                 {{ displayUploadedFiles }} of {{ effectiveTotalFiles }} items
@@ -461,19 +461,19 @@ const totalQueueCount = computed(() => {
             </M3Button>
           </div>
 
-          <!-- Metrics Row (speed, ETA, transferred with small icons) -->
-          <div class="flex flex-wrap items-center gap-x-4 gap-y-2 m3-body-medium mt-3">
-            <div class="flex items-center space-x-1.5 shrink-0">
+          <!-- Metrics Row (speed on left, ETA on right - stable line that never wraps) -->
+          <div class="flex items-center justify-between gap-2 m3-body-medium text-[var(--md-sys-color-on-surface-variant)] mt-3 sm:mt-4">
+            <div class="flex items-center space-x-1.5 min-w-0">
               <M3Icon
                 name="bolt"
                 :filled="true"
                 :size="15"
-                class="text-[var(--md-sys-color-primary)]"
+                class="text-[var(--md-sys-color-primary)] shrink-0"
               />
               <span class="text-[var(--md-sys-color-on-surface)] tabular-nums">{{ speedDisplay }}</span>
               <span
                 v-if="threadsList.length"
-                class="m3-label-small text-[var(--md-sys-color-on-surface-variant)] normal-case"
+                class="m3-label-small text-[var(--md-sys-color-on-surface-variant)] normal-case truncate"
               >({{ threadsList.length }} workers)</span>
             </div>
 
@@ -482,17 +482,22 @@ const totalQueueCount = computed(() => {
                 name="schedule"
                 :filled="false"
                 :size="15"
-                class="text-[var(--md-sys-color-primary)]"
+                class="text-[var(--md-sys-color-primary)] shrink-0"
               />
               <span>ETA: <strong class="text-[var(--md-sys-color-on-surface)] tabular-nums">{{ etaDisplay }}</strong></span>
             </div>
-
-            <span class="hidden sm:inline text-[var(--md-sys-color-outline-variant)]">&bull;</span>
-            <span class="tabular-nums shrink-0">{{ bytesDisplay || `${formatBytes(state.uploadedBytes)} / ${formatBytes(state.totalBytes)}` }}</span>
           </div>
 
-          <!-- Existing Wavy Progress Bar Below -->
-          <div class="mt-4 sm:mt-5 w-full pt-1">
+          <!-- Progress Section: MB count on left, bold % on right, Wavy Progress Bar below -->
+          <div class="mt-4 sm:mt-5 w-full flex flex-col gap-1.5">
+            <div class="flex items-baseline justify-between gap-2">
+              <span class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)] tabular-nums">
+                {{ bytesDisplay || `${formatBytes(state.uploadedBytes)} / ${formatBytes(state.totalBytes)}` }}
+              </span>
+              <span class="text-xl sm:text-2xl font-bold text-[var(--md-sys-color-primary)] tabular-nums tracking-tight">
+                {{ progressPercent }}%
+              </span>
+            </div>
             <M3WavyProgress :value="progressPercent" />
           </div>
         </div>
