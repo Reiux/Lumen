@@ -67,6 +67,28 @@ When you sign in, Google gives the app an **OAuth token**.
 
 ---
 
+## Account Safety & Risks
+
+Lumen is an unofficial tool and isn't affiliated with Google. It uploads photos using an unofficial method that Google didn't design for third-party apps.
+
+- **Terms of Service:** Using Lumen may violate Google's Terms of Service. Google can log you out, limit, or ban your account at any time.
+- **Gmail & Drive access:** If Google restricts your account, you could lose access to Gmail, Google Drive, and other services linked to that email.
+- **Use a secondary account:** Use an email you're okay with losing access to. Don't use your primary personal email or accounts used for work, school, or banking.
+- **Keep your local copies:** Don't rely on Google Photos as your only backup. Keep your original files until the backup is verified.
+- **Avoid repeated sign-ins:** If Google logs you out or asks for verification, don't spam sign-in attempts. Lumen pauses automatically when it detects account issues. Each sign-in registers a new device, so avoid logging in and out repeatedly.
+
+---
+
+## Privacy & Network Transparency
+
+- **No analytics or telemetry:** No trackers, crash reporters or usage statistics.
+- **Direct to Google:** Uploads, sign-in and media requests go straight between your computer and Google. Lumen runs no servers or relays.
+- **Update checks:** Lumen only contacts github.com to look for new releases, and only when automatic update checks are on. You can turn this off in the app under **About -> Updates**.
+- **Local credentials:** Tokens stay on your device in the OS credential manager and are only sent to Google.
+- **Sign-in browser:** The browser used for automatic sign-in runs with a temporary profile that is deleted when it closes.
+
+---
+
 ## Requirements
 
 - Windows, macOS or Linux
@@ -245,18 +267,6 @@ Or with [Task](https://taskfile.dev): `task build`
 
 ---
 
-## Account Safety & Risks
-
-Lumen is an unofficial tool and isn't affiliated with Google. It uploads photos using an unofficial method that Google didn't design for third-party apps.
-
-- **Terms of Service:** Using Lumen may violate Google's Terms of Service. Google can log you out, limit, or ban your account at any time.
-- **Gmail & Drive access:** If Google restricts your account, you could lose access to Gmail, Google Drive, and other services linked to that email.
-- **Use a secondary account:** Use an email you're okay with losing access to. Don't use your primary personal email or accounts used for work, school, or banking.
-- **Keep your local copies:** Don't rely on Google Photos as your only backup. Keep your original files until the backup is verified.
-- **Avoid repeated sign-ins:** If Google logs you out or asks for verification, don't spam sign-in attempts. Lumen pauses automatically when it detects account issues. Each sign-in registers a new device, so avoid logging in and out repeatedly.
-
----
-
 ## Configuration
 
 Lumen stores settings and saved accounts in:
@@ -265,16 +275,6 @@ Lumen stores settings and saved accounts in:
 - **Windows:** `%APPDATA%\lumen\lumen.config`
 
 To run portably, place an empty `lumen.config` file next to the binary.
-
----
-
-## Privacy & Network Transparency
-
-- **No analytics or telemetry:** No trackers, crash reporters or usage statistics.
-- **Direct to Google:** Uploads, sign-in and media requests go straight between your computer and Google. Lumen runs no servers or relays.
-- **Update checks:** Lumen only contacts github.com to look for new releases, and only when automatic update checks are on. You can turn this off in the app under **About -> Updates**.
-- **Local credentials:** Tokens stay on your device in the OS credential manager and are only sent to Google.
-- **Sign-in browser:** The browser used for automatic sign-in runs with a temporary profile that is deleted when it closes.
 
 ---
 
