@@ -1,0 +1,395 @@
+name: Release & CI
+
+on:
+  push:
+    branches: [ master ]
+  workflow_dispatch:
+    inputs:
+      force_release:
+        description: "Force release even if tag already exists"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check-version:
+    name: Check Version & Tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      is_new: ${{ steps.ver.outputs.is_new }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: ver
+        shell: bash
+        run: |
+          VERSION=$(grep -m1 '^version =' crates/lumen-tauri/Cargo.toml | cut -d '"' -f2)
+          echo "Detected version: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          TAG_EXISTS=false
+          if git ls-remote --tags origin "refs/tags/v$VERSION" | grep -q "v$VERSION"; then
+            TAG_EXISTS=true
+            echo "Tag v$VERSION already exists on remote."
+          else
+            echo "Tag v$VERSION does not exist yet."
+          fi
+
+          if [ "${{ github.event.inputs.force_release }}" = "true" ] || [ "$TAG_EXISTS" = "false" ]; then
+            echo "is_new=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_new=false" >> $GITHUB_OUTPUT
+          fi
+
+  test:
+    name: Test Suite (Linux x64)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Linux Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Install Frontend Dependencies
+        run: npm ci --prefix frontend
+
+      - name: Build Frontend
+        run: npm run build --prefix frontend
+
+      - name: Run Workspace Tests
+        run: cargo test --all
+
+  build-macos:
+    name: Build macOS (Universal)
+    needs: [check-version, test]
+    if: needs.check-version.outputs.is_new == 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        run: npm ci --prefix frontend
+
+      - name: Build Frontend
+        run: npm run build --prefix frontend
+
+      - name: Build Tauri Universal Bundle
+        run: |
+          cd crates/lumen-tauri
+          npx --prefix ../../frontend tauri build --target universal-apple-darwin
+
+      - name: Build Standalone Universal CLI
+        run: |
+          cargo build --release --bin lumen-cli --target x86_64-apple-darwin
+          cargo build --release --bin lumen-cli --target aarch64-apple-darwin
+
+      - name: Stage Release Artifacts
+        shell: bash
+        run: |
+          V="${{ needs.check-version.outputs.version }}"
+          mkdir -p dist
+
+          # 1. Universal DMG installer
+          DMG_FILE=$(find target/universal-apple-darwin/release/bundle/dmg -name "*.dmg" | head -n 1)
+          if [ -n "$DMG_FILE" ] && [ -f "$DMG_FILE" ]; then
+            cp "$DMG_FILE" "dist/lumen_${V}_macos_universal.dmg"
+          fi
+
+          # 2. Universal .app zip bundle
+          if [ -d "target/universal-apple-darwin/release/bundle/macos/Lumen.app" ]; then
+            (cd target/universal-apple-darwin/release/bundle/macos && zip -r "../../../../../dist/lumen_${V}_macos_universal.zip" Lumen.app)
+          fi
+
+          # 3. Universal CLI binary
+          lipo -create -output "dist/lumen-cli_${V}_macos_universal" \
+            target/x86_64-apple-darwin/release/lumen-cli \
+            target/aarch64-apple-darwin/release/lumen-cli
+          chmod +x "dist/lumen-cli_${V}_macos_universal"
+
+          ls -la dist/
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: assets-macos-universal
+          path: dist/*
+
+  build-linux:
+    name: Build Linux (x64)
+    needs: [check-version, test]
+    if: needs.check-version.outputs.is_new == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Linux System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - name: Install Frontend Dependencies
+        run: npm ci --prefix frontend
+
+      - name: Build Frontend
+        run: npm run build --prefix frontend
+
+      - name: Build Tauri Bundles (.deb & AppImage)
+        run: |
+          cd crates/lumen-tauri
+          npx --prefix ../../frontend tauri build --bundles appimage,deb
+
+      - name: Build Standalone Linux CLI
+        run: cargo build --release --bin lumen-cli
+
+      - name: Stage Release Artifacts
+        shell: bash
+        run: |
+          V="${{ needs.check-version.outputs.version }}"
+          mkdir -p dist
+
+          # 1. AppImage
+          APPIMAGE=$(find target/release/bundle/appimage -name "*.AppImage" | head -n 1)
+          if [ -n "$APPIMAGE" ] && [ -f "$APPIMAGE" ]; then
+            cp "$APPIMAGE" "dist/lumen_${V}_linux_x64.AppImage"
+            chmod +x "dist/lumen_${V}_linux_x64.AppImage"
+          fi
+
+          # 2. Debian / Ubuntu .deb
+          DEB_FILE=$(find target/release/bundle/deb -name "*.deb" | head -n 1)
+          if [ -n "$DEB_FILE" ] && [ -f "$DEB_FILE" ]; then
+            cp "$DEB_FILE" "dist/lumen_${V}_linux_x64.deb"
+          fi
+
+          # 3. Standalone GUI binary
+          if [ -f "target/release/lumen" ]; then
+            cp "target/release/lumen" "dist/lumen_${V}_linux_x64"
+            chmod +x "dist/lumen_${V}_linux_x64"
+          fi
+
+          # 4. Standalone CLI binary
+          if [ -f "target/release/lumen-cli" ]; then
+            cp "target/release/lumen-cli" "dist/lumen-cli_${V}_linux_x64"
+            chmod +x "dist/lumen-cli_${V}_linux_x64"
+          fi
+
+          ls -la dist/
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: assets-linux-x64
+          path: dist/*
+
+  build-windows-x64:
+    name: Build Windows (x64)
+    needs: [check-version, test]
+    if: needs.check-version.outputs.is_new == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        shell: pwsh
+        run: npm ci --prefix frontend
+
+      - name: Build Frontend
+        shell: pwsh
+        run: npm run build --prefix frontend
+
+      - name: Build Tauri NSIS Installer
+        shell: pwsh
+        run: |
+          Set-Location crates/lumen-tauri
+          npx --prefix ../../frontend tauri build --bundles nsis
+
+      - name: Build Standalone Windows CLI
+        shell: pwsh
+        run: cargo build --release --bin lumen-cli
+
+      - name: Stage Release Artifacts
+        shell: pwsh
+        run: |
+          $V = "${{ needs.check-version.outputs.version }}"
+          New-Item -ItemType Directory -Force -Path dist
+
+          # 1. NSIS Setup Installer
+          $installer = Get-ChildItem -Path target/release/bundle/nsis/*.exe | Select-Object -First 1
+          if ($installer) {
+            Copy-Item -Path $installer.FullName -Destination "dist/lumen_${V}_windows_x64-setup.exe"
+          }
+
+          # 2. Standalone GUI executable
+          if (Test-Path "target/release/lumen.exe") {
+            Copy-Item -Path "target/release/lumen.exe" -Destination "dist/lumen_${V}_windows_x64.exe"
+          }
+
+          # 3. Standalone CLI executable
+          if (Test-Path "target/release/lumen-cli.exe") {
+            Copy-Item -Path "target/release/lumen-cli.exe" -Destination "dist/lumen-cli_${V}_windows_x64.exe"
+          }
+
+          Get-ChildItem -Path dist
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: assets-windows-x64
+          path: dist/*
+
+  build-windows-arm64:
+    name: Build Windows (ARM64)
+    needs: [check-version, test]
+    if: needs.check-version.outputs.is_new == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-pc-windows-msvc
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        shell: pwsh
+        run: npm ci --prefix frontend
+
+      - name: Build Frontend
+        shell: pwsh
+        run: npm run build --prefix frontend
+
+      - name: Build Tauri NSIS ARM64 Installer
+        shell: pwsh
+        run: |
+          Set-Location crates/lumen-tauri
+          npx --prefix ../../frontend tauri build --target aarch64-pc-windows-msvc --bundles nsis
+
+      - name: Build Standalone Windows ARM64 CLI
+        shell: pwsh
+        run: cargo build --release --bin lumen-cli --target aarch64-pc-windows-msvc
+
+      - name: Stage Release Artifacts
+        shell: pwsh
+        run: |
+          $V = "${{ needs.check-version.outputs.version }}"
+          New-Item -ItemType Directory -Force -Path dist
+
+          # 1. NSIS Setup Installer (ARM64)
+          $installer = Get-ChildItem -Path target/aarch64-pc-windows-msvc/release/bundle/nsis/*.exe | Select-Object -First 1
+          if ($installer) {
+            Copy-Item -Path $installer.FullName -Destination "dist/lumen_${V}_windows_arm64-setup.exe"
+          }
+
+          # 2. Standalone GUI executable (ARM64)
+          if (Test-Path "target/aarch64-pc-windows-msvc/release/lumen.exe") {
+            Copy-Item -Path "target/aarch64-pc-windows-msvc/release/lumen.exe" -Destination "dist/lumen_${V}_windows_arm64.exe"
+          }
+
+          # 3. Standalone CLI executable (ARM64)
+          if (Test-Path "target/aarch64-pc-windows-msvc/release/lumen-cli.exe") {
+            Copy-Item -Path "target/aarch64-pc-windows-msvc/release/lumen-cli.exe" -Destination "dist/lumen-cli_${V}_windows_arm64.exe"
+          }
+
+          Get-ChildItem -Path dist
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: assets-windows-arm64
+          path: dist/*
+
+  publish:
+    name: Publish GitHub Release
+    needs: [check-version, build-macos, build-linux, build-windows-x64, build-windows-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download All Release Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Generate Checksums
+        shell: bash
+        run: |
+          cd release-assets
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: "v${{ needs.check-version.outputs.version }}"
+          name: "Lumen v${{ needs.check-version.outputs.version }}"
+          files: release-assets/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
