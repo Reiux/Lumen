@@ -18,7 +18,9 @@ use lumen_core::auth::{
     build_google_photos_credential, exchange_embedded_setup_token, generate_android_id,
     looks_like_auth_string, normalize_oauth_token, EMBEDDED_SETUP_AUTH_ENDPOINT,
 };
-use lumen_core::config::{determine_config_path, ConfigManager};
+use lumen_core::config::{
+    determine_album_registry_path, determine_config_path, determine_hash_cache_path, ConfigManager,
+};
 use lumen_core::dedup::HashCache;
 use lumen_core::keyring::KeyringStorage;
 use lumen_core::livephoto::{classify_upload_work, LivePhotoClassificationOptions};
@@ -265,7 +267,7 @@ pub async fn handle_upload(
 
     // Deduplication Hash Cache setup
     let cache_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
-    let db_path = cache_dir.join("hashes.db");
+    let db_path = determine_hash_cache_path(cache_dir);
     let hash_cache = match HashCache::open(&db_path) {
         Ok(c) => Some(c),
         Err(e) => {
@@ -275,10 +277,9 @@ pub async fn handle_upload(
     };
 
     // Album Registry setup
-    let album_reg_path = cache_dir.join("albums.json");
-    let album_registry = AlbumRegistry::new(album_reg_path).unwrap_or_else(|_| {
-        AlbumRegistry::new(PathBuf::from("albums.json")).unwrap()
-    });
+    let album_reg_path = determine_album_registry_path(cache_dir);
+    let album_registry = AlbumRegistry::new(album_reg_path)
+        .unwrap_or_else(|_| AlbumRegistry::in_memory());
 
     // Upload options
     let threads = args.threads.unwrap_or(cfg.preferences.upload_threads);
@@ -491,7 +492,7 @@ pub async fn handle_creds(args: CredsArgs, config_manager: Arc<ConfigManager>) -
 
 pub fn handle_cache(args: CacheArgs, config_path: &Path) -> Result<()> {
     let cache_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
-    let db_path = cache_dir.join("hashes.db");
+    let db_path = determine_hash_cache_path(cache_dir);
 
     let hash_cache = HashCache::open(&db_path)
         .context("Failed to open hash cache database")?;

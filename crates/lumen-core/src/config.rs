@@ -487,6 +487,30 @@ fn existing_local_config(dir: &Path) -> Option<PathBuf> {
     None
 }
 
+pub fn determine_hash_cache_path(base_dir: &Path) -> PathBuf {
+    let standard = base_dir.join("hash_cache.db");
+    if standard.exists() {
+        return standard;
+    }
+    let alternate = base_dir.join("hashes.db");
+    if alternate.exists() {
+        return alternate;
+    }
+    standard
+}
+
+pub fn determine_album_registry_path(base_dir: &Path) -> PathBuf {
+    let standard = base_dir.join("album_registry.json");
+    if standard.exists() {
+        return standard;
+    }
+    let alternate = base_dir.join("albums.json");
+    if alternate.exists() {
+        return alternate;
+    }
+    standard
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -583,5 +607,27 @@ force_upload: true
         // Test retrieval from fallback file
         let retrieved = mgr.get_credential_for_account(Some(email)).unwrap();
         assert_eq!(retrieved, cred);
+    }
+
+    #[test]
+    fn test_determine_cache_and_album_paths() {
+        let dir = tempdir().unwrap();
+        let path = dir.path();
+
+        // Default when neither exists
+        assert_eq!(determine_hash_cache_path(path), path.join("hash_cache.db"));
+        assert_eq!(determine_album_registry_path(path), path.join("album_registry.json"));
+
+        // If hashes.db exists, it should fall back to it
+        fs::write(path.join("hashes.db"), b"").unwrap();
+        fs::write(path.join("albums.json"), b"").unwrap();
+        assert_eq!(determine_hash_cache_path(path), path.join("hashes.db"));
+        assert_eq!(determine_album_registry_path(path), path.join("albums.json"));
+
+        // If hash_cache.db exists, it takes precedence
+        fs::write(path.join("hash_cache.db"), b"").unwrap();
+        fs::write(path.join("album_registry.json"), b"").unwrap();
+        assert_eq!(determine_hash_cache_path(path), path.join("hash_cache.db"));
+        assert_eq!(determine_album_registry_path(path), path.join("album_registry.json"));
     }
 }

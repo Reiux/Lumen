@@ -9,7 +9,9 @@ use tauri::{Emitter, Manager};
 use tracing_subscriber::EnvFilter;
 
 use lumen_core::album::AlbumRegistry;
-use lumen_core::config::{determine_config_path, ConfigManager};
+use lumen_core::config::{
+    determine_album_registry_path, determine_config_path, determine_hash_cache_path, ConfigManager,
+};
 use lumen_core::dedup::HashCache;
 use lumen_core::keyring::KeyringStorage;
 
@@ -35,10 +37,10 @@ fn main() {
     let config_manager = Arc::new(ConfigManager::new(config_path.clone(), keyring));
 
     let cache_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
-    let db_path = cache_dir.join("hashes.db");
+    let db_path = determine_hash_cache_path(cache_dir);
     let hash_cache = HashCache::open(&db_path).ok();
 
-    let album_reg_path = cache_dir.join("albums.json");
+    let album_reg_path = determine_album_registry_path(cache_dir);
     let album_registry = AlbumRegistry::new(album_reg_path)
         .unwrap_or_else(|_| AlbumRegistry::in_memory());
 
@@ -202,8 +204,8 @@ fn main() {
                     let checker = lumen_core::updater::UpdateChecker::new();
                     let info = checker
                         .check_for_updates(
-                            "https://github.com/xob0t/gotohp/releases/latest",
-                            "1.0.1",
+                            lumen_core::updater::DEFAULT_RELEASES_URL,
+                            "1.1.0",
                             false,
                             0,
                         )

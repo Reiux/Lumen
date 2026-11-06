@@ -10,4 +10,4 @@ cargo build --release --workspace
 echo ""
 echo "=== Build Complete ==="
 echo "CLI binary: target/release/lumen-cli ($(du -h target/release/lumen-cli | cut -f1))"
-echo "GUI binary: target/release/lumen-tauri ($(du -h target/release/lumen-tauri | cut -f1))"
+echo "GUI binary: target/release/lumen ($(du -h target/release/lumen | cut -f1))"

@@ -20,7 +20,7 @@ use lumen_core::dedup::HashCache;
 use lumen_core::livephoto::{classify_upload_work, LivePhotoClassificationOptions};
 use lumen_core::net::create_http_client;
 use lumen_core::scanner::{scan_directories_incremental, ScanOptions};
-use lumen_core::updater::UpdateChecker;
+use lumen_core::updater::{UpdateChecker, DEFAULT_RELEASES_URL};
 use lumen_core::upload::{UploadEngine, UploadEvent, UploadOptions};
 
 use crate::cdp;
@@ -766,8 +766,8 @@ pub async fn check_for_updates(manual: bool) -> UpdateInfo {
     let checker = UpdateChecker::new();
     let info = checker
         .check_for_updates(
-            "https://github.com/xob0t/gotohp/releases/latest",
-            "1.0.1",
+            DEFAULT_RELEASES_URL,
+            "1.1.0",
             manual,
             0,
         )
@@ -789,7 +789,7 @@ pub async fn check_for_updates(manual: bool) -> UpdateInfo {
 pub async fn check_for_updates_with_redirect_url(redirect_url: String, manual: bool) -> UpdateInfo {
     let checker = UpdateChecker::new();
     let info = checker
-        .check_for_updates(&redirect_url, "1.0.1", manual, 0)
+        .check_for_updates(&redirect_url, "1.1.0", manual, 0)
         .await;
 
     UpdateInfo {
@@ -835,7 +835,7 @@ pub fn get_release_notes(_tag: String) -> String {
 
 #[tauri::command]
 pub fn get_app_version() -> String {
-    "1.0.1".to_string()
+    "1.1.0".to_string()
 }
 
 #[tauri::command]

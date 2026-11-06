@@ -59,10 +59,10 @@ export const ConfigManager = {
       return $models.UpdateInfo.createFrom(res);
     }
     return new $models.UpdateInfo({
-      currentVersion: '1.0.1',
-      latestVersion: '1.0.1',
+      currentVersion: '1.1.0',
+      latestVersion: '1.1.0',
       hasUpdate: false,
-      releaseUrl: 'https://github.com/xob0t/gotohp/releases/latest',
+      releaseUrl: 'https://github.com/Reiux/Lumen/releases/latest',
       releaseNotes: '',
       publishedAt: new Date().toISOString(),
       checkedAt: new Date().toISOString(),
@@ -156,9 +156,9 @@ export const ConfigManager = {
 
   async GetAppVersion(): Promise<string> {
     if (hasTauri()) {
-      return (await tauriInvoke<string>('get_app_version')) || '1.0.1';
+      return (await tauriInvoke<string>('get_app_version')) || '1.1.0';
     }
-    return '1.0.1';
+    return '1.1.0';
   },
 
   async GetAutoCheckUpdates(): Promise<boolean> {
