@@ -3,6 +3,7 @@ members = [
     "crates/lumen-core",
     "crates/lumen-cli",
     "crates/lumen-tauri",
+    "crates/lumen-installer",
 ]
 resolver = "2"
 

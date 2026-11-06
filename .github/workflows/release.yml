@@ -270,13 +270,17 @@ jobs:
         shell: pwsh
         run: npm run build --prefix frontend
 
-      - name: Build Tauri NSIS Installer
+      - name: Build Application Binaries
         shell: pwsh
-        run: npx --prefix frontend tauri build --config crates/lumen-tauri/tauri.conf.json --bundles nsis
+        run: |
+          cargo build --release --bin lumen
+          cargo build --release --bin lumen-cli
 
-      - name: Build Standalone Windows CLI
+      - name: Package Custom Installer
         shell: pwsh
-        run: cargo build --release --bin lumen-cli
+        run: |
+          tar -czf crates/lumen-installer/payload.tar.gz -C target/release lumen.exe lumen-cli.exe
+          cargo build --release --bin lumen-installer
 
       - name: Stage Release Artifacts
         shell: pwsh
@@ -284,10 +288,9 @@ jobs:
           $V = "${{ needs.check-version.outputs.version }}"
           New-Item -ItemType Directory -Force -Path dist
 
-          # 1. NSIS Setup Installer
-          $installer = Get-ChildItem -Path target/release/bundle/nsis/*.exe | Select-Object -First 1
-          if ($installer) {
-            Copy-Item -Path $installer.FullName -Destination "dist/lumen_${V}_windows_x64-setup.exe"
+          # 1. Custom Setup Installer
+          if (Test-Path "target/release/lumen-installer.exe") {
+            Copy-Item -Path "target/release/lumen-installer.exe" -Destination "dist/lumen_${V}_windows_x64-setup.exe"
           }
 
           # 2. Standalone GUI executable
@@ -341,13 +344,17 @@ jobs:
         shell: pwsh
         run: npm run build --prefix frontend
 
-      - name: Build Tauri NSIS ARM64 Installer
+      - name: Build Application Binaries
         shell: pwsh
-        run: npx --prefix frontend tauri build --config crates/lumen-tauri/tauri.conf.json --target aarch64-pc-windows-msvc --bundles nsis
+        run: |
+          cargo build --release --bin lumen --target aarch64-pc-windows-msvc
+          cargo build --release --bin lumen-cli --target aarch64-pc-windows-msvc
 
-      - name: Build Standalone Windows ARM64 CLI
+      - name: Package Custom Installer
         shell: pwsh
-        run: cargo build --release --bin lumen-cli --target aarch64-pc-windows-msvc
+        run: |
+          tar -czf crates/lumen-installer/payload.tar.gz -C target/aarch64-pc-windows-msvc/release lumen.exe lumen-cli.exe
+          cargo build --release --bin lumen-installer --target aarch64-pc-windows-msvc
 
       - name: Stage Release Artifacts
         shell: pwsh
@@ -355,10 +362,9 @@ jobs:
           $V = "${{ needs.check-version.outputs.version }}"
           New-Item -ItemType Directory -Force -Path dist
 
-          # 1. NSIS Setup Installer (ARM64)
-          $installer = Get-ChildItem -Path target/aarch64-pc-windows-msvc/release/bundle/nsis/*.exe | Select-Object -First 1
-          if ($installer) {
-            Copy-Item -Path $installer.FullName -Destination "dist/lumen_${V}_windows_arm64-setup.exe"
+          # 1. Custom Setup Installer (ARM64)
+          if (Test-Path "target/aarch64-pc-windows-msvc/release/lumen-installer.exe") {
+            Copy-Item -Path "target/aarch64-pc-windows-msvc/release/lumen-installer.exe" -Destination "dist/lumen_${V}_windows_arm64-setup.exe"
           }
 
           # 2. Standalone GUI executable (ARM64)

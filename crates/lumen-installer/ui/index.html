@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lumen Setup</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    :root {
+      --bg: #141416;
+      --surface: #1c1c20;
+      --surface-container: #242429;
+      --surface-container-high: #2c2c33;
+      --primary: #a8c7fa;
+      --on-primary: #042f6e;
+      --primary-container: #0842a0;
+      --on-primary-container: #d3e3fd;
+      --outline: #44474f;
+      --outline-variant: #34373e;
+      --on-surface: #e3e2e6;
+      --on-surface-variant: #c4c6d0;
+      --error: #f2b8b5;
+      --on-error: #601410;
+      --success: #a8dab5;
+      --radius-sm: 8px;
+      --radius-md: 14px;
+      --radius-lg: 22px;
+      --radius-full: 9999px;
+    }
+    body {
+      background-color: var(--bg);
+      color: var(--on-surface);
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      border: 1px solid var(--outline-variant);
+      border-radius: var(--radius-lg);
+    }
+    /* Titlebar */
+    .titlebar {
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 12px;
+      background: transparent;
+      cursor: default;
+    }
+    .titlebar-drag {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1;
+      height: 100%;
+    }
+    .titlebar-icon {
+      width: 18px;
+      height: 18px;
+      fill: var(--primary);
+    }
+    .titlebar-title {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--on-surface-variant);
+      letter-spacing: 0.2px;
+    }
+    .titlebar-actions {
+      display: flex;
+      gap: 4px;
+    }
+    .window-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: var(--radius-sm);
+      border: none;
+      background: transparent;
+      color: var(--on-surface-variant);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .window-btn:hover {
+      background: var(--surface-container-high);
+      color: var(--on-surface);
+    }
+    .window-btn.close:hover {
+      background: #e81123;
+      color: #ffffff;
+    }
+
+    /* Main Content */
+    .content {
+      flex: 1;
+      padding: 16px 28px 24px 28px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .hero {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .app-logo {
+      width: 52px;
+      height: 52px;
+      border-radius: var(--radius-md);
+      background: linear-gradient(135deg, #1e3a8a, #3b82f6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 16px rgba(59, 130, 246, 0.25);
+    }
+    .app-logo svg {
+      width: 28px;
+      height: 28px;
+      fill: #ffffff;
+    }
+    .hero-text h1 {
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: -0.3px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .hero-badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 2px 8px;
+      border-radius: var(--radius-full);
+      background: var(--surface-container-high);
+      color: var(--primary);
+    }
+    .hero-text p {
+      font-size: 13px;
+      color: var(--on-surface-variant);
+      margin-top: 3px;
+    }
+
+    /* Form Section */
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    .form-label {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--on-surface-variant);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .path-row {
+      display: flex;
+      gap: 8px;
+    }
+    .path-input {
+      flex: 1;
+      background: var(--surface-container);
+      border: 1px solid var(--outline-variant);
+      border-radius: var(--radius-sm);
+      padding: 9px 12px;
+      font-size: 13px;
+      color: var(--on-surface);
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .path-input:focus {
+      border-color: var(--primary);
+    }
+    .btn-secondary {
+      background: var(--surface-container);
+      border: 1px solid var(--outline-variant);
+      border-radius: var(--radius-sm);
+      padding: 0 16px;
+      color: var(--on-surface);
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .btn-secondary:hover {
+      background: var(--surface-container-high);
+      border-color: var(--outline);
+    }
+
+    /* Checkbox Group */
+    .checkbox-group {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      color: var(--on-surface);
+      cursor: pointer;
+    }
+    .checkbox-label input {
+      accent-color: var(--primary);
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+    }
+
+    /* Progress UI */
+    .progress-container {
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+      margin: 30px 0;
+    }
+    .progress-bar-bg {
+      width: 100%;
+      height: 8px;
+      background: var(--surface-container-high);
+      border-radius: var(--radius-full);
+      overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #3b82f6, #60a5fa);
+      border-radius: var(--radius-full);
+      transition: width 0.25s ease-out;
+    }
+    .progress-status {
+      font-size: 13px;
+      color: var(--on-surface-variant);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    /* Actions Footer */
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      padding-top: 16px;
+      border-top: 1px solid var(--outline-variant);
+    }
+    .btn-primary {
+      background: var(--primary);
+      color: var(--on-primary);
+      border: none;
+      border-radius: var(--radius-full);
+      padding: 10px 24px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+    }
+    .btn-primary:hover {
+      background: #c3d9fb;
+      box-shadow: 0 4px 12px rgba(168, 199, 250, 0.25);
+    }
+    .btn-primary:active {
+      transform: scale(0.98);
+    }
+    .btn-danger {
+      background: var(--error);
+      color: var(--on-error);
+      border: none;
+      border-radius: var(--radius-full);
+      padding: 10px 24px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .btn-danger:hover {
+      background: #f7d2d0;
+    }
+    .btn-ghost {
+      background: transparent;
+      color: var(--on-surface-variant);
+      border: none;
+      border-radius: var(--radius-full);
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .btn-ghost:hover {
+      background: var(--surface-container);
+      color: var(--on-surface);
+    }
+
+    /* Success / Finish Screen */
+    .finish-screen {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 14px;
+      margin: 20px 0;
+    }
+    .finish-icon {
+      width: 56px;
+      height: 56px;
+      border-radius: var(--radius-full);
+      background: rgba(168, 218, 181, 0.15);
+      color: var(--success);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .finish-icon svg {
+      width: 32px;
+      height: 32px;
+      fill: currentColor;
+    }
+    .finish-screen h2 {
+      font-size: 20px;
+      font-weight: 600;
+    }
+    .finish-screen p {
+      font-size: 13px;
+      color: var(--on-surface-variant);
+      max-width: 380px;
+    }
+  </style>
+</head>
+<body>
+  <!-- Frameless Titlebar -->
+  <div class="titlebar" data-tauri-drag-region>
+    <div class="titlebar-drag" data-tauri-drag-region>
+      <svg class="titlebar-icon" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zm0 9l2.5-1.25L12 8.5l-2.5 1.25L12 11zm0 2.5l-5-2.5-5 2.5 10 5 10-5-5-2.5-5 2.5z"/></svg>
+      <span class="titlebar-title" id="windowTitle">Lumen Setup</span>
+    </div>
+    <div class="titlebar-actions">
+      <button class="window-btn" id="btnMinimize" title="Minimize">
+        <svg width="10" height="1" viewBox="0 0 10 1"><path fill="currentColor" d="M0 0h10v1H0z"/></svg>
+      </button>
+      <button class="window-btn close" id="btnClose" title="Close">
+        <svg width="10" height="10" viewBox="0 0 10 10"><path fill="currentColor" d="M1 0L0 1l4 4-4 4 1 1 4-4 4 4 1-1-4-4 4-4-1-1-4 4-4-4z"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- Content Container -->
+  <div class="content">
+    <!-- View A: Install Setup View -->
+    <div id="installView">
+      <div class="hero">
+        <div class="app-logo">
+          <svg viewBox="0 0 24 24"><path d="M12 3c-4.97 0-9 4.03-9 9 0 2.12.74 4.07 1.97 5.61L4.35 19.4c-.39.39-.39 1.02 0 1.41.39.39 1.02.39 1.41 0l1.9-1.9C9.28 19.57 10.59 20 12 20c4.97 0 9-4.03 9-9s-4.03-9-9-9zm0 15c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6z"/></svg>
+        </div>
+        <div class="hero-text">
+          <h1>Lumen <span class="hero-badge">v1.1.0</span></h1>
+          <p>Unofficial desktop client for Google Photos</p>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Installation Location</label>
+        <div class="path-row">
+          <input type="text" class="path-input" id="installPathInput" readonly>
+          <button class="btn-secondary" id="btnBrowse">Browse</button>
+        </div>
+      </div>
+
+      <div class="checkbox-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="chkDesktopShortcut" checked>
+          <span>Create a Desktop shortcut</span>
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" id="chkLaunchAfter" checked>
+          <span>Launch Lumen after installation completes</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- View B: Uninstall Prompt View -->
+    <div id="uninstallView" style="display: none;">
+      <div class="hero">
+        <div class="app-logo" style="background: linear-gradient(135deg, #7f1d1d, #dc2626); box-shadow: 0 4px 16px rgba(220, 38, 38, 0.25);">
+          <svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+        </div>
+        <div class="hero-text">
+          <h1>Uninstall Lumen</h1>
+          <p>Remove the application and shortcuts from your PC</p>
+        </div>
+      </div>
+
+      <p style="font-size: 14px; color: var(--on-surface-variant); margin: 12px 0 20px 0; line-height: 1.5;">
+        Are you sure you want to uninstall Lumen? This will remove all application binaries and Start Menu shortcuts.
+      </p>
+
+      <div class="checkbox-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="chkPurgeConfig">
+          <span>Also delete my accounts, settings, and upload cache (<code style="font-family: monospace; color: var(--primary);">~/.config/lumen</code>)</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Progress Component -->
+    <div class="progress-container" id="progressContainer">
+      <div class="progress-status">
+        <span id="progressText">Preparing...</span>
+        <span id="progressPercent">0%</span>
+      </div>
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" id="progressBar"></div>
+      </div>
+    </div>
+
+    <!-- Finish / Complete Screen -->
+    <div class="finish-screen" id="finishScreen">
+      <div class="finish-icon" id="finishIcon">
+        <svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+      </div>
+      <h2 id="finishTitle">Installation Complete</h2>
+      <p id="finishSubtitle">Lumen has been installed to your computer and is ready for backing up your memories.</p>
+    </div>
+
+    <!-- Bottom Actions Toolbar -->
+    <div class="actions" id="actionFooter">
+      <button class="btn-ghost" id="btnCancel">Cancel</button>
+      <button class="btn-primary" id="btnPrimaryAction">Install</button>
+    </div>
+  </div>
+
+  <script>
+    const invoke = window.__TAURI__ ? window.__TAURI__.core.invoke : async () => {};
+    const listen = window.__TAURI__ ? window.__TAURI__.event.listen : () => {};
+
+    let isUninstallMode = false;
+    let installedTargetDir = "";
+
+    // Window controls
+    document.getElementById('btnMinimize').addEventListener('click', () => invoke('minimize_installer'));
+    document.getElementById('btnClose').addEventListener('click', () => invoke('close_installer'));
+    document.getElementById('btnCancel').addEventListener('click', () => invoke('close_installer'));
+
+    // Initialize Mode & Defaults
+    async function init() {
+      try {
+        const info = await invoke('get_setup_info');
+        isUninstallMode = info.is_uninstall;
+        installedTargetDir = info.default_path;
+
+        if (isUninstallMode) {
+          document.getElementById('windowTitle').textContent = "Lumen Uninstaller";
+          document.getElementById('installView').style.display = 'none';
+          document.getElementById('uninstallView').style.display = 'block';
+          const btn = document.getElementById('btnPrimaryAction');
+          btn.textContent = "Uninstall";
+          btn.className = "btn-danger";
+        } else {
+          document.getElementById('installPathInput').value = info.default_path;
+        }
+      } catch (err) {
+        console.error("Failed to get setup info:", err);
+      }
+    }
+
+    // Browse Directory
+    document.getElementById('btnBrowse').addEventListener('click', async () => {
+      try {
+        const selected = await invoke('pick_directory');
+        if (selected) {
+          document.getElementById('installPathInput').value = selected;
+        }
+      } catch (err) {
+        console.error("Failed to pick directory:", err);
+      }
+    });
+
+    // Primary Button (Install or Uninstall)
+    document.getElementById('btnPrimaryAction').addEventListener('click', async () => {
+      const btn = document.getElementById('btnPrimaryAction');
+      const btnCancel = document.getElementById('btnCancel');
+
+      if (btn.dataset.action === 'launch') {
+        await invoke('launch_app', { targetDir: installedTargetDir });
+        await invoke('close_installer');
+        return;
+      }
+      if (btn.dataset.action === 'finish') {
+        await invoke('close_installer');
+        return;
+      }
+
+      btn.disabled = true;
+      btnCancel.style.display = 'none';
+
+      // Switch to progress view
+      document.getElementById('installView').style.display = 'none';
+      document.getElementById('uninstallView').style.display = 'none';
+      document.getElementById('progressContainer').style.display = 'flex';
+
+      if (isUninstallMode) {
+        const purge = document.getElementById('chkPurgeConfig').checked;
+        await performUninstall(purge);
+      } else {
+        const targetDir = document.getElementById('installPathInput').value;
+        installedTargetDir = targetDir;
+        const desktopShortcut = document.getElementById('chkDesktopShortcut').checked;
+        const launchAfter = document.getElementById('chkLaunchAfter').checked;
+        await performInstall(targetDir, desktopShortcut, launchAfter);
+      }
+    });
+
+    async function performInstall(targetDir, createShortcut, launchAfter) {
+      updateProgress("Extracting application binaries...", 30);
+      try {
+        await invoke('start_install', {
+          targetDir,
+          createDesktopShortcut: createShortcut,
+          launchAfter
+        });
+
+        updateProgress("Completing setup...", 100);
+        setTimeout(() => {
+          document.getElementById('progressContainer').style.display = 'none';
+          const finish = document.getElementById('finishScreen');
+          finish.style.display = 'flex';
+
+          const btn = document.getElementById('btnPrimaryAction');
+          btn.disabled = false;
+          if (launchAfter) {
+            btn.textContent = "Launch Lumen";
+            btn.dataset.action = 'launch';
+          } else {
+            btn.textContent = "Finish";
+            btn.dataset.action = 'finish';
+          }
+        }, 500);
+      } catch (err) {
+        alert("Installation failed: " + err);
+        document.getElementById('btnCancel').style.display = 'block';
+      }
+    }
+
+    async function performUninstall(purgeConfig) {
+      updateProgress("Removing shortcuts and program files...", 50);
+      try {
+        await invoke('start_uninstall', { purgeConfig });
+        updateProgress("Finalizing removal...", 100);
+
+        setTimeout(() => {
+          document.getElementById('progressContainer').style.display = 'none';
+          const finish = document.getElementById('finishScreen');
+          document.getElementById('finishTitle').textContent = "Uninstalled Successfully";
+          document.getElementById('finishSubtitle').textContent = "Lumen has been completely removed from your PC.";
+          finish.style.display = 'flex';
+
+          const btn = document.getElementById('btnPrimaryAction');
+          btn.disabled = false;
+          btn.className = "btn-primary";
+          btn.textContent = "Close";
+          btn.dataset.action = 'finish';
+        }, 500);
+      } catch (err) {
+        alert("Uninstall failed: " + err);
+      }
+    }
+
+    function updateProgress(text, pct) {
+      document.getElementById('progressText').textContent = text;
+      document.getElementById('progressPercent').textContent = pct + "%";
+      document.getElementById('progressBar').style.width = pct + "%";
+    }
+
+    init();
+  </script>
+</body>
+</html>
