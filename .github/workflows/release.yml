@@ -118,9 +118,7 @@ jobs:
         run: npm run build --prefix frontend
 
       - name: Build Tauri Universal Bundle
-        run: |
-          cd crates/lumen-tauri
-          npx --prefix ../../frontend tauri build --target universal-apple-darwin
+        run: npx --prefix frontend tauri build --config crates/lumen-tauri/tauri.conf.json --target universal-apple-darwin
 
       - name: Build Standalone Universal CLI
         run: |
@@ -195,9 +193,7 @@ jobs:
         run: npm run build --prefix frontend
 
       - name: Build Tauri Bundles (.deb & AppImage)
-        run: |
-          cd crates/lumen-tauri
-          npx --prefix ../../frontend tauri build --bundles appimage,deb
+        run: npx --prefix frontend tauri build --config crates/lumen-tauri/tauri.conf.json --bundles appimage,deb
 
       - name: Build Standalone Linux CLI
         run: cargo build --release --bin lumen-cli
@@ -276,9 +272,7 @@ jobs:
 
       - name: Build Tauri NSIS Installer
         shell: pwsh
-        run: |
-          Set-Location crates/lumen-tauri
-          npx --prefix ../../frontend tauri build --bundles nsis
+        run: npx --prefix frontend tauri build --config crates/lumen-tauri/tauri.conf.json --bundles nsis
 
       - name: Build Standalone Windows CLI
         shell: pwsh
@@ -349,9 +343,7 @@ jobs:
 
       - name: Build Tauri NSIS ARM64 Installer
         shell: pwsh
-        run: |
-          Set-Location crates/lumen-tauri
-          npx --prefix ../../frontend tauri build --target aarch64-pc-windows-msvc --bundles nsis
+        run: npx --prefix frontend tauri build --config crates/lumen-tauri/tauri.conf.json --target aarch64-pc-windows-msvc --bundles nsis
 
       - name: Build Standalone Windows ARM64 CLI
         shell: pwsh
