@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="108" height="108">
+  <g transform="rotate(0 54 54)"><path fill="#38BDF8" d="M 54,26 C 65,26 76,36 76,47 C 76,52 70,54 63,54 C 59,44 54,35 54,26 Z"/></g>
+  <g transform="rotate(90 54 54)"><path fill="#60A5FA" d="M 54,26 C 65,26 76,36 76,47 C 76,52 70,54 63,54 C 59,44 54,35 54,26 Z"/></g>
+  <g transform="rotate(180 54 54)"><path fill="#818CF8" d="M 54,26 C 65,26 76,36 76,47 C 76,52 70,54 63,54 C 59,44 54,35 54,26 Z"/></g>
+  <g transform="rotate(270 54 54)"><path fill="#A78BFA" d="M 54,26 C 65,26 76,36 76,47 C 76,52 70,54 63,54 C 59,44 54,35 54,26 Z"/></g>
+  <circle cx="54" cy="54" r="7" fill="#FFFFFF"/>
+</svg>

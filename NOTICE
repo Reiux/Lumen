@@ -1,0 +1,7 @@
+Lumen (Rust port)
+Copyright (c) 2024 xob0t
+Copyright (c) 2024-2026 Reiux
+
+This product includes software developed by xob0t (https://github.com/xob0t/gotohp),
+which is the original creator and source of the unofficial Google Photos upload logic,
+device emulation parameters, and protocol reverse engineering.

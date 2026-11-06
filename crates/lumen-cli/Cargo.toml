@@ -1,0 +1,19 @@
+[package]
+name = "lumen-cli"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+lumen-core = { path = "../lumen-core" }
+tokio = { version = "1.43", features = ["full"] }
+clap = { version = "4.5", features = ["derive"] }
+indicatif = "0.17"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1.0"
+url = "2.5"
+
+[dev-dependencies]
+wiremock = "0.6"
+tempfile = "3.17"
+prost = "0.13"
