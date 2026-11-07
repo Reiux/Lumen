@@ -226,6 +226,15 @@ pub fn set_minimize_to_tray(v: bool, state: tauri::State<AppState>) -> Result<()
     })
 }
 
+#[cfg(target_os = "macos")]
+fn escape_xml_entity(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
 fn is_launch_on_startup_active() -> bool {
     #[cfg(windows)]
     {
@@ -248,6 +257,20 @@ fn is_launch_on_startup_active() -> bool {
             if plist.exists() {
                 return true;
             }
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let autostart_dir = if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+            std::path::PathBuf::from(xdg).join("autostart")
+        } else if let Ok(home) = std::env::var("HOME") {
+            std::path::PathBuf::from(home).join(".config").join("autostart")
+        } else {
+            std::path::PathBuf::from(".config").join("autostart")
+        };
+        let desktop_file = autostart_dir.join("lumen.desktop");
+        if desktop_file.exists() {
+            return true;
         }
     }
     false
@@ -287,15 +310,39 @@ pub fn set_launch_on_startup(v: bool, state: tauri::State<AppState>) -> Result<(
             if v {
                 let _ = std::fs::create_dir_all(&launch_agents);
                 if let Ok(exe) = std::env::current_exe() {
+                    let escaped_exe = escape_xml_entity(&exe.to_string_lossy());
                     let plist_content = format!(
                         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n    <key>Label</key>\n    <string>com.reiux.lumen</string>\n    <key>ProgramArguments</key>\n    <array>\n        <string>{}</string>\n    </array>\n    <key>RunAtLoad</key>\n    <true/>\n    <key>ProcessType</key>\n    <string>Interactive</string>\n</dict>\n</plist>",
-                        exe.to_string_lossy()
+                        escaped_exe
                     );
                     let _ = std::fs::write(&plist_path, plist_content);
                 }
             } else if plist_path.exists() {
                 let _ = std::fs::remove_file(&plist_path);
             }
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let autostart_dir = if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+            std::path::PathBuf::from(xdg).join("autostart")
+        } else if let Ok(home) = std::env::var("HOME") {
+            std::path::PathBuf::from(home).join(".config").join("autostart")
+        } else {
+            std::path::PathBuf::from(".config").join("autostart")
+        };
+        let desktop_file = autostart_dir.join("lumen.desktop");
+        if v {
+            let _ = std::fs::create_dir_all(&autostart_dir);
+            if let Ok(exe) = std::env::current_exe() {
+                let desktop_entry = format!(
+                    "[Desktop Entry]\nType=Application\nName=Lumen\nComment=Lumen Google Photos Uploader\nExec=\"{}\"\nTerminal=false\nCategories=Utility;\n",
+                    exe.to_string_lossy()
+                );
+                let _ = std::fs::write(&desktop_file, desktop_entry);
+            }
+        } else if desktop_file.exists() {
+            let _ = std::fs::remove_file(&desktop_file);
         }
     }
     state.config_manager.update(|cfg| {
@@ -1278,10 +1325,14 @@ pub fn test_notification(app: AppHandle) {
 #[tauri::command]
 pub fn open_url(app: AppHandle, url: String) -> Result<(), String> {
     let trimmed = url.trim();
-    if !trimmed.starts_with("https://") && !trimmed.starts_with("http://") {
+    let parsed = url::Url::parse(trimmed).map_err(|e| format!("Invalid URL: {}", e))?;
+    if parsed.scheme() != "http" && parsed.scheme() != "https" {
         return Err("Only http/https URLs are permitted to be opened".to_string());
     }
-    app.opener().open_url(trimmed, None::<&str>).map_err(|e| e.to_string())
+    if parsed.host_str().is_none() {
+        return Err("URL must specify a valid host".to_string());
+    }
+    app.opener().open_url(parsed.as_str(), None::<&str>).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

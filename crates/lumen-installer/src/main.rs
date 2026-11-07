@@ -145,8 +145,66 @@ async fn pick_directory(app: AppHandle) -> Result<Option<String>, String> {
     Ok(rx.await.unwrap_or(None))
 }
 
+fn is_safe_dedicated_install_dir(dir: &Path) -> bool {
+    let path_str = dir.to_string_lossy();
+    let normalized = path_str.replace('\\', "/");
+    let trimmed = normalized.trim_end_matches('/');
+
+    let parts: Vec<&str> = trimmed.split('/').filter(|s| !s.is_empty()).collect();
+    if parts.len() < 2 {
+        // Must have at least a parent and a folder name (cannot be root like / or C:)
+        return false;
+    }
+
+    let folder_name = parts[parts.len() - 1];
+    if !folder_name.eq_ignore_ascii_case("lumen") {
+        return false;
+    }
+
+    #[cfg(windows)]
+    {
+        for var in &["USERPROFILE", "APPDATA", "LOCALAPPDATA", "ProgramFiles", "ProgramFiles(x86)", "SystemRoot"] {
+            if let Ok(val) = env::var(var) {
+                let norm_val = val.replace('\\', "/");
+                if trimmed.eq_ignore_ascii_case(norm_val.trim_end_matches('/')) {
+                    return false;
+                }
+            }
+        }
+        if let Ok(userprofile) = env::var("USERPROFILE") {
+            let norm_up = userprofile.replace('\\', "/");
+            let up_trimmed = norm_up.trim_end_matches('/');
+            for sub in &["Desktop", "Downloads", "Documents", "Pictures", "Videos", "Music"] {
+                let sensitive = format!("{}/{}", up_trimmed, sub);
+                if trimmed.eq_ignore_ascii_case(&sensitive) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        if let Ok(home) = env::var("HOME") {
+            let h = home.trim_end_matches('/');
+            if trimmed == h {
+                return false;
+            }
+            for sub in &["Desktop", "Downloads", "Documents", "Pictures", "Videos", "Music"] {
+                let sensitive = format!("{}/{}", h, sub);
+                if trimmed.eq_ignore_ascii_case(&sensitive) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    true
+}
+
 #[tauri::command]
 fn is_app_running() -> bool {
+    let current_pid = std::process::id();
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -158,9 +216,35 @@ fn is_app_running() -> bool {
                 .creation_flags(CREATE_NO_WINDOW)
                 .output();
             if let Ok(out) = output {
-                let s = String::from_utf8_lossy(&out.stdout);
-                if s.to_lowercase().contains(&exe_name.to_lowercase()) {
-                    return true;
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                for line in stdout.lines() {
+                    let parts: Vec<&str> = line.split(',').collect();
+                    if parts.len() >= 2 {
+                        let name = parts[0].trim().trim_matches('"');
+                        let pid_str = parts[1].trim().trim_matches('"');
+                        if name.eq_ignore_ascii_case(exe_name) {
+                            if let Ok(pid) = pid_str.parse::<u32>() {
+                                if pid != current_pid {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        use std::process::Command;
+        let output = Command::new("pgrep").arg("-x").arg("lumen").output();
+        if let Ok(out) = output {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            for line in stdout.lines() {
+                if let Ok(pid) = line.trim().parse::<u32>() {
+                    if pid != current_pid {
+                        return true;
+                    }
                 }
             }
         }
@@ -170,20 +254,35 @@ fn is_app_running() -> bool {
 
 #[tauri::command]
 fn kill_running_app() -> Result<(), String> {
+    let current_pid = std::process::id();
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         use std::process::Command;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
-        let _ = Command::new("taskkill")
-            .args(["/F", "/IM", "Lumen.exe"])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output();
-        let _ = Command::new("taskkill")
-            .args(["/F", "/IM", "lumen.exe"])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output();
+        let pid_filter = format!("PID ne {}", current_pid);
+        for exe_name in &["Lumen.exe", "lumen.exe"] {
+            let _ = Command::new("taskkill")
+                .args(["/F", "/IM", exe_name, "/FI", &pid_filter])
+                .creation_flags(CREATE_NO_WINDOW)
+                .output();
+        }
         std::thread::sleep(std::time::Duration::from_millis(400));
+    }
+    #[cfg(not(windows))]
+    {
+        use std::process::Command;
+        let output = Command::new("pgrep").arg("-x").arg("lumen").output();
+        if let Ok(out) = output {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            for line in stdout.lines() {
+                if let Ok(pid) = line.trim().parse::<u32>() {
+                    if pid != current_pid {
+                        let _ = Command::new("kill").arg("-9").arg(pid.to_string()).output();
+                    }
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -344,13 +443,6 @@ async fn start_uninstall(purge_config: bool) -> Result<(), String> {
                 let lumen_config_dir = PathBuf::from(userprofile).join(".config").join("lumen");
                 let _ = fs::remove_dir_all(lumen_config_dir);
             }
-            #[cfg(unix)]
-            {
-                if let Ok(home) = env::var("HOME") {
-                    let lumen_config_dir = PathBuf::from(home).join(".config").join("lumen");
-                    let _ = fs::remove_dir_all(lumen_config_dir);
-                }
-            }
         }
 
         // 7. Remove installed files
@@ -368,6 +460,8 @@ async fn start_uninstall(purge_config: bool) -> Result<(), String> {
             false
         };
 
+        let is_dedicated = is_safe_dedicated_install_dir(&install_dir);
+
         if !is_running_from_install_dir {
             // Running as setup installer outside the install dir: delete everything directly!
             if install_dir.exists() {
@@ -375,26 +469,38 @@ async fn start_uninstall(purge_config: bool) -> Result<(), String> {
                 let _ = fs::remove_file(install_dir.join("lumen.exe"));
                 let _ = fs::remove_file(install_dir.join("lumen-cli.exe"));
                 let _ = fs::remove_file(install_dir.join("uninstall.exe"));
-                let _ = fs::remove_dir_all(&install_dir);
-                if install_dir.exists() {
-                    schedule_self_deletion(&install_dir);
+                if is_dedicated {
+                    let _ = fs::remove_dir_all(&install_dir);
+                    if install_dir.exists() {
+                        schedule_self_deletion(&install_dir, true);
+                    }
                 }
             }
         } else {
             // Running as uninstall.exe inside the install dir:
-            // Delete main binaries immediately, then schedule deletion of uninstall.exe and dir
+            // Delete main binaries immediately, then schedule deletion of uninstall.exe and dir if dedicated
             let _ = fs::remove_file(install_dir.join("Lumen.exe"));
             let _ = fs::remove_file(install_dir.join("lumen.exe"));
             let _ = fs::remove_file(install_dir.join("lumen-cli.exe"));
-            schedule_self_deletion(&install_dir);
+            schedule_self_deletion(&install_dir, is_dedicated);
         }
     }
 
     #[cfg(not(windows))]
     {
-        let _ = purge_config;
+        if purge_config {
+            if let Ok(home) = env::var("HOME") {
+                let lumen_config_dir = PathBuf::from(home).join(".config").join("lumen");
+                let _ = fs::remove_dir_all(lumen_config_dir);
+            }
+        }
         if install_dir.exists() {
-            let _ = fs::remove_dir_all(&install_dir);
+            let _ = fs::remove_file(install_dir.join("lumen"));
+            let _ = fs::remove_file(install_dir.join("lumen-cli"));
+            let _ = fs::remove_file(install_dir.join("uninstall"));
+            if is_safe_dedicated_install_dir(&install_dir) {
+                let _ = fs::remove_dir_all(&install_dir);
+            }
         }
     }
 
@@ -536,28 +642,38 @@ fn unregister_windows_uninstall() -> Result<(), String> {
 }
 
 #[cfg(windows)]
-fn schedule_self_deletion(install_dir: &Path) {
+fn schedule_self_deletion(install_dir: &Path, delete_dir: bool) {
     use std::os::windows::process::CommandExt;
     use std::process::Command;
 
     const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-    let dir = escape_powershell_single_quote(&install_dir.to_string_lossy());
+    let target_path = if delete_dir {
+        install_dir.to_path_buf()
+    } else {
+        install_dir.join("uninstall.exe")
+    };
+    let target = escape_powershell_single_quote(&target_path.to_string_lossy());
+
     let local_installer = env::var("LOCALAPPDATA")
         .map(|l| escape_powershell_single_quote(&PathBuf::from(l).join("com.reiux.lumen.installer").to_string_lossy()))
         .unwrap_or_default();
 
-    let script = if !local_installer.is_empty() {
-        format!(
-            "Start-Sleep -Seconds 2; Remove-Item -LiteralPath '{}' -Recurse -Force -ErrorAction SilentlyContinue; Remove-Item -LiteralPath '{}' -Recurse -Force -ErrorAction SilentlyContinue",
-            dir, local_installer
-        )
+    let remove_local_cmd = if !local_installer.is_empty() {
+        format!("Remove-Item -LiteralPath '{}' -Recurse -Force -ErrorAction SilentlyContinue; ", local_installer)
     } else {
-        format!(
-            "Start-Sleep -Seconds 2; Remove-Item -LiteralPath '{}' -Recurse -Force -ErrorAction SilentlyContinue",
-            dir
-        )
+        String::new()
     };
+
+    let script = format!(
+        "for ($i = 0; $i -lt 30; $i++) {{ \
+            Start-Sleep -Seconds 1; \
+            Remove-Item -LiteralPath '{}' -Recurse -Force -ErrorAction SilentlyContinue; \
+            {} \
+            if (-not (Test-Path -LiteralPath '{}')) {{ break }} \
+        }}",
+        target, remove_local_cmd, target
+    );
 
     let _ = Command::new("powershell")
         .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
@@ -595,4 +711,19 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running Lumen installer");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_safe_dedicated_install_dir() {
+        assert!(!is_safe_dedicated_install_dir(Path::new("/")));
+        assert!(!is_safe_dedicated_install_dir(Path::new("C:\\")));
+        assert!(!is_safe_dedicated_install_dir(Path::new("/home/user/Downloads")));
+        assert!(!is_safe_dedicated_install_dir(Path::new("C:\\Users\\User\\Desktop")));
+        assert!(is_safe_dedicated_install_dir(Path::new("/home/user/.local/share/Lumen")));
+        assert!(is_safe_dedicated_install_dir(Path::new("C:\\Users\\User\\AppData\\Local\\Programs\\Lumen")));
+    }
 }
