@@ -285,6 +285,31 @@ fn start_dragging(window: Window) -> Result<(), String> {
 
 #[tauri::command]
 fn show_window(window: Window) {
+    #[cfg(windows)]
+    {
+        if let Ok(hwnd) = window.hwnd() {
+            unsafe {
+                use std::ffi::c_void;
+                #[link(name = "dwmapi")]
+                extern "system" {
+                    fn DwmSetWindowAttribute(
+                        hwnd: *mut c_void,
+                        dwAttribute: u32,
+                        pvAttribute: *const c_void,
+                        cbAttribute: u32,
+                    ) -> i32;
+                }
+                // DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWCP_ROUND = 2
+                let preference: u32 = 2;
+                let _ = DwmSetWindowAttribute(
+                    hwnd.0 as *mut c_void,
+                    33,
+                    &preference as *const u32 as *const c_void,
+                    std::mem::size_of::<u32>() as u32,
+                );
+            }
+        }
+    }
     let _ = window.show();
     let _ = window.set_focus();
 }
