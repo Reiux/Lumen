@@ -4,7 +4,7 @@ use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager};
 
-pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
+pub fn setup_tray(app: &AppHandle) -> Result<tauri::tray::TrayIcon, Box<dyn std::error::Error>> {
     let open_i = MenuItemBuilder::with_id("open", "Open Lumen").build(app)?;
     let quit_i = MenuItemBuilder::with_id("quit", "Quit").build(app)?;
     let menu = MenuBuilder::new(app)
@@ -15,7 +15,7 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 
     let tray_icon = tauri::image::Image::from_bytes(include_bytes!("../icons/trayicon.png"))?;
 
-    let _tray = TrayIconBuilder::new()
+    let tray = TrayIconBuilder::with_id("main-tray")
         .icon(tray_icon)
         .tooltip("Lumen")
         .menu(&menu)
@@ -55,5 +55,5 @@ pub fn setup_tray(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
         })
         .build(app)?;
 
-    Ok(())
+    Ok(tray)
 }

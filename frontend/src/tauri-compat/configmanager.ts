@@ -59,8 +59,8 @@ export const ConfigManager = {
       return $models.UpdateInfo.createFrom(res);
     }
     return new $models.UpdateInfo({
-      currentVersion: '1.1.1',
-      latestVersion: '1.1.1',
+      currentVersion: '1.1.0',
+      latestVersion: '1.1.0',
       hasUpdate: false,
       releaseUrl: 'https://github.com/Reiux/Lumen/releases/latest',
       releaseNotes: '',

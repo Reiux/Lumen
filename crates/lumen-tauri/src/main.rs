@@ -170,7 +170,9 @@ fn main() {
             commands::log_frontend,
         ])
         .setup(|app| {
-            let _ = tray::setup_tray(app.handle());
+            if let Ok(tray) = tray::setup_tray(app.handle()) {
+                app.manage(tray);
+            }
 
             let app_handle = app.handle().clone();
             if let Some(window) = app.get_webview_window("main") {
@@ -241,55 +243,55 @@ fn main() {
 
             // Background Folder Watcher initialization matching Go main.go
             let ah_watcher = app_handle.clone();
-            let state = app_handle.state::<AppState>();
-            let cfg = state.config_manager.get_config();
+            tauri::async_runtime::spawn(async move {
+                let state = ah_watcher.state::<AppState>();
+                let cfg = state.config_manager.get_config();
 
-            let mut fw = lumen_core::watcher::FolderWatcher::new(Duration::from_millis(1500));
-            let mut initial_folders = std::collections::HashMap::new();
-            if cfg.preferences.watch_folders_enabled {
-                for c in &cfg.preferences.watched_folder_configs {
-                    if c.enabled {
-                        initial_folders.insert(std::path::PathBuf::from(&c.path), c.include_subfolders);
+                let mut fw = lumen_core::watcher::FolderWatcher::new(Duration::from_millis(1500));
+                let mut initial_folders = std::collections::HashMap::new();
+                if cfg.preferences.watch_folders_enabled {
+                    for c in &cfg.preferences.watched_folder_configs {
+                        if c.enabled {
+                            initial_folders.insert(std::path::PathBuf::from(&c.path), c.include_subfolders);
+                        }
                     }
                 }
-            }
-            let _ = fw.set_folders(initial_folders);
+                let _ = fw.set_folders(initial_folders);
 
-            let ah_event = ah_watcher.clone();
-            let _ = fw.start(move |ready_files| {
-                let state = ah_event.state::<AppState>();
-                let cfg = state.config_manager.get_config();
-                if !cfg.preferences.watch_folders_enabled {
-                    return;
-                }
-                let string_paths: Vec<String> = ready_files
-                    .iter()
-                    .map(|p| p.to_string_lossy().to_string())
-                    .collect();
-                if string_paths.is_empty() {
-                    return;
-                }
+                let ah_event = ah_watcher.clone();
+                let _ = fw.start(move |ready_files| {
+                    let state = ah_event.state::<AppState>();
+                    let cfg = state.config_manager.get_config();
+                    if !cfg.preferences.watch_folders_enabled {
+                        return;
+                    }
+                    let string_paths: Vec<String> = ready_files
+                        .iter()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .collect();
+                    if string_paths.is_empty() {
+                        return;
+                    }
 
-                let is_uploading = state.is_uploading.load(std::sync::atomic::Ordering::SeqCst);
-                if is_uploading {
-                    let mut pending = state.pending_watch_files.lock().unwrap();
-                    pending.extend(string_paths);
-                    return;
-                }
+                    let is_uploading = state.is_uploading.load(std::sync::atomic::Ordering::SeqCst);
+                    if is_uploading {
+                        let mut pending = state.pending_watch_files.lock().unwrap();
+                        pending.extend(string_paths);
+                        return;
+                    }
 
-                let _ = ah_event.emit(
-                    "folder-watch:detected",
-                    serde_json::json!({
-                        "files": &string_paths,
-                        "count": string_paths.len(),
-                    }),
-                );
+                    let _ = ah_event.emit(
+                        "folder-watch:detected",
+                        serde_json::json!({
+                            "files": &string_paths,
+                            "count": string_paths.len(),
+                        }),
+                    );
 
-                let _ = commands::execute_upload(string_paths, ah_event.clone(), (*state).clone(), true);
-            });
+                    let _ = commands::execute_upload(string_paths, ah_event.clone(), (*state).clone(), true);
+                });
 
-            let watcher_arc = state.watcher.clone();
-            tauri::async_runtime::spawn(async move {
+                let watcher_arc = state.watcher.clone();
                 let mut lock = watcher_arc.lock().await;
                 *lock = Some(fw);
             });

@@ -76,7 +76,7 @@ impl FolderWatcher {
         let debounce = self.debounce;
 
         // Background loop for debouncing and stability checks
-        tokio::spawn(async move {
+        let debounce_loop = async move {
             let mut ticker = tokio::time::interval(debounce);
             loop {
                 tokio::select! {
@@ -156,7 +156,23 @@ impl FolderWatcher {
                     }
                 }
             }
-        });
+        };
+
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            handle.spawn(debounce_loop);
+        } else {
+            std::thread::Builder::new()
+                .name("lumen-watcher".to_string())
+                .spawn(move || {
+                    if let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                    {
+                        rt.block_on(debounce_loop);
+                    }
+                })
+                .map_err(|e| format!("Failed to spawn watcher background thread: {}", e))?;
+        }
 
         Ok(())
     }

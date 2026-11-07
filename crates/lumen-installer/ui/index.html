@@ -586,7 +586,7 @@
       <div class="hero-area" data-tauri-drag-region>
         <div class="hero-text-align">
           <div class="hero-title" id="heroTitle">
-            Lumen <span class="version-tag">v1.1.1</span>
+            Lumen <span class="version-tag">v1.1.0</span>
           </div>
           <div class="hero-subtitle" id="heroSubtitle">
             Unofficial desktop client for Google Photos
@@ -693,6 +693,15 @@
     document.getElementById('btnMinimize').addEventListener('click', () => invoke('minimize_installer'));
     document.getElementById('btnClose').addEventListener('click', () => invoke('close_installer'));
 
+    // Enable smooth native window dragging on non-interactive areas
+    document.addEventListener('mousedown', (e) => {
+      if (e.buttons === 1) {
+        if (!e.target.closest('button, input, label, a, .custom-drawer, .bottom-actions')) {
+          invoke('start_dragging');
+        }
+      }
+    });
+
     // Drawer toggle
     const btnToggleCustom = document.getElementById('btnToggleCustom');
     const customDrawer = document.getElementById('customDrawer');
@@ -727,7 +736,7 @@
 
         if (isUninstallMode) {
           document.getElementById('windowTitle').textContent = "Lumen Uninstaller";
-          document.getElementById('heroTitle').innerHTML = "Uninstall Lumen";
+          document.getElementById('heroTitle').innerHTML = "Uninstall Lumen?";
           document.getElementById('heroSubtitle').textContent = "Remove Lumen and shortcuts from your computer";
           document.getElementById('btnToggleCustom').style.display = 'none';
           document.getElementById('customDrawer').style.display = 'none';

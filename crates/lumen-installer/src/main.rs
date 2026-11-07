@@ -218,6 +218,11 @@ fn close_installer(window: Window) {
     let _ = window.close();
 }
 
+#[tauri::command]
+fn start_dragging(window: Window) -> Result<(), String> {
+    window.start_dragging().map_err(|e| e.to_string())
+}
+
 #[cfg(windows)]
 fn create_windows_shortcut(target_exe: &Path, shortcut_path: &Path) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
@@ -291,13 +296,15 @@ fn schedule_self_deletion(install_dir: &Path) {
     use std::process::Command;
 
     const CREATE_NO_WINDOW: u32 = 0x08000000;
-    const DETACHED_PROCESS: u32 = 0x00000008;
 
     let dir = install_dir.to_string_lossy();
-    let cmd = format!("timeout /t 2 /nobreak > NUL & rmdir /s /q \"{}\"", dir);
-    let _ = Command::new("cmd.exe")
-        .args(["/C", &cmd])
-        .creation_flags(CREATE_NO_WINDOW | DETACHED_PROCESS)
+    let script = format!(
+        "Start-Sleep -Seconds 2; Remove-Item -LiteralPath '{}' -Recurse -Force -ErrorAction SilentlyContinue",
+        dir
+    );
+    let _ = Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
+        .creation_flags(CREATE_NO_WINDOW)
         .spawn();
 }
 
@@ -313,6 +320,7 @@ fn main() {
             launch_app,
             minimize_installer,
             close_installer,
+            start_dragging,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Lumen installer");
