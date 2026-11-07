@@ -26,6 +26,14 @@
       --m3-radius-lg: 24px;
       --m3-radius-full: 9999px;
       --m3-font: 'Segoe UI', system-ui, -apple-system, sans-serif;
+
+      /* M3 Expressive Motion Springs */
+      --m3-spring-fast-spatial: cubic-bezier(0.42, 1.67, 0.21, 0.90);
+      --m3-spring-default-spatial: cubic-bezier(0.38, 1.21, 0.22, 1.00);
+      --m3-spring-slow-spatial: cubic-bezier(0.39, 1.29, 0.35, 0.98);
+      --m3-spring-fast-effects: cubic-bezier(0.31, 0.94, 0.34, 1.00);
+      --m3-spring-default-effects: cubic-bezier(0.34, 0.80, 0.34, 1.00);
+      --m3-spring-slow-effects: cubic-bezier(0.34, 0.88, 0.34, 1.00);
     }
 
     * {
@@ -221,20 +229,55 @@
       max-height: 0;
       opacity: 0;
       overflow: hidden;
+      pointer-events: none;
+      transform: translateY(-8px) scale(0.98);
       background: var(--m3-surface-container);
-      border: 1px solid var(--m3-outline-variant);
+      border: 1px solid transparent;
       border-radius: var(--m3-radius-md);
       padding: 0 16px;
-      margin-bottom: 12px;
-      transition: max-height 0.3s cubic-bezier(0.2, 0, 0, 1),
-                  opacity 0.25s cubic-bezier(0.2, 0, 0, 1),
-                  padding 0.3s cubic-bezier(0.2, 0, 0, 1);
+      margin-bottom: 0;
+      transition:
+        max-height 0.42s var(--m3-spring-default-spatial),
+        transform 0.42s var(--m3-spring-default-spatial),
+        opacity 0.22s var(--m3-spring-default-effects),
+        padding 0.42s var(--m3-spring-default-spatial),
+        margin-bottom 0.42s var(--m3-spring-default-spatial),
+        border-color 0.22s var(--m3-spring-default-effects);
     }
 
     .custom-drawer.expanded {
-      max-height: 175px;
+      max-height: 220px;
       opacity: 1;
+      pointer-events: auto;
+      transform: translateY(0) scale(1);
+      border-color: var(--m3-outline-variant);
       padding: 14px 16px;
+      margin-bottom: 12px;
+    }
+
+    .custom-drawer.expanded .drawer-label,
+    .custom-drawer.expanded .drawer-row,
+    .custom-drawer.expanded .drawer-checkboxes {
+      animation: m3DrawerItemIn 0.35s var(--m3-spring-default-spatial) both;
+    }
+
+    .custom-drawer.expanded .drawer-row {
+      animation-delay: 35ms;
+    }
+
+    .custom-drawer.expanded .drawer-checkboxes {
+      animation-delay: 70ms;
+    }
+
+    @keyframes m3DrawerItemIn {
+      from {
+        opacity: 0;
+        transform: translateY(6px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
     }
 
     .drawer-label {
@@ -281,12 +324,18 @@
       font-size: 12px;
       font-weight: 500;
       cursor: pointer;
+      position: relative;
+      overflow: hidden;
       font-family: inherit;
-      transition: background 0.15s;
+      transition: background 0.15s, transform 0.2s var(--m3-spring-fast-spatial);
     }
 
     .btn-browse:hover {
       background: rgba(255, 255, 255, 0.12);
+    }
+
+    .btn-browse:active {
+      transform: scale(0.95);
     }
 
     .drawer-checkboxes {
@@ -303,6 +352,7 @@
       font-size: 13px;
       color: var(--m3-on-surface);
       cursor: pointer;
+      transition: color 0.15s ease;
     }
 
     .checkbox-label input {
@@ -310,6 +360,11 @@
       width: 16px;
       height: 16px;
       cursor: pointer;
+      transition: transform 0.2s var(--m3-spring-fast-spatial);
+    }
+
+    .checkbox-label:active input {
+      transform: scale(0.85);
     }
 
     /* Bottom Actions Row - Side-by-Side on the Right */
@@ -332,24 +387,28 @@
       font-weight: 600;
       font-family: inherit;
       cursor: pointer;
+      position: relative;
+      overflow: hidden;
       display: inline-flex;
       align-items: center;
       justify-content: center;
       box-shadow: 0 4px 12px rgba(168, 199, 250, 0.25);
-      transition: background 0.2s cubic-bezier(0.2, 0, 0, 1),
-                  transform 0.15s cubic-bezier(0.2, 0, 0, 1),
-                  border-radius 0.2s cubic-bezier(0.2, 0, 0, 1);
+      transition:
+        background 0.2s var(--m3-spring-fast-effects),
+        box-shadow 0.2s var(--m3-spring-fast-effects),
+        transform 0.35s var(--m3-spring-fast-spatial),
+        border-radius 0.35s var(--m3-spring-fast-spatial);
     }
 
     .btn-m3-primary:hover {
       background: #c3d9fb;
       box-shadow: 0 6px 18px rgba(168, 199, 250, 0.35);
-      border-radius: 18px;
+      border-radius: 20px;
     }
 
     .btn-m3-primary:active {
-      transform: scale(0.97);
-      border-radius: 14px;
+      transform: scale(0.94);
+      border-radius: 12px;
     }
 
     .btn-m3-tonal {
@@ -363,19 +422,27 @@
       font-weight: 500;
       font-family: inherit;
       cursor: pointer;
+      position: relative;
+      overflow: hidden;
       display: inline-flex;
       align-items: center;
       gap: 6px;
-      transition: background 0.15s, border-color 0.15s, transform 0.1s;
+      transition:
+        background 0.2s var(--m3-spring-fast-effects),
+        border-color 0.2s var(--m3-spring-fast-effects),
+        transform 0.35s var(--m3-spring-fast-spatial),
+        border-radius 0.35s var(--m3-spring-fast-spatial);
     }
 
     .btn-m3-tonal:hover {
       background: var(--m3-surface-container-highest);
       border-color: rgba(255, 255, 255, 0.2);
+      border-radius: 20px;
     }
 
     .btn-m3-tonal:active {
-      transform: scale(0.97);
+      transform: scale(0.94);
+      border-radius: 12px;
     }
 
     .btn-m3-danger {
@@ -389,14 +456,84 @@
       font-weight: 600;
       font-family: inherit;
       cursor: pointer;
+      position: relative;
+      overflow: hidden;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      transition: background 0.15s, transform 0.1s;
+      box-shadow: 0 4px 12px rgba(242, 184, 181, 0.2);
+      transition:
+        background 0.2s var(--m3-spring-fast-effects),
+        box-shadow 0.2s var(--m3-spring-fast-effects),
+        transform 0.35s var(--m3-spring-fast-spatial),
+        border-radius 0.35s var(--m3-spring-fast-spatial);
     }
 
     .btn-m3-danger:hover {
       background: #f7d2d0;
+      box-shadow: 0 6px 18px rgba(242, 184, 181, 0.3);
+      border-radius: 20px;
+    }
+
+    .btn-m3-danger:active {
+      transform: scale(0.94);
+      border-radius: 12px;
+    }
+
+    .m3-ripple {
+      position: absolute;
+      border-radius: 50%;
+      background: currentColor;
+      opacity: 0.25;
+      transform: scale(0);
+      pointer-events: none;
+      animation: m3Ripple 0.5s cubic-bezier(0.34, 0.8, 0.34, 1) forwards;
+    }
+
+    @keyframes m3Ripple {
+      to {
+        transform: scale(2.6);
+        opacity: 0;
+      }
+    }
+
+    /* Screen Transitions and Motion Classes */
+    .m3-screen-exit {
+      opacity: 0 !important;
+      transform: scale(0.95) translateY(-8px) !important;
+      transition: opacity 0.16s var(--m3-spring-fast-effects),
+                  transform 0.16s var(--m3-spring-default-spatial) !important;
+      pointer-events: none;
+    }
+
+    .m3-screen-enter {
+      animation: m3ScreenEnter 0.5s var(--m3-spring-slow-spatial) forwards;
+    }
+
+    @keyframes m3ScreenEnter {
+      0% {
+        opacity: 0;
+        transform: scale(0.92) translateY(14px);
+      }
+      100% {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+      }
+    }
+
+    .m3-shared-axis-enter {
+      animation: m3SharedAxisEnter 0.4s var(--m3-spring-default-spatial) forwards;
+    }
+
+    @keyframes m3SharedAxisEnter {
+      0% {
+        opacity: 0;
+        transform: translateY(10px) scale(0.98);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
     }
 
     /* Screen 2: Installing View */
@@ -579,6 +716,23 @@
       margin-top: 8px;
       line-height: 1.4;
       max-width: 380px;
+    }
+
+    #uninstallOptions {
+      background: var(--m3-surface-container);
+      border: 1px solid var(--m3-outline-variant);
+      border-radius: var(--m3-radius-sm);
+      padding: 12px 14px;
+      margin-bottom: 12px;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.05s !important;
+        transform: none !important;
+      }
     }
   </style>
 </head>
@@ -774,13 +928,46 @@
     const btnToggleCustomInstalled = document.getElementById('btnToggleCustomInstalled');
     const customDrawer = document.getElementById('customDrawer');
 
-    function toggleCustomDrawer(btn) {
+    function toggleCustomDrawer() {
       const isOpen = customDrawer.classList.toggle('expanded');
-      btn.textContent = isOpen ? "Hide Options" : "Customize";
+      const label = isOpen ? "Hide Options" : "Customize";
+      if (btnToggleCustom) btnToggleCustom.textContent = label;
+      if (btnToggleCustomInstalled) btnToggleCustomInstalled.textContent = label;
     }
 
-    if (btnToggleCustom) btnToggleCustom.addEventListener('click', () => toggleCustomDrawer(btnToggleCustom));
-    if (btnToggleCustomInstalled) btnToggleCustomInstalled.addEventListener('click', () => toggleCustomDrawer(btnToggleCustomInstalled));
+    if (btnToggleCustom) btnToggleCustom.addEventListener('click', toggleCustomDrawer);
+    if (btnToggleCustomInstalled) btnToggleCustomInstalled.addEventListener('click', toggleCustomDrawer);
+
+    // M3 Expressive state-layer ripple for interactive buttons
+    document.addEventListener('pointerdown', (e) => {
+      const btn = e.target.closest('.btn-m3-primary, .btn-m3-tonal, .btn-m3-danger, .btn-browse');
+      if (!btn) return;
+      const rect = btn.getBoundingClientRect();
+      const circle = document.createElement('span');
+      const d = Math.max(rect.width, rect.height);
+      circle.style.width = circle.style.height = `${d}px`;
+      circle.style.left = `${e.clientX - rect.left - d / 2}px`;
+      circle.style.top = `${e.clientY - rect.top - d / 2}px`;
+      circle.classList.add('m3-ripple');
+      btn.appendChild(circle);
+      setTimeout(() => circle.remove(), 600);
+    });
+
+    // M3 Expressive screen transition helper
+    function transitionScreens(fromEl, toEl, onMidpoint) {
+      fromEl.classList.add('m3-screen-exit');
+      document.body.classList.add('installing-active');
+      setTimeout(() => {
+        fromEl.style.display = 'none';
+        fromEl.classList.remove('m3-screen-exit');
+        toEl.style.display = 'flex';
+        toEl.classList.add('m3-screen-enter');
+        if (onMidpoint) onMidpoint();
+        setTimeout(() => {
+          toEl.classList.remove('m3-screen-enter');
+        }, 550);
+      }, 160);
+    }
 
     // Sync chkLaunchAfter with chkFinishLaunch
     document.getElementById('chkLaunchAfter').addEventListener('change', (e) => {
@@ -806,12 +993,23 @@
       document.getElementById('heroSubtitle').textContent = "Remove Lumen and shortcuts from your computer";
 
       customDrawer.classList.remove('expanded');
-      customDrawer.style.display = 'none';
+      if (btnToggleCustom) btnToggleCustom.textContent = "Customize";
+      if (btnToggleCustomInstalled) btnToggleCustomInstalled.textContent = "Customize";
 
       document.getElementById('normalActions').style.display = 'none';
       document.getElementById('installedActions').style.display = 'none';
-      document.getElementById('uninstallOptions').style.display = 'block';
-      document.getElementById('uninstallActions').style.display = 'flex';
+
+      const purgeBox = document.getElementById('uninstallOptions');
+      purgeBox.style.display = 'block';
+      purgeBox.classList.remove('m3-shared-axis-enter');
+      void purgeBox.offsetWidth;
+      purgeBox.classList.add('m3-shared-axis-enter');
+
+      const uActions = document.getElementById('uninstallActions');
+      uActions.style.display = 'flex';
+      uActions.classList.remove('m3-shared-axis-enter');
+      void uActions.offsetWidth;
+      uActions.classList.add('m3-shared-axis-enter');
     }
 
     function switchToInstalledUI() {
@@ -821,12 +1019,18 @@
       document.getElementById('heroSubtitle').textContent = "Lumen is installed on your computer. Choose an action below.";
 
       customDrawer.classList.remove('expanded');
-      customDrawer.style.display = 'none';
+      if (btnToggleCustom) btnToggleCustom.textContent = "Customize";
+      if (btnToggleCustomInstalled) btnToggleCustomInstalled.textContent = "Customize";
 
       document.getElementById('uninstallOptions').style.display = 'none';
       document.getElementById('uninstallActions').style.display = 'none';
       document.getElementById('normalActions').style.display = 'none';
-      document.getElementById('installedActions').style.display = 'flex';
+
+      const instActions = document.getElementById('installedActions');
+      instActions.style.display = 'flex';
+      instActions.classList.remove('m3-shared-axis-enter');
+      void instActions.offsetWidth;
+      instActions.classList.add('m3-shared-axis-enter');
     }
 
     function switchToFreshInstallUI() {
@@ -836,12 +1040,18 @@
       document.getElementById('heroSubtitle').textContent = "Unofficial desktop client for Google Photos";
 
       customDrawer.classList.remove('expanded');
-      customDrawer.style.display = 'none';
+      if (btnToggleCustom) btnToggleCustom.textContent = "Customize";
+      if (btnToggleCustomInstalled) btnToggleCustomInstalled.textContent = "Customize";
 
       document.getElementById('uninstallOptions').style.display = 'none';
       document.getElementById('uninstallActions').style.display = 'none';
       document.getElementById('installedActions').style.display = 'none';
-      document.getElementById('normalActions').style.display = 'flex';
+
+      const normActions = document.getElementById('normalActions');
+      normActions.style.display = 'flex';
+      normActions.classList.remove('m3-shared-axis-enter');
+      void normActions.offsetWidth;
+      normActions.classList.add('m3-shared-axis-enter');
     }
 
     // Initialize
@@ -879,13 +1089,19 @@
       await invoke('close_installer');
     });
 
-    document.getElementById('btnRepair').addEventListener('click', async () => {
-      document.getElementById('screenWelcome').style.display = 'none';
-      document.getElementById('screenInstalling').style.display = 'flex';
-      document.getElementById('installingTitle').textContent = "Repairing Lumen...";
+    document.getElementById('btnRepair').addEventListener('click', () => {
       const desktopShortcut = document.getElementById('chkDesktopShortcut').checked;
       const launchOnStartup = document.getElementById('chkStartupLaunch').checked;
-      await performInstall(installedTargetDir, desktopShortcut, launchOnStartup);
+
+      transitionScreens(
+        document.getElementById('screenWelcome'),
+        document.getElementById('screenInstalling'),
+        () => {
+          document.getElementById('installingTitle').textContent = "Repairing Lumen...";
+          document.getElementById('installingSubtitle').textContent = "Restoring application binaries...";
+          performInstall(installedTargetDir, desktopShortcut, launchOnStartup);
+        }
+      );
     });
 
     // Uninstall Screen handlers
@@ -901,17 +1117,22 @@
       }
     });
 
-    document.getElementById('btnConfirmUninstall').addEventListener('click', async () => {
-      await executeUninstallFlow();
+    document.getElementById('btnConfirmUninstall').addEventListener('click', () => {
+      executeUninstallFlow();
     });
 
-    async function executeUninstallFlow() {
-      document.getElementById('screenWelcome').style.display = 'none';
-      document.getElementById('screenInstalling').style.display = 'flex';
-      document.getElementById('installingTitle').textContent = "Uninstalling Lumen...";
-      document.getElementById('installingSubtitle').textContent = "Removing application files and shortcuts...";
+    function executeUninstallFlow() {
       const purge = document.getElementById('chkPurgeConfig') ? document.getElementById('chkPurgeConfig').checked : false;
-      await performUninstall(purge);
+
+      transitionScreens(
+        document.getElementById('screenWelcome'),
+        document.getElementById('screenInstalling'),
+        () => {
+          document.getElementById('installingTitle').textContent = "Uninstalling Lumen...";
+          document.getElementById('installingSubtitle').textContent = "Removing application files and shortcuts...";
+          performUninstall(purge);
+        }
+      );
     }
 
     // Error Box handlers
@@ -957,14 +1178,21 @@
     });
 
     // Main install button click (Fresh Setup)
-    document.getElementById('btnMainInstall').addEventListener('click', async () => {
-      document.getElementById('screenWelcome').style.display = 'none';
-      document.getElementById('screenInstalling').style.display = 'flex';
-      const targetDir = document.getElementById('installPathInput').value;
+    document.getElementById('btnMainInstall').addEventListener('click', () => {
+      const targetDir = document.getElementById('installPathInput').value || installedTargetDir;
       installedTargetDir = targetDir;
       const desktopShortcut = document.getElementById('chkDesktopShortcut').checked;
       const launchOnStartup = document.getElementById('chkStartupLaunch').checked;
-      await performInstall(targetDir, desktopShortcut, launchOnStartup);
+
+      transitionScreens(
+        document.getElementById('screenWelcome'),
+        document.getElementById('screenInstalling'),
+        () => {
+          document.getElementById('installingTitle').textContent = "Installing Lumen...";
+          document.getElementById('installingSubtitle').textContent = "Extracting application binaries...";
+          performInstall(targetDir, desktopShortcut, launchOnStartup);
+        }
+      );
     });
 
     // Update the Wavy Progress Bar
@@ -999,9 +1227,13 @@
         setTimeout(() => {
           setProgress(100, "Finishing setup...");
           setTimeout(() => {
-            // Transition to Screen 3 (Complete)
-            document.getElementById('screenInstalling').style.display = 'none';
-            document.getElementById('screenComplete').style.display = 'flex';
+            transitionScreens(
+              document.getElementById('screenInstalling'),
+              document.getElementById('screenComplete'),
+              () => {
+                document.body.classList.remove('installing-active');
+              }
+            );
 
             const finishBtn = document.getElementById('btnFinishAction');
             finishBtn.onclick = async () => {
@@ -1032,16 +1264,20 @@
         setTimeout(() => {
           setProgress(100, "Removal complete");
           setTimeout(() => {
-            document.getElementById('screenInstalling').style.display = 'none';
-            document.getElementById('screenComplete').style.display = 'flex';
+            transitionScreens(
+              document.getElementById('screenInstalling'),
+              document.getElementById('screenComplete'),
+              () => {
+                document.body.classList.remove('installing-active');
+                document.getElementById('completeTitle').textContent = "Uninstalled Successfully";
+                document.getElementById('completeSubtitle').textContent = "Lumen has been completely removed from your PC.";
+                document.getElementById('finishLaunchWrapper').style.display = 'none';
 
-            document.getElementById('completeTitle').textContent = "Uninstalled Successfully";
-            document.getElementById('completeSubtitle').textContent = "Lumen has been completely removed from your PC.";
-            document.getElementById('finishLaunchWrapper').style.display = 'none';
-
-            const finishBtn = document.getElementById('btnFinishAction');
-            finishBtn.textContent = "Close";
-            finishBtn.onclick = () => invoke('close_installer');
+                const finishBtn = document.getElementById('btnFinishAction');
+                finishBtn.textContent = "Close";
+                finishBtn.onclick = () => invoke('close_installer');
+              }
+            );
           }, 600);
         }, 600);
 
