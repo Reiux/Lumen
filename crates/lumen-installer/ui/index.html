@@ -419,24 +419,24 @@
       min-height: 18px;
     }
 
-    /* M3 Expressive Sinusoidal Wavy Progress */
+    /* Material 3 Expressive Wavy Progress Indicator */
     .m3-wavy-progress-wrapper {
-      width: 400px;
+      width: 380px;
       position: relative;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 8px;
+      gap: 12px;
+      margin-top: 14px;
     }
 
     .m3-wavy-svg-box {
       width: 100%;
-      height: 24px;
+      height: 16px;
       position: relative;
-      overflow: hidden;
-      border-radius: var(--m3-radius-full);
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: transparent;
+      border: none;
+      border-radius: 0;
     }
 
     .wavy-track {
@@ -444,60 +444,46 @@
       top: 50%;
       left: 0;
       width: 100%;
-      height: 2px;
-      background: rgba(255, 255, 255, 0.14);
+      height: 4px;
+      background: rgba(255, 255, 255, 0.12);
+      border-radius: 2px;
       transform: translateY(-50%);
     }
 
-    .wavy-wave-container {
+    .wavy-track-stop {
       position: absolute;
-      top: 0;
-      left: 0;
-      height: 100%;
-      width: 0%;
-      overflow: hidden;
-      transition: width 0.35s cubic-bezier(0.2, 0, 0, 1);
+      right: 0;
+      top: 50%;
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.28);
+      transform: translateY(-50%);
     }
 
     .wavy-svg {
       position: absolute;
       top: 0;
       left: 0;
-      height: 100%;
-      width: 520px;
-      animation: wavyFlow 1.6s linear infinite;
+      width: 100%;
+      height: 16px;
+      overflow: visible;
     }
 
-    @keyframes wavyFlow {
-      0% { transform: translateX(0); }
-      100% { transform: translateX(-48px); }
-    }
-
-    .wavy-path {
+    .wavy-indicator {
       fill: none;
       stroke: var(--m3-primary);
-      stroke-width: 3.5px;
+      stroke-width: 4px;
       stroke-linecap: round;
       stroke-linejoin: round;
-      filter: drop-shadow(0 0 6px rgba(168, 199, 250, 0.6));
-    }
-
-    .wavy-stop-dot {
-      position: absolute;
-      right: 0;
-      top: 50%;
-      transform: translateY(-50%);
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      background: var(--m3-primary);
-      box-shadow: 0 0 8px rgba(168, 199, 250, 0.8);
+      filter: drop-shadow(0 0 6px rgba(168, 199, 250, 0.5));
+      transition: stroke-dashoffset 0.4s cubic-bezier(0.2, 0, 0, 1);
     }
 
     .progress-percent-label {
-      font-size: 12px;
-      font-weight: 500;
-      color: var(--m3-on-surface-variant);
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--m3-primary);
       letter-spacing: 0.5px;
     }
 
@@ -679,25 +665,10 @@
       <div class="m3-wavy-progress-wrapper" id="progressWrapper">
         <div class="m3-wavy-svg-box">
           <div class="wavy-track"></div>
-          <div class="wavy-wave-container" id="wavyWaveContainer">
-            <svg class="wavy-svg" viewBox="0 0 480 24" preserveAspectRatio="none">
-              <!-- Sinusoidal wave repeating continuously -->
-              <path class="wavy-path" d="
-                M 0 12
-                Q 12 3, 24 12 T 48 12
-                Q 60 3, 72 12 T 96 12
-                Q 108 3, 120 12 T 144 12
-                Q 156 3, 168 12 T 192 12
-                Q 204 3, 216 12 T 240 12
-                Q 252 3, 264 12 T 288 12
-                Q 300 3, 312 12 T 336 12
-                Q 348 3, 360 12 T 384 12
-                Q 396 3, 408 12 T 432 12
-                Q 444 3, 456 12 T 480 12
-              "/>
-            </svg>
-            <div class="wavy-stop-dot"></div>
-          </div>
+          <div class="wavy-track-stop"></div>
+          <svg class="wavy-svg" viewBox="0 0 380 16">
+            <path id="wavyIndicator" class="wavy-indicator" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100" d="M 0 8 C 5.5 4.5, 13.5 4.5, 19.0 8 C 24.5 11.5, 32.5 11.5, 38.0 8 C 43.5 4.5, 51.5 4.5, 57.0 8 C 62.5 11.5, 70.5 11.5, 76.0 8 C 81.5 4.5, 89.5 4.5, 95.0 8 C 100.5 11.5, 108.5 11.5, 114.0 8 C 119.5 4.5, 127.5 4.5, 133.0 8 C 138.5 11.5, 146.5 11.5, 152.0 8 C 157.5 4.5, 165.5 4.5, 171.0 8 C 176.5 11.5, 184.5 11.5, 190.0 8 C 195.5 4.5, 203.5 4.5, 209.0 8 C 214.5 11.5, 222.5 11.5, 228.0 8 C 233.5 4.5, 241.5 4.5, 247.0 8 C 252.5 11.5, 260.5 11.5, 266.0 8 C 271.5 4.5, 279.5 4.5, 285.0 8 C 290.5 11.5, 298.5 11.5, 304.0 8 C 309.5 4.5, 317.5 4.5, 323.0 8 C 328.5 11.5, 336.5 11.5, 342.0 8 C 347.5 4.5, 355.5 4.5, 361.0 8 C 366.5 11.5, 374.5 11.5, 380.0 8" />
+          </svg>
         </div>
         <div class="progress-percent-label" id="progressPercentLabel">0%</div>
       </div>
@@ -900,7 +871,11 @@
       if (statusText) {
         document.getElementById('installingSubtitle').textContent = statusText;
       }
-      document.getElementById('wavyWaveContainer').style.width = pct + "%";
+      const indicator = document.getElementById('wavyIndicator');
+      if (indicator) {
+        const clamped = Math.max(0, Math.min(100, pct));
+        indicator.style.strokeDashoffset = (100 - clamped);
+      }
       document.getElementById('progressPercentLabel').textContent = pct + "%";
     }
 
