@@ -21,6 +21,11 @@ pub struct SetupInfo {
 }
 
 fn get_installed_dir() -> Option<PathBuf> {
+    let current_exe_dir = env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .and_then(|d| d.canonicalize().ok());
+
     #[cfg(windows)]
     {
         use winreg::enums::*;
@@ -28,30 +33,49 @@ fn get_installed_dir() -> Option<PathBuf> {
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         if let Ok(key) = hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Lumen") {
             if let Ok(loc) = key.get_value::<String, _>("InstallLocation") {
-                let p = PathBuf::from(loc);
-                if p.exists() {
+                let p = PathBuf::from(&loc);
+                if p.join("Lumen.exe").is_file() || p.join("lumen.exe").is_file() {
                     return Some(p);
                 }
             }
         }
     }
     let default_dir = get_default_install_dir();
-    if default_dir.join("Lumen.exe").exists() || default_dir.join("lumen.exe").exists() {
-        return Some(default_dir);
+    if default_dir.join("Lumen.exe").is_file() || default_dir.join("lumen.exe").is_file() {
+        if let Ok(canon_default) = default_dir.canonicalize() {
+            if let Some(ref cur) = current_exe_dir {
+                if canon_default != *cur {
+                    return Some(default_dir);
+                }
+            } else {
+                return Some(default_dir);
+            }
+        } else {
+            return Some(default_dir);
+        }
     }
     None
 }
 
 fn check_if_installed(install_dir: &Path) -> bool {
-    if install_dir.join("Lumen.exe").exists() || install_dir.join("lumen.exe").exists() {
-        return true;
+    let current_exe_dir = env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .and_then(|d| d.canonicalize().ok());
+
+    if install_dir.join("Lumen.exe").is_file() || install_dir.join("lumen.exe").is_file() {
+        if let Ok(canon_target) = install_dir.canonicalize() {
+            if let Some(ref cur) = current_exe_dir {
+                if canon_target != *cur {
+                    return true;
+                }
+            } else {
+                return true;
+            }
+        }
     }
-    #[cfg(windows)]
-    {
-        use winreg::enums::*;
-        use winreg::RegKey;
-        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-        if hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Lumen").is_ok() {
+    if let Some(installed) = get_installed_dir() {
+        if installed.join("Lumen.exe").is_file() || installed.join("lumen.exe").is_file() {
             return true;
         }
     }
@@ -79,7 +103,8 @@ fn is_uninstall_invocation() -> bool {
     }
     if let Ok(exe) = env::current_exe() {
         if let Some(stem) = exe.file_stem() {
-            if stem.to_string_lossy().to_lowercase().contains("uninstall") {
+            let stem_str = stem.to_string_lossy().to_lowercase();
+            if stem_str.contains("uninstall") {
                 return true;
             }
         }
@@ -111,11 +136,19 @@ fn get_setup_info() -> SetupInfo {
     let default_dir = get_default_install_dir();
     let installed_dir = get_installed_dir();
     let is_installed = installed_dir.is_some() || check_if_installed(&default_dir);
-    let default_path = if is_uninstall || is_installed {
-        if let Some(dir) = installed_dir {
+
+    #[cfg(windows)]
+    {
+        // If registry entry exists but no actual installed binaries exist on disk,
+        // clean up the orphaned registry key so it doesn't falsely indicate installation
+        if !is_installed {
+            let _ = unregister_windows_uninstall();
+        }
+    }
+
+    let default_path = if is_installed {
+        if let Some(ref dir) = installed_dir {
             dir.to_string_lossy().to_string()
-        } else if let Ok(exe) = env::current_exe() {
-            exe.parent().unwrap_or_else(|| Path::new(".")).to_string_lossy().to_string()
         } else {
             default_dir.to_string_lossy().to_string()
         }
@@ -145,8 +178,31 @@ async fn pick_directory(app: AppHandle) -> Result<Option<String>, String> {
     Ok(rx.await.unwrap_or(None))
 }
 
+fn normalize_path(path: &Path) -> PathBuf {
+    let s = path.to_string_lossy().replace('\\', "/");
+    let mut parts: Vec<&str> = Vec::new();
+    let has_root = s.starts_with('/');
+    for part in s.split('/') {
+        if part.is_empty() || part == "." {
+            continue;
+        }
+        if part == ".." {
+            parts.pop();
+        } else {
+            parts.push(part);
+        }
+    }
+    let res = if has_root {
+        format!("/{}", parts.join("/"))
+    } else {
+        parts.join("/")
+    };
+    PathBuf::from(res)
+}
+
 fn is_safe_dedicated_install_dir(dir: &Path) -> bool {
-    let path_str = dir.to_string_lossy();
+    let clean = normalize_path(dir);
+    let path_str = clean.to_string_lossy();
     let normalized = path_str.replace('\\', "/");
     let trimmed = normalized.trim_end_matches('/');
 
@@ -205,31 +261,59 @@ fn is_safe_dedicated_install_dir(dir: &Path) -> bool {
 #[tauri::command]
 fn is_app_running() -> bool {
     let current_pid = std::process::id();
+    let current_exe_canon = env::current_exe()
+        .ok()
+        .and_then(|p| p.canonicalize().ok());
+
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         use std::process::Command;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
-        for exe_name in &["Lumen.exe", "lumen.exe"] {
-            let output = Command::new("tasklist")
-                .args(["/FI", &format!("IMAGENAME eq {}", exe_name), "/FO", "CSV", "/NH"])
-                .creation_flags(CREATE_NO_WINDOW)
-                .output();
-            if let Ok(out) = output {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                for line in stdout.lines() {
-                    let parts: Vec<&str> = line.split(',').collect();
-                    if parts.len() >= 2 {
-                        let name = parts[0].trim().trim_matches('"');
-                        let pid_str = parts[1].trim().trim_matches('"');
-                        if name.eq_ignore_ascii_case(exe_name) {
-                            if let Ok(pid) = pid_str.parse::<u32>() {
-                                if pid != current_pid {
-                                    return true;
+
+        let script = format!(
+            "$curPid = {}; \
+             $procs = Get-Process -Name Lumen, lumen -ErrorAction SilentlyContinue | Where-Object {{ $_.Id -ne $curPid }}; \
+             foreach ($p in $procs) {{ \
+                 try {{ \
+                     $pPath = $p.Path; \
+                     if ($pPath) {{ Write-Output \"$($p.Id)|$pPath\" }} \
+                     else {{ Write-Output \"$($p.Id)|\" }} \
+                 }} catch {{ \
+                     Write-Output \"$($p.Id)|\" \
+                 }} \
+             }}",
+            current_pid
+        );
+
+        let output = Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+
+        if let Ok(out) = output {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            for line in stdout.lines() {
+                let trimmed = line.trim();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                let parts: Vec<&str> = trimmed.split('|').collect();
+                if let Ok(pid) = parts[0].parse::<u32>() {
+                    if pid == current_pid {
+                        continue;
+                    }
+                    if parts.len() > 1 && !parts[1].is_empty() {
+                        let proc_path = PathBuf::from(parts[1]);
+                        if let Some(ref cur) = current_exe_canon {
+                            if let Ok(canon_proc) = proc_path.canonicalize() {
+                                if canon_proc == *cur {
+                                    continue;
                                 }
                             }
                         }
                     }
+                    return true;
                 }
             }
         }
@@ -243,6 +327,15 @@ fn is_app_running() -> bool {
             for line in stdout.lines() {
                 if let Ok(pid) = line.trim().parse::<u32>() {
                     if pid != current_pid {
+                        if let Some(ref cur) = current_exe_canon {
+                            if let Ok(proc_exe) = std::fs::read_link(format!("/proc/{}/exe", pid)) {
+                                if let Ok(canon_proc) = proc_exe.canonicalize() {
+                                    if canon_proc == *cur {
+                                        continue;
+                                    }
+                                }
+                            }
+                        }
                         return true;
                     }
                 }
@@ -255,18 +348,29 @@ fn is_app_running() -> bool {
 #[tauri::command]
 fn kill_running_app() -> Result<(), String> {
     let current_pid = std::process::id();
+
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         use std::process::Command;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
-        let pid_filter = format!("PID ne {}", current_pid);
-        for exe_name in &["Lumen.exe", "lumen.exe"] {
-            let _ = Command::new("taskkill")
-                .args(["/F", "/IM", exe_name, "/FI", &pid_filter])
-                .creation_flags(CREATE_NO_WINDOW)
-                .output();
-        }
+
+        let script = format!(
+            "$curPid = {}; \
+             $procs = Get-Process -Name Lumen, lumen -ErrorAction SilentlyContinue | Where-Object {{ $_.Id -ne $curPid }}; \
+             foreach ($p in $procs) {{ \
+                 try {{ \
+                     Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue \
+                 }} catch {{}} \
+             }}",
+            current_pid
+        );
+
+        let _ = Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+
         std::thread::sleep(std::time::Duration::from_millis(400));
     }
     #[cfg(not(windows))]
@@ -386,13 +490,6 @@ async fn start_uninstall(purge_config: bool) -> Result<(), String> {
 
     let install_dir = if let Some(dir) = get_installed_dir() {
         dir
-    } else if let Ok(exe) = env::current_exe() {
-        let parent = exe.parent().unwrap_or_else(|| Path::new(".")).to_path_buf();
-        if parent.join("Lumen.exe").exists() || parent.join("lumen.exe").exists() {
-            parent
-        } else {
-            get_default_install_dir()
-        }
     } else {
         get_default_install_dir()
     };
@@ -571,7 +668,7 @@ fn show_window(window: Window) {
 
 #[cfg(windows)]
 fn escape_powershell_single_quote(s: &str) -> String {
-    s.replace('\'', "''").replace(['\r', '\n', '\0'], "")
+    s.replace('\'', "''").replace(['\r', '\n', '\0', ';', '`', '$'], "")
 }
 
 #[cfg(windows)]
@@ -723,6 +820,8 @@ mod tests {
         assert!(!is_safe_dedicated_install_dir(Path::new("C:\\")));
         assert!(!is_safe_dedicated_install_dir(Path::new("/home/user/Downloads")));
         assert!(!is_safe_dedicated_install_dir(Path::new("C:\\Users\\User\\Desktop")));
+        assert!(!is_safe_dedicated_install_dir(Path::new("C:\\Users\\User\\Downloads\\Lumen\\..")));
+        assert!(!is_safe_dedicated_install_dir(Path::new("/home/user/Desktop/Lumen/..")));
         assert!(is_safe_dedicated_install_dir(Path::new("/home/user/.local/share/Lumen")));
         assert!(is_safe_dedicated_install_dir(Path::new("C:\\Users\\User\\AppData\\Local\\Programs\\Lumen")));
     }

@@ -335,9 +335,10 @@ pub fn set_launch_on_startup(v: bool, state: tauri::State<AppState>) -> Result<(
         if v {
             let _ = std::fs::create_dir_all(&autostart_dir);
             if let Ok(exe) = std::env::current_exe() {
+                let clean_exe = exe.to_string_lossy().replace(['\r', '\n'], "").replace('"', "\\\"");
                 let desktop_entry = format!(
                     "[Desktop Entry]\nType=Application\nName=Lumen\nComment=Lumen Google Photos Uploader\nExec=\"{}\"\nTerminal=false\nCategories=Utility;\n",
-                    exe.to_string_lossy()
+                    clean_exe
                 );
                 let _ = std::fs::write(&desktop_file, desktop_entry);
             }
