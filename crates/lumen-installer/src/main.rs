@@ -220,7 +220,10 @@ fn close_installer(window: Window) {
 
 #[cfg(windows)]
 fn create_windows_shortcut(target_exe: &Path, shortcut_path: &Path) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
     use std::process::Command;
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
     let target = target_exe.to_string_lossy();
     let shortcut = shortcut_path.to_string_lossy();
     let script = format!(
@@ -228,7 +231,8 @@ fn create_windows_shortcut(target_exe: &Path, shortcut_path: &Path) -> Result<()
         shortcut, target
     );
     let output = Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .creation_flags(CREATE_NO_WINDOW)
+        .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
         .output()
         .map_err(|e| format!("PowerShell shortcut creation failed: {}", e))?;
     if !output.status.success() {
@@ -252,7 +256,7 @@ fn register_windows_uninstall(
         .map_err(|e| e.to_string())?;
 
     key.set_value("DisplayName", &"Lumen").map_err(|e| e.to_string())?;
-    key.set_value("DisplayVersion", &"1.1.0").map_err(|e| e.to_string())?;
+    key.set_value("DisplayVersion", &env!("CARGO_PKG_VERSION")).map_err(|e| e.to_string())?;
     key.set_value("Publisher", &"Reiux").map_err(|e| e.to_string())?;
     key.set_value("InstallLocation", &install_dir.to_string_lossy().to_string())
         .map_err(|e| e.to_string())?;

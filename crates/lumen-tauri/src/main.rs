@@ -23,6 +23,17 @@ mod tray;
 use commands::AppState;
 
 fn main() {
+    std::panic::set_hook(Box::new(|info| {
+        let backtrace = std::backtrace::Backtrace::capture();
+        let msg = format!("Lumen Crash Report:\nInfo: {}\nBacktrace:\n{:?}\n", info, backtrace);
+        eprintln!("{}", msg);
+        let config_path = determine_config_path(None);
+        if let Some(dir) = config_path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+            let _ = std::fs::write(dir.join("crash.log"), msg);
+        }
+    }));
+
     // Linux WebKit flicker workaround matching Go app
     if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
         std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
@@ -205,7 +216,7 @@ fn main() {
                     let info = checker
                         .check_for_updates(
                             lumen_core::updater::DEFAULT_RELEASES_URL,
-                            "1.1.0",
+                            env!("CARGO_PKG_VERSION"),
                             false,
                             0,
                         )

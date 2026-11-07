@@ -6,22 +6,21 @@
   <title>Lumen Setup</title>
   <style>
     :root {
-      --m3-surface: #131316;
-      --m3-surface-container: #1d1e22;
-      --m3-surface-container-high: #292a30;
-      --m3-surface-container-highest: #34353d;
+      --m3-surface: #121316;
+      --m3-surface-container: #1b1c20;
+      --m3-surface-container-high: #26272c;
+      --m3-surface-container-highest: #32333a;
       --m3-primary: #a8c7fa;
       --m3-on-primary: #042f6e;
       --m3-primary-container: #0842a0;
       --m3-on-primary-container: #d3e3fd;
-      --m3-secondary-container: #33445c;
+      --m3-secondary-container: #2e3542;
       --m3-on-secondary-container: #d7e3f8;
       --m3-error: #f2b8b5;
       --m3-on-error: #601410;
       --m3-on-surface: #e3e2e6;
       --m3-on-surface-variant: #c4c6d0;
-      --m3-outline: #8e9099;
-      --m3-outline-variant: rgba(255, 255, 255, 0.12);
+      --m3-outline-variant: rgba(255, 255, 255, 0.10);
       --m3-radius-sm: 8px;
       --m3-radius-md: 16px;
       --m3-radius-lg: 24px;
@@ -42,6 +41,7 @@
       color: var(--m3-on-surface);
       font-family: var(--m3-font);
       height: 100vh;
+      width: 100vw;
       overflow: hidden;
       display: flex;
       flex-direction: column;
@@ -50,7 +50,7 @@
       position: relative;
     }
 
-    /* Background Artwork */
+    /* Background Layer with Transparent Pinwheel Artwork */
     .bg-artwork {
       position: absolute;
       inset: 0;
@@ -59,25 +59,24 @@
       z-index: 0;
     }
 
-    .bg-logo {
+    .pinwheel-svg-bg {
       position: absolute;
-      left: -50px;
+      left: -20px;
       top: 50%;
       transform: translateY(-50%);
-      width: 340px;
-      height: 340px;
-      opacity: 0.20;
-      filter: drop-shadow(0 0 40px rgba(168, 199, 250, 0.35));
-      transition: opacity 0.5s ease, transform 0.5s ease;
+      width: 320px;
+      height: 320px;
+      opacity: 0.28;
+      filter: drop-shadow(0 0 35px rgba(56, 189, 248, 0.35));
     }
 
     .bg-white-overlay {
       position: absolute;
       inset: 0;
-      background: radial-gradient(circle at 20% 50%, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 65%, transparent 100%),
-                  linear-gradient(135deg, rgba(255, 255, 255, 0.04) 0%, rgba(0, 0, 0, 0.25) 100%);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
+      background: radial-gradient(circle at 140px 50%, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.02) 65%, transparent 100%),
+                  linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0%, rgba(0, 0, 0, 0.25) 100%);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
     }
 
     /* Window Titlebar */
@@ -86,8 +85,8 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 0 12px;
-      z-index: 10;
+      padding: 0 14px;
+      z-index: 20;
       cursor: default;
     }
 
@@ -141,18 +140,17 @@
       color: #ffffff;
     }
 
-    /* Main View Container */
+    /* Main Viewport Container */
     .view-container {
       flex: 1;
       display: flex;
       flex-direction: column;
       position: relative;
-      z-index: 5;
-      padding: 12px 32px 28px 32px;
+      z-index: 10;
+      padding: 8px 32px 24px 32px;
       overflow: hidden;
     }
 
-    /* View 1: Welcome & Setup */
     .screen {
       flex: 1;
       display: flex;
@@ -166,23 +164,26 @@
       to { opacity: 1; transform: translateY(0); }
     }
 
-    .hero-split {
+    /* Hero Text positioned starting from the logo center dot going right */
+    .hero-area {
+      flex: 1;
       display: flex;
       align-items: center;
-      height: 200px;
       position: relative;
     }
 
-    .hero-text-block {
+    .hero-text-align {
       margin-left: 170px;
-      z-index: 2;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
     }
 
     .hero-title {
-      font-size: 46px;
+      font-size: 48px;
       font-weight: 700;
-      letter-spacing: -0.5px;
-      line-height: 1.1;
+      letter-spacing: -0.8px;
+      line-height: 1.05;
       color: #ffffff;
       display: flex;
       align-items: baseline;
@@ -198,120 +199,19 @@
       color: var(--m3-primary);
       border: 1px solid rgba(168, 199, 250, 0.25);
       vertical-align: middle;
+      letter-spacing: 0;
     }
 
     .hero-subtitle {
       font-size: 15px;
       font-weight: 400;
-      color: rgba(255, 255, 255, 0.72);
-      margin-top: 6px;
+      color: rgba(255, 255, 255, 0.75);
+      margin-top: 8px;
       line-height: 1.4;
-      max-width: 360px;
+      max-width: 380px;
     }
 
-    /* Center Action Area */
-    .center-actions {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 8px;
-    }
-
-    .btn-m3-primary {
-      background: var(--m3-primary);
-      color: var(--m3-on-primary);
-      border: none;
-      border-radius: var(--m3-radius-full);
-      height: 48px;
-      padding: 0 40px;
-      font-size: 15px;
-      font-weight: 600;
-      font-family: inherit;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      box-shadow: 0 4px 14px rgba(168, 199, 250, 0.25);
-      transition: background 0.2s cubic-bezier(0.2, 0, 0, 1),
-                  transform 0.15s cubic-bezier(0.2, 0, 0, 1),
-                  border-radius 0.2s cubic-bezier(0.2, 0, 0, 1);
-    }
-
-    .btn-m3-primary:hover {
-      background: #c3d9fb;
-      box-shadow: 0 6px 20px rgba(168, 199, 250, 0.35);
-      border-radius: 20px;
-    }
-
-    .btn-m3-primary:active {
-      transform: scale(0.97);
-      border-radius: 16px;
-    }
-
-    .btn-m3-danger {
-      background: var(--m3-error);
-      color: var(--m3-on-error);
-      border: none;
-      border-radius: var(--m3-radius-full);
-      height: 48px;
-      padding: 0 36px;
-      font-size: 15px;
-      font-weight: 600;
-      font-family: inherit;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 8px;
-      transition: background 0.15s, transform 0.1s, border-radius 0.2s;
-    }
-
-    .btn-m3-danger:hover {
-      background: #f7d2d0;
-      border-radius: 20px;
-    }
-
-    .btn-m3-danger:active {
-      transform: scale(0.97);
-      border-radius: 16px;
-    }
-
-    .btn-m3-text {
-      background: transparent;
-      color: var(--m3-on-surface-variant);
-      border: none;
-      border-radius: var(--m3-radius-full);
-      height: 32px;
-      padding: 0 16px;
-      font-size: 13px;
-      font-weight: 500;
-      font-family: inherit;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      transition: background 0.15s, color 0.15s;
-    }
-
-    .btn-m3-text:hover {
-      background: rgba(255, 255, 255, 0.06);
-      color: var(--m3-on-surface);
-    }
-
-    .btn-m3-text svg {
-      width: 16px;
-      height: 16px;
-      fill: currentColor;
-      transition: transform 0.2s cubic-bezier(0.2, 0, 0, 1);
-    }
-
-    .btn-m3-text.open svg {
-      transform: rotate(180deg);
-    }
-
-    /* Custom Options Drawer */
+    /* Custom Drawer Card */
     .custom-drawer {
       max-height: 0;
       opacity: 0;
@@ -320,16 +220,26 @@
       border: 1px solid var(--m3-outline-variant);
       border-radius: var(--m3-radius-md);
       padding: 0 16px;
-      margin-top: 6px;
+      margin-bottom: 12px;
       transition: max-height 0.3s cubic-bezier(0.2, 0, 0, 1),
                   opacity 0.25s cubic-bezier(0.2, 0, 0, 1),
                   padding 0.3s cubic-bezier(0.2, 0, 0, 1);
     }
 
     .custom-drawer.expanded {
-      max-height: 160px;
+      max-height: 150px;
       opacity: 1;
       padding: 14px 16px;
+    }
+
+    .drawer-label {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: var(--m3-on-surface-variant);
+      margin-bottom: 6px;
+      display: block;
     }
 
     .drawer-row {
@@ -337,14 +247,6 @@
       align-items: center;
       gap: 8px;
       margin-bottom: 12px;
-    }
-
-    .drawer-label {
-      font-size: 12px;
-      font-weight: 500;
-      color: var(--m3-on-surface-variant);
-      margin-bottom: 4px;
-      display: block;
     }
 
     .drawer-input {
@@ -384,23 +286,111 @@
 
     .drawer-checkboxes {
       display: flex;
-      gap: 20px;
+      align-items: center;
+      gap: 24px;
     }
 
     .checkbox-label {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      font-size: 12px;
-      color: var(--m3-on-surface-variant);
+      font-size: 13px;
+      color: var(--m3-on-surface);
       cursor: pointer;
     }
 
     .checkbox-label input {
       accent-color: var(--m3-primary);
-      width: 15px;
-      height: 15px;
+      width: 16px;
+      height: 16px;
       cursor: pointer;
+    }
+
+    /* Bottom Actions Row - Side-by-Side on the Right */
+    .bottom-actions {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 12px;
+      padding-top: 10px;
+    }
+
+    .btn-m3-primary {
+      background: var(--m3-primary);
+      color: var(--m3-on-primary);
+      border: none;
+      border-radius: var(--m3-radius-full);
+      height: 44px;
+      padding: 0 32px;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 4px 12px rgba(168, 199, 250, 0.25);
+      transition: background 0.2s cubic-bezier(0.2, 0, 0, 1),
+                  transform 0.15s cubic-bezier(0.2, 0, 0, 1),
+                  border-radius 0.2s cubic-bezier(0.2, 0, 0, 1);
+    }
+
+    .btn-m3-primary:hover {
+      background: #c3d9fb;
+      box-shadow: 0 6px 18px rgba(168, 199, 250, 0.35);
+      border-radius: 18px;
+    }
+
+    .btn-m3-primary:active {
+      transform: scale(0.97);
+      border-radius: 14px;
+    }
+
+    .btn-m3-tonal {
+      background: var(--m3-surface-container-high);
+      color: var(--m3-on-surface);
+      border: 1px solid var(--m3-outline-variant);
+      border-radius: var(--m3-radius-full);
+      height: 44px;
+      padding: 0 24px;
+      font-size: 14px;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.15s, border-color 0.15s, transform 0.1s;
+    }
+
+    .btn-m3-tonal:hover {
+      background: var(--m3-surface-container-highest);
+      border-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .btn-m3-tonal:active {
+      transform: scale(0.97);
+    }
+
+    .btn-m3-danger {
+      background: var(--m3-error);
+      color: var(--m3-on-error);
+      border: none;
+      border-radius: var(--m3-radius-full);
+      height: 44px;
+      padding: 0 32px;
+      font-size: 14px;
+      font-weight: 600;
+      font-family: inherit;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.15s, transform 0.1s;
+    }
+
+    .btn-m3-danger:hover {
+      background: #f7d2d0;
     }
 
     /* Screen 2: Installing View */
@@ -411,7 +401,7 @@
       justify-content: center;
       align-items: center;
       text-align: center;
-      gap: 20px;
+      gap: 22px;
       animation: fadeIn 0.3s cubic-bezier(0.2, 0, 0, 1) forwards;
     }
 
@@ -429,9 +419,9 @@
       min-height: 18px;
     }
 
-    /* Material 3 Expressive Squiggly Wave Progress Indicator */
+    /* M3 Expressive Sinusoidal Wavy Progress */
     .m3-wavy-progress-wrapper {
-      width: 380px;
+      width: 400px;
       position: relative;
       display: flex;
       flex-direction: column;
@@ -446,7 +436,7 @@
       overflow: hidden;
       border-radius: var(--m3-radius-full);
       background: rgba(255, 255, 255, 0.05);
-      border: 1px solid rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.08);
     }
 
     .wavy-track {
@@ -474,7 +464,7 @@
       top: 0;
       left: 0;
       height: 100%;
-      width: 500px;
+      width: 520px;
       animation: wavyFlow 1.6s linear infinite;
     }
 
@@ -511,7 +501,7 @@
       letter-spacing: 0.5px;
     }
 
-    /* Screen 3: Installation Complete */
+    /* Screen 3: Installation Complete Screen */
     .screen-complete {
       flex: 1;
       display: none;
@@ -520,40 +510,55 @@
       animation: fadeIn 0.3s cubic-bezier(0.2, 0, 0, 1) forwards;
     }
 
-    .complete-content-block {
+    .complete-hero-align {
       margin-left: 170px;
-      margin-top: 40px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
     }
 
     .complete-title {
-      font-size: 38px;
+      font-size: 40px;
       font-weight: 700;
-      letter-spacing: -0.5px;
-      line-height: 1.15;
+      letter-spacing: -0.6px;
+      line-height: 1.1;
       color: #ffffff;
     }
 
     .complete-subtitle {
-      font-size: 14px;
+      font-size: 15px;
       color: rgba(255, 255, 255, 0.75);
-      margin-top: 10px;
-      line-height: 1.5;
-      max-width: 360px;
-    }
-
-    /* Bottom-Right Corner Action */
-    .bottom-right-footer {
-      display: flex;
-      justify-content: flex-end;
-      align-items: center;
-      padding-top: 12px;
+      margin-top: 8px;
+      line-height: 1.4;
+      max-width: 380px;
     }
   </style>
 </head>
 <body>
-  <!-- Ambient Artwork Layer -->
+  <!-- Ambient Layer with Pure Transparent SVG Pinwheel -->
   <div class="bg-artwork" data-tauri-drag-region>
-    <img src="appicon.png" class="bg-logo" id="bgLogo" alt="" draggable="false">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" class="pinwheel-svg-bg" id="pinwheelBg">
+      <g>
+        <!-- Blade 1: Top-Right (0 deg) -->
+        <g transform="rotate(0 54 54)">
+          <path fill="#38BDF8" d="M 54,26 C 65,26 76,36 76,47 C 76,52 70,54 63,54 C 59,44 54,35 54,26 Z"/>
+        </g>
+        <!-- Blade 2: Bottom-Right (90 deg) -->
+        <g transform="rotate(90 54 54)">
+          <path fill="#60A5FA" d="M 54,26 C 65,26 76,36 76,47 C 76,52 70,54 63,54 C 59,44 54,35 54,26 Z"/>
+        </g>
+        <!-- Blade 3: Bottom-Left (180 deg) -->
+        <g transform="rotate(180 54 54)">
+          <path fill="#818CF8" d="M 54,26 C 65,26 76,36 76,47 C 76,52 70,54 63,54 C 59,44 54,35 54,26 Z"/>
+        </g>
+        <!-- Blade 4: Top-Left (270 deg) -->
+        <g transform="rotate(270 54 54)">
+          <path fill="#A78BFA" d="M 54,26 C 65,26 76,36 76,47 C 76,52 70,54 63,54 C 59,44 54,35 54,26 Z"/>
+        </g>
+        <!-- Radiant Center Core Circle -->
+        <circle cx="54" cy="54" r="7" fill="#FFFFFF"/>
+      </g>
+    </svg>
     <div class="bg-white-overlay" data-tauri-drag-region></div>
   </div>
 
@@ -578,10 +583,10 @@
 
     <!-- Screen 1: Welcome & Setup Screen -->
     <div class="screen" id="screenWelcome">
-      <div class="hero-split" data-tauri-drag-region>
-        <div class="hero-text-block">
+      <div class="hero-area" data-tauri-drag-region>
+        <div class="hero-text-align">
           <div class="hero-title" id="heroTitle">
-            Lumen <span class="version-tag">v1.1.0</span>
+            Lumen <span class="version-tag">v1.1.1</span>
           </div>
           <div class="hero-subtitle" id="heroSubtitle">
             Unofficial desktop client for Google Photos
@@ -589,40 +594,37 @@
         </div>
       </div>
 
-      <!-- Center Action Area with Customize Drawer -->
-      <div class="center-actions">
-        <button class="btn-m3-primary" id="btnMainInstall">Install</button>
-        <button class="btn-m3-text" id="btnToggleCustom">
-          <span>Customize</span>
-          <svg viewBox="0 0 24 24"><path d="M7 10l5 5 5-5z"/></svg>
-        </button>
-
-        <!-- Custom Options Drawer -->
-        <div class="custom-drawer" id="customDrawer">
-          <span class="drawer-label">Install Location</span>
-          <div class="drawer-row">
-            <input type="text" class="drawer-input" id="installPathInput" readonly>
-            <button class="btn-browse" id="btnBrowse">Browse...</button>
-          </div>
-          <div class="drawer-checkboxes">
-            <label class="checkbox-label">
-              <input type="checkbox" id="chkDesktopShortcut" checked>
-              <span>Create desktop shortcut</span>
-            </label>
-            <label class="checkbox-label">
-              <input type="checkbox" id="chkLaunchAfter" checked>
-              <span>Launch Lumen when finished</span>
-            </label>
-          </div>
+      <!-- Custom Options Drawer -->
+      <div class="custom-drawer" id="customDrawer">
+        <span class="drawer-label">Install Location</span>
+        <div class="drawer-row">
+          <input type="text" class="drawer-input" id="installPathInput" readonly>
+          <button class="btn-browse" id="btnBrowse">Browse...</button>
         </div>
-
-        <!-- Uninstall Checkbox (Only displayed in uninstall mode) -->
-        <div id="uninstallOptions" style="display: none; margin-top: 8px;">
+        <div class="drawer-checkboxes">
           <label class="checkbox-label">
-            <input type="checkbox" id="chkPurgeConfig">
-            <span>Also delete local account configuration and cache (<code style="font-family: monospace; color: var(--m3-primary);">~/.config/lumen</code>)</span>
+            <input type="checkbox" id="chkDesktopShortcut" checked>
+            <span>Create desktop shortcut</span>
+          </label>
+          <label class="checkbox-label">
+            <input type="checkbox" id="chkLaunchAfter" checked>
+            <span>Launch Lumen when finished</span>
           </label>
         </div>
+      </div>
+
+      <!-- Uninstall Purge Checkbox -->
+      <div id="uninstallOptions" style="display: none; margin-bottom: 12px;">
+        <label class="checkbox-label">
+          <input type="checkbox" id="chkPurgeConfig">
+          <span>Also delete account configuration and cache (<code style="font-family: monospace; color: var(--m3-primary);">~/.config/lumen</code>)</span>
+        </label>
+      </div>
+
+      <!-- Bottom Actions: Side-by-Side on the Right -->
+      <div class="bottom-actions">
+        <button class="btn-m3-tonal" id="btnToggleCustom">Customize</button>
+        <button class="btn-m3-primary" id="btnMainInstall">Install</button>
       </div>
     </div>
 
@@ -636,7 +638,7 @@
           <div class="wavy-track"></div>
           <div class="wavy-wave-container" id="wavyWaveContainer">
             <svg class="wavy-svg" viewBox="0 0 480 24" preserveAspectRatio="none">
-              <!-- Sinusoidal wave repeating every 48 units -->
+              <!-- Sinusoidal wave repeating continuously -->
               <path class="wavy-path" d="
                 M 0 12
                 Q 12 3, 24 12 T 48 12
@@ -660,16 +662,22 @@
 
     <!-- Screen 3: Installation Complete Screen -->
     <div class="screen-complete" id="screenComplete">
-      <div class="complete-content-block" data-tauri-drag-region>
-        <div class="complete-title" id="completeTitle">Installation Complete</div>
-        <div class="complete-subtitle" id="completeSubtitle">
-          Lumen has been installed to your computer and is ready for use.
+      <div class="hero-area" data-tauri-drag-region>
+        <div class="complete-hero-align">
+          <div class="complete-title" id="completeTitle">Installation Complete</div>
+          <div class="complete-subtitle" id="completeSubtitle">
+            Lumen has been installed to your computer and is ready for use.
+          </div>
         </div>
       </div>
 
-      <!-- Button at the bottom-right corner -->
-      <div class="bottom-right-footer">
-        <button class="btn-m3-primary" id="btnCompleteAction">Launch Lumen</button>
+      <!-- Bottom Right: Checkbox + Finish Button -->
+      <div class="bottom-actions">
+        <label class="checkbox-label" id="finishLaunchWrapper">
+          <input type="checkbox" id="chkFinishLaunch" checked>
+          <span>Launch Lumen</span>
+        </label>
+        <button class="btn-m3-primary" id="btnFinishAction">Finish</button>
       </div>
     </div>
 
@@ -680,7 +688,6 @@
 
     let isUninstallMode = false;
     let installedTargetDir = "";
-    let shouldLaunchAfter = true;
 
     // Window controls
     document.getElementById('btnMinimize').addEventListener('click', () => invoke('minimize_installer'));
@@ -691,7 +698,12 @@
     const customDrawer = document.getElementById('customDrawer');
     btnToggleCustom.addEventListener('click', () => {
       const isOpen = customDrawer.classList.toggle('expanded');
-      btnToggleCustom.classList.toggle('open', isOpen);
+      btnToggleCustom.textContent = isOpen ? "Hide Options" : "Customize";
+    });
+
+    // Sync chkLaunchAfter with chkFinishLaunch
+    document.getElementById('chkLaunchAfter').addEventListener('change', (e) => {
+      document.getElementById('chkFinishLaunch').checked = e.target.checked;
     });
 
     // Browse Directory
@@ -747,8 +759,7 @@
         const targetDir = document.getElementById('installPathInput').value;
         installedTargetDir = targetDir;
         const desktopShortcut = document.getElementById('chkDesktopShortcut').checked;
-        shouldLaunchAfter = document.getElementById('chkLaunchAfter').checked;
-        await performInstall(targetDir, desktopShortcut, shouldLaunchAfter);
+        await performInstall(targetDir, desktopShortcut);
       }
     });
 
@@ -761,13 +772,13 @@
       document.getElementById('progressPercentLabel').textContent = pct + "%";
     }
 
-    async function performInstall(targetDir, createShortcut, launchAfter) {
+    async function performInstall(targetDir, createShortcut) {
       setProgress(25, "Extracting application binaries...");
       try {
         await invoke('start_install', {
           targetDir,
           createDesktopShortcut: createShortcut,
-          launchAfter: false // We will handle launch in the final button
+          launchAfter: false // handled by Finish button
         });
 
         setProgress(75, "Creating shortcuts & registering app...");
@@ -779,17 +790,14 @@
             document.getElementById('screenInstalling').style.display = 'none';
             document.getElementById('screenComplete').style.display = 'flex';
 
-            const completeBtn = document.getElementById('btnCompleteAction');
-            if (launchAfter) {
-              completeBtn.textContent = "Launch Lumen";
-              completeBtn.onclick = async () => {
+            const finishBtn = document.getElementById('btnFinishAction');
+            finishBtn.onclick = async () => {
+              const shouldLaunch = document.getElementById('chkFinishLaunch').checked;
+              if (shouldLaunch) {
                 await invoke('launch_app', { targetDir: installedTargetDir });
-                await invoke('close_installer');
-              };
-            } else {
-              completeBtn.textContent = "Finish";
-              completeBtn.onclick = () => invoke('close_installer');
-            }
+              }
+              await invoke('close_installer');
+            };
           }, 600);
         }, 600);
 
@@ -813,10 +821,11 @@
 
             document.getElementById('completeTitle').textContent = "Uninstalled Successfully";
             document.getElementById('completeSubtitle').textContent = "Lumen has been completely removed from your PC.";
+            document.getElementById('finishLaunchWrapper').style.display = 'none';
 
-            const completeBtn = document.getElementById('btnCompleteAction');
-            completeBtn.textContent = "Close";
-            completeBtn.onclick = () => invoke('close_installer');
+            const finishBtn = document.getElementById('btnFinishAction');
+            finishBtn.textContent = "Close";
+            finishBtn.onclick = () => invoke('close_installer');
           }, 600);
         }, 600);
 
