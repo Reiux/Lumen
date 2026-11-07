@@ -758,7 +758,7 @@
       <div class="install-error-box" id="installErrorBox" style="display: none;">
         <div class="install-error-title">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
-          Installation Problem
+          <span id="installErrorTitle">Installation Problem</span>
         </div>
         <div class="install-error-text" id="installErrorText"></div>
         <div class="install-error-actions">
@@ -989,31 +989,37 @@
 
     // Error Box handlers
     function showProgressError(err, isUninstall) {
-      document.getElementById('progressWrapper').style.display = 'none';
+      const progressWrapper = document.getElementById('progressWrapper');
+      if (progressWrapper) progressWrapper.style.display = 'none';
+
       const titleEl = document.getElementById('installingTitle');
       const subEl = document.getElementById('installingSubtitle');
       const errTitle = document.getElementById('installErrorTitle');
       const retryBtn = document.getElementById('btnRetryInstall');
+      const errBox = document.getElementById('installErrorBox');
+      const errText = document.getElementById('installErrorText');
 
       if (isUninstall) {
-        titleEl.textContent = "Uninstallation Problem";
-        subEl.textContent = "Unable to finish removing all program files.";
-        errTitle.textContent = "Uninstallation Problem";
-        retryBtn.style.display = 'none';
+        if (titleEl) titleEl.textContent = "Uninstallation Problem";
+        if (subEl) subEl.textContent = "Unable to finish removing all program files.";
+        if (errTitle) errTitle.textContent = "Uninstallation Problem";
+        if (retryBtn) retryBtn.style.display = 'none';
       } else {
-        titleEl.textContent = "Installation Problem";
-        subEl.textContent = "Unable to finish copying or registering files.";
-        errTitle.textContent = "Installation Problem";
-        retryBtn.style.display = 'inline-flex';
+        if (titleEl) titleEl.textContent = "Installation Problem";
+        if (subEl) subEl.textContent = "Unable to finish copying or registering files.";
+        if (errTitle) errTitle.textContent = "Installation Problem";
+        if (retryBtn) retryBtn.style.display = 'inline-flex';
       }
-      document.getElementById('installErrorText').textContent = String(err);
-      document.getElementById('installErrorBox').style.display = 'flex';
+      if (errText) errText.textContent = String(err || "An unexpected error occurred.");
+      if (errBox) errBox.style.display = 'flex';
     }
 
     document.getElementById('btnRetryInstall').addEventListener('click', async () => {
       document.getElementById('installErrorBox').style.display = 'none';
       document.getElementById('progressWrapper').style.display = 'flex';
-      const targetDir = document.getElementById('installPathInput').value;
+      document.getElementById('installingTitle').textContent = "Installing Lumen...";
+      document.getElementById('installingSubtitle').textContent = "Extracting application binaries...";
+      const targetDir = document.getElementById('installPathInput').value || installedTargetDir;
       const desktopShortcut = document.getElementById('chkDesktopShortcut').checked;
       const launchOnStartup = document.getElementById('chkStartupLaunch').checked;
       await performInstall(targetDir, desktopShortcut, launchOnStartup);
@@ -1052,6 +1058,10 @@
     }
 
     async function performInstall(targetDir, createShortcut, launchOnStartup) {
+      const errBox = document.getElementById('installErrorBox');
+      if (errBox) errBox.style.display = 'none';
+      const progressWrapper = document.getElementById('progressWrapper');
+      if (progressWrapper) progressWrapper.style.display = 'flex';
       setProgress(25, "Extracting application binaries...");
       try {
         await invoke('start_install', {
@@ -1087,6 +1097,10 @@
     }
 
     async function performUninstall(purgeConfig) {
+      const errBox = document.getElementById('installErrorBox');
+      if (errBox) errBox.style.display = 'none';
+      const progressWrapper = document.getElementById('progressWrapper');
+      if (progressWrapper) progressWrapper.style.display = 'flex';
       setProgress(35, "Removing application shortcuts...");
       try {
         await invoke('start_uninstall', { purgeConfig });

@@ -33,9 +33,23 @@ fn get_installed_dir() -> Option<PathBuf> {
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         if let Ok(key) = hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Lumen") {
             if let Ok(loc) = key.get_value::<String, _>("InstallLocation") {
-                let p = PathBuf::from(&loc);
-                if p.join("Lumen.exe").is_file() || p.join("lumen.exe").is_file() {
-                    return Some(p);
+                let trimmed = loc.trim();
+                if !trimmed.is_empty() {
+                    let p = PathBuf::from(trimmed);
+                    if p.is_absolute()
+                        && is_safe_dedicated_install_dir(&p)
+                        && (p.join("Lumen.exe").is_file() || p.join("lumen.exe").is_file())
+                    {
+                        if let Ok(canon_p) = p.canonicalize() {
+                            if let Some(ref cur) = current_exe_dir {
+                                if canon_p != *cur {
+                                    return Some(p);
+                                }
+                            } else {
+                                return Some(p);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -50,8 +64,6 @@ fn get_installed_dir() -> Option<PathBuf> {
             } else {
                 return Some(default_dir);
             }
-        } else {
-            return Some(default_dir);
         }
     }
     None
@@ -63,7 +75,9 @@ fn check_if_installed(install_dir: &Path) -> bool {
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
         .and_then(|d| d.canonicalize().ok());
 
-    if install_dir.join("Lumen.exe").is_file() || install_dir.join("lumen.exe").is_file() {
+    if install_dir.is_absolute()
+        && (install_dir.join("Lumen.exe").is_file() || install_dir.join("lumen.exe").is_file())
+    {
         if let Ok(canon_target) = install_dir.canonicalize() {
             if let Some(ref cur) = current_exe_dir {
                 if canon_target != *cur {
@@ -273,15 +287,10 @@ fn is_app_running() -> bool {
 
         let script = format!(
             "$curPid = {}; \
-             $procs = Get-Process -Name Lumen, lumen -ErrorAction SilentlyContinue | Where-Object {{ $_.Id -ne $curPid }}; \
+             $procs = Get-CimInstance Win32_Process -Filter \"Name = 'Lumen.exe' or Name = 'lumen.exe'\" -ErrorAction SilentlyContinue | Where-Object {{ $_.ProcessId -ne $curPid }}; \
              foreach ($p in $procs) {{ \
-                 try {{ \
-                     $pPath = $p.Path; \
-                     if ($pPath) {{ Write-Output \"$($p.Id)|$pPath\" }} \
-                     else {{ Write-Output \"$($p.Id)|\" }} \
-                 }} catch {{ \
-                     Write-Output \"$($p.Id)|\" \
-                 }} \
+                 $pPath = $p.ExecutablePath; \
+                 if ($pPath) {{ Write-Output \"$($p.ProcessId)|$pPath\" }} \
              }}",
             current_pid
         );
@@ -303,8 +312,8 @@ fn is_app_running() -> bool {
                     if pid == current_pid {
                         continue;
                     }
-                    if parts.len() > 1 && !parts[1].is_empty() {
-                        let proc_path = PathBuf::from(parts[1]);
+                    if parts.len() > 1 && !parts[1].trim().is_empty() {
+                        let proc_path = PathBuf::from(parts[1].trim());
                         if let Some(ref cur) = current_exe_canon {
                             if let Ok(canon_proc) = proc_path.canonicalize() {
                                 if canon_proc == *cur {
@@ -312,8 +321,8 @@ fn is_app_running() -> bool {
                                 }
                             }
                         }
+                        return true;
                     }
-                    return true;
                 }
             }
         }
@@ -355,15 +364,21 @@ fn kill_running_app() -> Result<(), String> {
         use std::process::Command;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
 
+        let current_exe_str = env::current_exe()
+            .ok()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
+        let cur_exe_escaped = escape_powershell_single_quote(&current_exe_str);
         let script = format!(
             "$curPid = {}; \
-             $procs = Get-Process -Name Lumen, lumen -ErrorAction SilentlyContinue | Where-Object {{ $_.Id -ne $curPid }}; \
+             $curExe = '{}'; \
+             $procs = Get-CimInstance Win32_Process -Filter \"Name = 'Lumen.exe' or Name = 'lumen.exe'\" -ErrorAction SilentlyContinue | Where-Object {{ $_.ProcessId -ne $curPid }}; \
              foreach ($p in $procs) {{ \
-                 try {{ \
-                     Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue \
-                 }} catch {{}} \
+                 if ($p.ExecutablePath -and $p.ExecutablePath -ne $curExe) {{ \
+                     try {{ Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }} catch {{}} \
+                 }} \
              }}",
-            current_pid
+            current_pid, cur_exe_escaped
         );
 
         let _ = Command::new("powershell")
@@ -403,7 +418,11 @@ async fn start_install(
         let _ = create_desktop_shortcut;
         let _ = launch_on_startup;
     }
-    let dest_path = PathBuf::from(&target_dir);
+    let dest_path = if target_dir.trim().is_empty() {
+        get_default_install_dir()
+    } else {
+        PathBuf::from(&target_dir)
+    };
     fs::create_dir_all(&dest_path).map_err(|e| format!("Failed to create install dir: {}", e))?;
 
     // Terminate any running Lumen instances before unpacking
