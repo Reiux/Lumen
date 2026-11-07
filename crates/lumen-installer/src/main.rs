@@ -275,9 +275,15 @@ fn is_safe_dedicated_install_dir(dir: &Path) -> bool {
 #[tauri::command]
 fn is_app_running() -> bool {
     let current_pid = std::process::id();
-    let current_exe_canon = env::current_exe()
+    let current_exe_str = env::current_exe()
         .ok()
-        .and_then(|p| p.canonicalize().ok());
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let cur_clean = current_exe_str.replace('\\', "/").to_lowercase();
+    let cur_canon = cur_clean
+        .trim_start_matches("//?/")
+        .trim_start_matches("\\\\?\\")
+        .to_string();
 
     #[cfg(windows)]
     {
@@ -285,14 +291,15 @@ fn is_app_running() -> bool {
         use std::process::Command;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
 
+        let cur_exe_escaped = escape_powershell_single_quote(&current_exe_str);
         let script = format!(
             "$curPid = {}; \
-             $procs = Get-CimInstance Win32_Process -Filter \"Name = 'Lumen.exe' or Name = 'lumen.exe'\" -ErrorAction SilentlyContinue | Where-Object {{ $_.ProcessId -ne $curPid }}; \
+             $curExe = '{}'; \
+             $procs = Get-CimInstance Win32_Process -Filter \"Name = 'Lumen.exe' or Name = 'lumen.exe'\" -ErrorAction SilentlyContinue | Where-Object {{ $_.ProcessId -ne $curPid -and $_.ExecutablePath -and $_.ExecutablePath.ToLower() -ne $curExe.ToLower() }}; \
              foreach ($p in $procs) {{ \
-                 $pPath = $p.ExecutablePath; \
-                 if ($pPath) {{ Write-Output \"$($p.ProcessId)|$pPath\" }} \
+                 Write-Output \"$($p.ProcessId)|$($p.ExecutablePath)\" \
              }}",
-            current_pid
+            current_pid, cur_exe_escaped
         );
 
         let output = Command::new("powershell")
@@ -313,13 +320,13 @@ fn is_app_running() -> bool {
                         continue;
                     }
                     if parts.len() > 1 && !parts[1].trim().is_empty() {
-                        let proc_path = PathBuf::from(parts[1].trim());
-                        if let Some(ref cur) = current_exe_canon {
-                            if let Ok(canon_proc) = proc_path.canonicalize() {
-                                if canon_proc == *cur {
-                                    continue;
-                                }
-                            }
+                        let proc_clean = parts[1].trim().replace('\\', "/").to_lowercase();
+                        let proc_canon = proc_clean
+                            .trim_start_matches("//?/")
+                            .trim_start_matches("\\\\?\\")
+                            .to_string();
+                        if !cur_canon.is_empty() && proc_canon == cur_canon {
+                            continue;
                         }
                         return true;
                     }
@@ -336,13 +343,10 @@ fn is_app_running() -> bool {
             for line in stdout.lines() {
                 if let Ok(pid) = line.trim().parse::<u32>() {
                     if pid != current_pid {
-                        if let Some(ref cur) = current_exe_canon {
-                            if let Ok(proc_exe) = std::fs::read_link(format!("/proc/{}/exe", pid)) {
-                                if let Ok(canon_proc) = proc_exe.canonicalize() {
-                                    if canon_proc == *cur {
-                                        continue;
-                                    }
-                                }
+                        if let Ok(proc_exe) = std::fs::read_link(format!("/proc/{}/exe", pid)) {
+                            let proc_clean = proc_exe.to_string_lossy().replace('\\', "/").to_lowercase();
+                            if !cur_canon.is_empty() && proc_clean == cur_canon {
+                                continue;
                             }
                         }
                         return true;

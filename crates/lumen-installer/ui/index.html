@@ -514,62 +514,6 @@
       letter-spacing: 0.5px;
     }
 
-    /* Running App Detection Modal */
-    .modal-backdrop {
-      position: absolute;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.65);
-      backdrop-filter: blur(4px);
-      -webkit-backdrop-filter: blur(4px);
-      z-index: 100;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      padding: 24px;
-      animation: fadeIn 0.2s cubic-bezier(0.2, 0, 0, 1) forwards;
-    }
-
-    .modal-card {
-      background: var(--m3-surface-container);
-      border: 1px solid var(--m3-outline-variant);
-      border-radius: var(--m3-radius-lg);
-      padding: 24px;
-      max-width: 420px;
-      width: 100%;
-      box-shadow: 0 16px 32px rgba(0, 0, 0, 0.5);
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-      text-align: left;
-    }
-
-    .modal-title {
-      font-size: 16px;
-      font-weight: 600;
-      color: var(--m3-on-surface);
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .modal-title svg {
-      fill: var(--m3-error);
-      flex-shrink: 0;
-    }
-
-    .modal-body {
-      font-size: 13px;
-      color: var(--m3-on-surface-variant);
-      line-height: 1.5;
-    }
-
-    .modal-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 10px;
-      margin-top: 4px;
-    }
-
     /* Installation Error Box */
     .install-error-box {
       width: 440px;
@@ -721,6 +665,14 @@
         </div>
       </div>
 
+      <!-- Uninstall Options (Purge Checkbox) -->
+      <div id="uninstallOptions" style="display: none; margin-bottom: 16px;">
+        <label class="checkbox-label" style="font-size: 13px;">
+          <input type="checkbox" id="chkPurgeConfig">
+          <span>Also delete account configuration and cache (<code id="configPathLabel" style="font-family: monospace; color: var(--m3-primary);">%APPDATA%\Lumen</code>)</span>
+        </label>
+      </div>
+
       <!-- Bottom Actions: Fresh Setup -->
       <div class="bottom-actions" id="normalActions">
         <button class="btn-m3-tonal" id="btnToggleCustom">Customize</button>
@@ -733,6 +685,12 @@
         <button class="btn-m3-tonal" id="btnRepair">Repair</button>
         <button class="btn-m3-tonal" id="btnToggleCustomInstalled">Customize</button>
         <button class="btn-m3-primary" id="btnLaunchExisting">Launch Lumen</button>
+      </div>
+
+      <!-- Bottom Actions: Uninstall Confirmation Screen -->
+      <div class="bottom-actions" id="uninstallActions" style="display: none;">
+        <button class="btn-m3-tonal" id="btnCancelUninstall" style="margin-right: auto;">Cancel</button>
+        <button class="btn-m3-danger" id="btnConfirmUninstall">Uninstall</button>
       </div>
     </div>
 
@@ -791,43 +749,11 @@
 
   </div>
 
-  <!-- Uninstall Confirmation Modal -->
-  <div class="modal-backdrop" id="uninstallModal" style="display: none;">
-    <div class="modal-card">
-      <div class="modal-title">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/>
-        </svg>
-        <span>Uninstall Lumen?</span>
-      </div>
-      <div class="modal-body">
-        Are you sure you want to remove Lumen and its shortcuts from your computer?
-      </div>
-
-      <!-- Ticker: Also delete account configuration and cache -->
-      <div style="margin-top: 4px; padding: 10px 12px; background: var(--m3-surface-container-high); border-radius: var(--m3-radius-sm); border: 1px solid var(--m3-outline-variant);">
-        <label class="checkbox-label" style="font-size: 13px;">
-          <input type="checkbox" id="chkPurgeConfig">
-          <span>Also delete account configuration and cache (<code id="configPathLabel" style="font-family: monospace; color: var(--m3-primary);">%APPDATA%\Lumen</code>)</span>
-        </label>
-      </div>
-
-      <!-- Warning if Lumen is currently running -->
-      <div id="uninstallRunningWarning" style="display: none; margin-top: 4px; padding: 10px 12px; background: rgba(242, 184, 181, 0.12); border-radius: var(--m3-radius-sm); border: 1px solid rgba(242, 184, 181, 0.3); font-size: 12px; color: var(--m3-error); line-height: 1.4;">
-        Lumen is currently running in the background and will be closed before removing files.
-      </div>
-
-      <div class="modal-actions">
-        <button class="btn-m3-tonal" id="btnCancelUninstallModal">Cancel</button>
-        <button class="btn-m3-danger" id="btnConfirmUninstall">Uninstall</button>
-      </div>
-    </div>
-  </div>
-
   <script>
     const invoke = window.__TAURI__ ? window.__TAURI__.core.invoke : async () => {};
 
     let isUninstallMode = false;
+    let isInstalledState = false;
     let installedTargetDir = "";
 
     // Window controls
@@ -853,8 +779,8 @@
       btn.textContent = isOpen ? "Hide Options" : "Customize";
     }
 
-    btnToggleCustom.addEventListener('click', () => toggleCustomDrawer(btnToggleCustom));
-    btnToggleCustomInstalled.addEventListener('click', () => toggleCustomDrawer(btnToggleCustomInstalled));
+    if (btnToggleCustom) btnToggleCustom.addEventListener('click', () => toggleCustomDrawer(btnToggleCustom));
+    if (btnToggleCustomInstalled) btnToggleCustomInstalled.addEventListener('click', () => toggleCustomDrawer(btnToggleCustomInstalled));
 
     // Sync chkLaunchAfter with chkFinishLaunch
     document.getElementById('chkLaunchAfter').addEventListener('change', (e) => {
@@ -873,11 +799,57 @@
       }
     });
 
+    function switchToUninstallUI() {
+      isUninstallMode = true;
+      document.getElementById('windowTitle').textContent = "Lumen Uninstaller";
+      document.getElementById('heroTitle').innerHTML = "Uninstall Lumen?";
+      document.getElementById('heroSubtitle').textContent = "Remove Lumen and shortcuts from your computer";
+
+      customDrawer.classList.remove('expanded');
+      customDrawer.style.display = 'none';
+
+      document.getElementById('normalActions').style.display = 'none';
+      document.getElementById('installedActions').style.display = 'none';
+      document.getElementById('uninstallOptions').style.display = 'block';
+      document.getElementById('uninstallActions').style.display = 'flex';
+    }
+
+    function switchToInstalledUI() {
+      isUninstallMode = false;
+      document.getElementById('windowTitle').textContent = "Lumen Setup";
+      document.getElementById('heroTitle').innerHTML = 'Lumen <span class="version-tag">Installed</span>';
+      document.getElementById('heroSubtitle').textContent = "Lumen is installed on your computer. Choose an action below.";
+
+      customDrawer.classList.remove('expanded');
+      customDrawer.style.display = 'none';
+
+      document.getElementById('uninstallOptions').style.display = 'none';
+      document.getElementById('uninstallActions').style.display = 'none';
+      document.getElementById('normalActions').style.display = 'none';
+      document.getElementById('installedActions').style.display = 'flex';
+    }
+
+    function switchToFreshInstallUI() {
+      isUninstallMode = false;
+      document.getElementById('windowTitle').textContent = "Lumen Setup";
+      document.getElementById('heroTitle').innerHTML = 'Lumen <span class="version-tag">v1.1.0</span>';
+      document.getElementById('heroSubtitle').textContent = "Unofficial desktop client for Google Photos";
+
+      customDrawer.classList.remove('expanded');
+      customDrawer.style.display = 'none';
+
+      document.getElementById('uninstallOptions').style.display = 'none';
+      document.getElementById('uninstallActions').style.display = 'none';
+      document.getElementById('installedActions').style.display = 'none';
+      document.getElementById('normalActions').style.display = 'flex';
+    }
+
     // Initialize
     async function init() {
       try {
         const info = await invoke('get_setup_info');
         isUninstallMode = info.is_uninstall;
+        isInstalledState = info.is_installed;
         installedTargetDir = info.default_path;
 
         if (info.config_path) {
@@ -889,36 +861,16 @@
           switchToUninstallUI();
         } else if (info.is_installed) {
           document.getElementById('installPathInput').value = info.default_path;
-          document.getElementById('heroTitle').innerHTML = 'Lumen <span class="version-tag">Installed</span>';
-          document.getElementById('heroSubtitle').textContent = "Lumen is installed on your computer. Choose an action below.";
-          document.getElementById('normalActions').style.display = 'none';
-          document.getElementById('installedActions').style.display = 'flex';
+          switchToInstalledUI();
         } else {
           document.getElementById('installPathInput').value = info.default_path;
-          document.getElementById('normalActions').style.display = 'flex';
-          document.getElementById('installedActions').style.display = 'none';
+          switchToFreshInstallUI();
         }
       } catch (err) {
         console.error("Init error:", err);
       } finally {
         await invoke('show_window');
       }
-    }
-
-    function switchToUninstallUI() {
-      isUninstallMode = true;
-      document.getElementById('windowTitle').textContent = "Lumen Uninstaller";
-      document.getElementById('heroTitle').innerHTML = "Uninstall Lumen?";
-      document.getElementById('heroSubtitle').textContent = "Remove Lumen and shortcuts from your computer";
-      document.getElementById('normalActions').style.display = 'flex';
-      document.getElementById('installedActions').style.display = 'none';
-      document.getElementById('btnToggleCustom').style.display = 'none';
-      customDrawer.classList.remove('expanded');
-      customDrawer.style.display = 'none';
-
-      const btn = document.getElementById('btnMainInstall');
-      btn.textContent = "Uninstall";
-      btn.className = "btn-m3-danger";
     }
 
     // Installed Actions handlers
@@ -936,45 +888,20 @@
       await performInstall(installedTargetDir, desktopShortcut, launchOnStartup);
     });
 
-    // Modal & Uninstall handlers
-    async function promptUninstallModal() {
-      try {
-        const isRunning = await invoke('is_app_running');
-        const warn = document.getElementById('uninstallRunningWarning');
-        const confirmBtn = document.getElementById('btnConfirmUninstall');
-        if (isRunning) {
-          if (warn) warn.style.display = 'block';
-          if (confirmBtn) confirmBtn.textContent = "Close Lumen & Uninstall";
-        } else {
-          if (warn) warn.style.display = 'none';
-          if (confirmBtn) confirmBtn.textContent = "Uninstall";
-        }
-      } catch (err) {
-        console.warn("Could not check running state:", err);
-      }
-      document.getElementById('uninstallModal').style.display = 'flex';
-    }
-
-    document.getElementById('btnGoUninstall').addEventListener('click', async () => {
-      await promptUninstallModal();
+    // Uninstall Screen handlers
+    document.getElementById('btnGoUninstall').addEventListener('click', () => {
+      switchToUninstallUI();
     });
 
-    document.getElementById('btnCancelUninstallModal').addEventListener('click', () => {
-      document.getElementById('uninstallModal').style.display = 'none';
+    document.getElementById('btnCancelUninstall').addEventListener('click', () => {
+      if (isInstalledState) {
+        switchToInstalledUI();
+      } else {
+        invoke('close_installer');
+      }
     });
 
     document.getElementById('btnConfirmUninstall').addEventListener('click', async () => {
-      const confirmBtn = document.getElementById('btnConfirmUninstall');
-      confirmBtn.disabled = true;
-      confirmBtn.textContent = "Closing Lumen...";
-      try {
-        await invoke('kill_running_app');
-      } catch (err) {
-        console.error("kill_running_app failed:", err);
-      }
-      document.getElementById('uninstallModal').style.display = 'none';
-      confirmBtn.disabled = false;
-      confirmBtn.textContent = "Uninstall";
       await executeUninstallFlow();
     });
 
@@ -1029,19 +956,15 @@
       invoke('close_installer');
     });
 
-    // Main action button click
+    // Main install button click (Fresh Setup)
     document.getElementById('btnMainInstall').addEventListener('click', async () => {
-      if (isUninstallMode) {
-        await promptUninstallModal();
-      } else {
-        document.getElementById('screenWelcome').style.display = 'none';
-        document.getElementById('screenInstalling').style.display = 'flex';
-        const targetDir = document.getElementById('installPathInput').value;
-        installedTargetDir = targetDir;
-        const desktopShortcut = document.getElementById('chkDesktopShortcut').checked;
-        const launchOnStartup = document.getElementById('chkStartupLaunch').checked;
-        await performInstall(targetDir, desktopShortcut, launchOnStartup);
-      }
+      document.getElementById('screenWelcome').style.display = 'none';
+      document.getElementById('screenInstalling').style.display = 'flex';
+      const targetDir = document.getElementById('installPathInput').value;
+      installedTargetDir = targetDir;
+      const desktopShortcut = document.getElementById('chkDesktopShortcut').checked;
+      const launchOnStartup = document.getElementById('chkStartupLaunch').checked;
+      await performInstall(targetDir, desktopShortcut, launchOnStartup);
     });
 
     // Update the Wavy Progress Bar
