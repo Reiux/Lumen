@@ -80,6 +80,7 @@ pub fn get_settings(state: tauri::State<AppState>) -> Preferences {
         set_date_from_filename: cfg.preferences.set_date_from_filename,
         exclude_pattern: cfg.preferences.exclude_pattern,
         minimize_to_tray: cfg.preferences.minimize_to_tray,
+        launch_on_startup: is_launch_on_startup_active() || cfg.preferences.launch_on_startup,
         notify_on_complete: cfg.preferences.notify_on_complete,
         use_local_hash_cache: cfg.preferences.use_local_hash_cache,
         upload_speed_limit_kbps: cfg.preferences.upload_speed_limit_kbps,
@@ -222,6 +223,83 @@ pub fn get_exclude_pattern(state: tauri::State<AppState>) -> String {
 pub fn set_minimize_to_tray(v: bool, state: tauri::State<AppState>) -> Result<(), String> {
     state.config_manager.update(|cfg| {
         cfg.preferences.minimize_to_tray = v;
+    })
+}
+
+fn is_launch_on_startup_active() -> bool {
+    #[cfg(windows)]
+    {
+        use winreg::enums::*;
+        use winreg::RegKey;
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        if let Ok(key) = hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run") {
+            if key.get_value::<String, _>("Lumen").is_ok() {
+                return true;
+            }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            let plist = std::path::PathBuf::from(home)
+                .join("Library")
+                .join("LaunchAgents")
+                .join("com.reiux.lumen.plist");
+            if plist.exists() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+#[tauri::command]
+pub fn get_launch_on_startup(state: tauri::State<AppState>) -> bool {
+    if is_launch_on_startup_active() {
+        return true;
+    }
+    state.config_manager.get_config().preferences.launch_on_startup
+}
+
+#[tauri::command]
+pub fn set_launch_on_startup(v: bool, state: tauri::State<AppState>) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        use winreg::enums::*;
+        use winreg::RegKey;
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        if let Ok((key, _)) = hkcu.create_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run") {
+            if v {
+                if let Ok(exe) = std::env::current_exe() {
+                    let exe_str = format!("\"{}\"", exe.to_string_lossy());
+                    let _ = key.set_value("Lumen", &exe_str);
+                }
+            } else {
+                let _ = key.delete_value("Lumen");
+            }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            let launch_agents = std::path::PathBuf::from(&home).join("Library").join("LaunchAgents");
+            let plist_path = launch_agents.join("com.reiux.lumen.plist");
+            if v {
+                let _ = std::fs::create_dir_all(&launch_agents);
+                if let Ok(exe) = std::env::current_exe() {
+                    let plist_content = format!(
+                        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n    <key>Label</key>\n    <string>com.reiux.lumen</string>\n    <key>ProgramArguments</key>\n    <array>\n        <string>{}</string>\n    </array>\n    <key>RunAtLoad</key>\n    <true/>\n    <key>ProcessType</key>\n    <string>Interactive</string>\n</dict>\n</plist>",
+                        exe.to_string_lossy()
+                    );
+                    let _ = std::fs::write(&plist_path, plist_content);
+                }
+            } else if plist_path.exists() {
+                let _ = std::fs::remove_file(&plist_path);
+            }
+        }
+    }
+    state.config_manager.update(|cfg| {
+        cfg.preferences.launch_on_startup = v;
     })
 }
 
@@ -1003,7 +1081,24 @@ pub fn execute_upload(
             ignore_apple_metadata: false,
             default_account: account.clone(),
         };
-        let (items, _preflight_warnings) = classify_upload_work(&scanned_files, &live_photo_opts);
+        let (mut items, _preflight_warnings) = classify_upload_work(&scanned_files, &live_photo_opts);
+
+        // Ensure each work item is mapped to its folder-configured account to prevent cross-account leaks
+        for item in &mut items {
+            let primary = item.primary_path().to_string_lossy();
+            if let Some(folder_cfg) = find_watched_folder_config_for_path(&primary, &state) {
+                if !folder_cfg.account_email.is_empty() {
+                    match item {
+                        lumen_core::livephoto::UploadWorkItem::Single { account_email, .. } => {
+                            *account_email = folder_cfg.account_email;
+                        }
+                        lumen_core::livephoto::UploadWorkItem::LivePhoto { account_email, .. } => {
+                            *account_email = folder_cfg.account_email;
+                        }
+                    }
+                }
+            }
+        }
 
         let (event_tx, mut event_rx) = tokio::sync::mpsc::channel::<UploadEvent>(100);
 
@@ -1182,7 +1277,11 @@ pub fn test_notification(app: AppHandle) {
 
 #[tauri::command]
 pub fn open_url(app: AppHandle, url: String) -> Result<(), String> {
-    app.opener().open_url(&url, None::<&str>).map_err(|e| e.to_string())
+    let trimmed = url.trim();
+    if !trimmed.starts_with("https://") && !trimmed.starts_with("http://") {
+        return Err("Only http/https URLs are permitted to be opened".to_string());
+    }
+    app.opener().open_url(trimmed, None::<&str>).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

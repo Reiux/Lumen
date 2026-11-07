@@ -45,6 +45,11 @@ impl FolderWatcher {
             if let Ok(event) = res {
                 if matches!(event.kind, EventKind::Create(_) | EventKind::Modify(_)) {
                     for path in event.paths {
+                        if let Some(parent) = path.parent() {
+                            if crate::scanner::directory_has_nomedia(parent) {
+                                continue;
+                            }
+                        }
                         if !is_ignored_temp_file(&path) && is_supported_by_google_photos(&path) {
                             let _ = tx.blocking_send(path);
                         }
@@ -113,6 +118,13 @@ impl FolderWatcher {
 
                             if metadata.is_dir() || metadata.len() == 0 {
                                 continue;
+                            }
+
+                            if let Some(parent) = path.parent() {
+                                if crate::scanner::directory_has_nomedia(parent) {
+                                    to_remove.push(path);
+                                    continue;
+                                }
                             }
 
                             // Check readability

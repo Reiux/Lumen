@@ -63,6 +63,21 @@ pub fn is_ignored_temp_file(path: &Path) -> bool {
     )
 }
 
+pub fn is_path_excluded(path: &Path, pattern: &str) -> bool {
+    let pattern = pattern.trim();
+    if pattern.is_empty() {
+        return false;
+    }
+    let file_name = path.file_name().unwrap_or_default().to_string_lossy();
+    let full_path = path.to_string_lossy();
+    if let Ok(re) = regex::Regex::new(pattern) {
+        if re.is_match(&file_name) || re.is_match(&full_path) {
+            return true;
+        }
+    }
+    file_name == pattern || full_path.contains(pattern)
+}
+
 #[derive(Debug, Clone)]
 pub struct ScanProgressEvent {
     pub files_found: usize,
@@ -119,6 +134,9 @@ where
         }
 
         if !root_path.is_dir() {
+            if is_path_excluded(root_path, &opts.exclude_pattern) {
+                continue;
+            }
             if !opts.filter_unsupported_files || is_supported_by_google_photos(root_path) {
                 if let Ok(canon) = root_path.canonicalize() {
                     if seen_files.insert(canon) {
@@ -176,7 +194,7 @@ where
                     if !opts.recursive {
                         continue;
                     }
-                    if !opts.exclude_pattern.is_empty() && file_name == opts.exclude_pattern {
+                    if is_path_excluded(&path, &opts.exclude_pattern) {
                         continue;
                     }
                     if is_trash_or_hidden_directory(&file_name) {
@@ -185,6 +203,9 @@ where
                     stack.push_back((path, depth + 1));
                 } else {
                     if is_ignored_temp_file(&path) {
+                        continue;
+                    }
+                    if is_path_excluded(&path, &opts.exclude_pattern) {
                         continue;
                     }
                     if opts.filter_unsupported_files && !is_supported_by_google_photos(&path) {
@@ -243,5 +264,31 @@ mod tests {
         ).unwrap();
 
         assert_eq!(files.len(), 2);
+    }
+
+    #[test]
+    fn test_exclude_pattern_regex_and_filename() {
+        let dir = tempdir().unwrap();
+        let sub = dir.path().join("sub");
+        fs::create_dir(&sub).unwrap();
+
+        fs::write(dir.path().join("photo1.jpg"), b"data").unwrap();
+        fs::write(dir.path().join("private_secret.jpg"), b"data").unwrap();
+        fs::write(sub.join("photo2.png"), b"data").unwrap();
+
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let opts = ScanOptions {
+            exclude_pattern: r".*secret.*".to_string(),
+            ..Default::default()
+        };
+        let files = scan_directories_incremental(
+            &[dir.path().to_path_buf()],
+            &opts,
+            cancelled,
+            |_| {},
+        ).unwrap();
+
+        assert_eq!(files.len(), 2);
+        assert!(!files.iter().any(|p| p.to_string_lossy().contains("secret")));
     }
 }

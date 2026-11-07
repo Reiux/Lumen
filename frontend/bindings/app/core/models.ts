@@ -449,6 +449,7 @@ export class Preferences {
     "setDateFromFilename": boolean;
     "excludePattern": string;
     "minimizeToTray": boolean;
+    "launchOnStartup"?: boolean;
     "notifyOnComplete": boolean;
     "useLocalHashCache": boolean;
     "uploadSpeedLimitKBps": number;

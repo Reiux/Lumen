@@ -139,17 +139,20 @@ fn parse_apple_maker_note(data: &[u8]) -> Result<String, LivePhotoError> {
         return Err(LivePhotoError::ParseError("data too short".to_string()));
     }
     let ifd_offset = read_u32(&data[16..20]) as usize;
-    let tiff_base = 12;
-    let mut curr_offset = tiff_base + ifd_offset;
+    let tiff_base = 12usize;
+    let mut curr_offset = match tiff_base.checked_add(ifd_offset) {
+        Some(o) => o,
+        None => return Err(LivePhotoError::ParseError("ifd offset overflow".to_string())),
+    };
 
-    if data.len() < curr_offset + 2 {
+    if data.len() < curr_offset.saturating_add(2) {
         return Err(LivePhotoError::ParseError("ifd out of bounds".to_string()));
     }
     let num_entries = read_u16(&data[curr_offset..curr_offset + 2]) as usize;
     curr_offset += 2;
 
     for _ in 0..num_entries {
-        if data.len() < curr_offset + 12 {
+        if data.len() < curr_offset.saturating_add(12) {
             break;
         }
         let tag = read_u16(&data[curr_offset..curr_offset + 2]);
@@ -161,8 +164,11 @@ fn parse_apple_maker_note(data: &[u8]) -> Result<String, LivePhotoError> {
             let val_bytes = if count <= 4 {
                 &value_or_offset[..count]
             } else {
-                let offset = tiff_base + read_u32(value_or_offset) as usize;
-                if data.len() >= offset + count {
+                let offset = match tiff_base.checked_add(read_u32(value_or_offset) as usize) {
+                    Some(o) => o,
+                    None => return Err(LivePhotoError::ParseError("offset overflow".to_string())),
+                };
+                if offset <= data.len() && count <= data.len().saturating_sub(offset) {
                     &data[offset..offset + count]
                 } else {
                     return Err(LivePhotoError::ParseError("content identifier out of bounds".to_string()));
@@ -458,5 +464,22 @@ mod tests {
         assert_eq!(work.len(), 1);
         assert_eq!(warnings.len(), 1);
         assert_eq!(warnings[0].code, "incomplete-live-photo-skipped");
+    }
+
+    #[test]
+    fn test_parse_apple_maker_note_malformed_no_panic() {
+        // Buffer shorter than header
+        assert!(parse_apple_maker_note(b"Apple iOS").is_err());
+
+        // Header with invalid endianness
+        let mut data = vec![0u8; 32];
+        data[..10].copy_from_slice(b"Apple iOS\0");
+        data[12..14].copy_from_slice(b"XX");
+        assert!(parse_apple_maker_note(&data).is_err());
+
+        // Out of bounds IFD offset
+        data[12..14].copy_from_slice(b"MM");
+        data[16..20].copy_from_slice(&u32::to_be_bytes(0xffff_ff00));
+        assert!(parse_apple_maker_note(&data).is_err());
     }
 }

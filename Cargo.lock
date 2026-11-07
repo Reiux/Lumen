@@ -2455,6 +2455,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "base64 0.22.1",
+ "bytes",
  "directories",
  "futures-util",
  "keyring",
@@ -2516,6 +2517,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "winreg",
 ]
 
 [[package]]

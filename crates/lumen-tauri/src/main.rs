@@ -118,6 +118,8 @@ fn main() {
             commands::set_exclude_pattern,
             commands::get_exclude_pattern,
             commands::set_minimize_to_tray,
+            commands::get_launch_on_startup,
+            commands::set_launch_on_startup,
             commands::set_notify_on_complete,
             commands::set_use_local_hash_cache,
             commands::set_upload_speed_limit_kbps,

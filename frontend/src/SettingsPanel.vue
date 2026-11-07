@@ -37,6 +37,7 @@ interface Settings {
   setDateFromFilename: boolean
   uploadThreads: number
   minimizeToTray: boolean
+  launchOnStartup: boolean
   notifyOnComplete: boolean
   useLocalHashCache: boolean
   uploadSpeedLimitKBps: number
@@ -58,6 +59,7 @@ const settings = ref<Settings>({
   setDateFromFilename: false,
   uploadThreads: 1,
   minimizeToTray: false,
+  launchOnStartup: false,
   notifyOnComplete: true,
   useLocalHashCache: false,
   uploadSpeedLimitKBps: 0,
@@ -184,6 +186,7 @@ onMounted(async () => {
       setDateFromFilename: config.setDateFromFilename || false,
       uploadThreads: config.uploadThreads || 4,
       minimizeToTray: config.minimizeToTray || false,
+      launchOnStartup: config.launchOnStartup || false,
       notifyOnComplete: config.notifyOnComplete ?? true,
       useLocalHashCache: config.useLocalHashCache ?? false,
       uploadSpeedLimitKBps: config.uploadSpeedLimitKBps || 0,
@@ -315,6 +318,11 @@ watch(() => settings.value.uploadThreads, async (newValue) => {
 watch(() => settings.value.minimizeToTray, async (newValue) => {
   if (isHydrating.value) return
   await ConfigManager.SetMinimizeToTray(newValue)
+})
+
+watch(() => settings.value.launchOnStartup, async (newValue) => {
+  if (isHydrating.value) return
+  await ConfigManager.SetLaunchOnStartup(newValue)
 })
 
 watch(() => settings.value.notifyOnComplete, async (newValue) => {
@@ -773,6 +781,26 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                 v-model="settings.minimizeToTray"
                 :disabled="!isTrayAvailable"
                 aria-label="Minimize to tray toggle"
+              />
+            </div>
+
+            <!-- Launch on Startup -->
+            <div class="flex items-center justify-between gap-4 p-5">
+              <div class="flex flex-col pr-2">
+                <label
+                  for="startup-switch"
+                  class="m3-title-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
+                >
+                  Launch on system startup
+                </label>
+                <span class="m3-body-medium mt-0.5">
+                  Automatically start Lumen in the background when your computer turns on.
+                </span>
+              </div>
+              <M3Switch
+                id="startup-switch"
+                v-model="settings.launchOnStartup"
+                aria-label="Launch on system startup toggle"
               />
             </div>
 

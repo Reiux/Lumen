@@ -21,6 +21,7 @@ pub struct Preferences {
     pub set_date_from_filename: bool,
     pub exclude_pattern: String,
     pub minimize_to_tray: bool,
+    pub launch_on_startup: bool,
     pub notify_on_complete: bool,
     pub use_local_hash_cache: bool,
     #[serde(rename = "uploadSpeedLimitKBps")]

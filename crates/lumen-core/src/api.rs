@@ -1,5 +1,3 @@
-use std::fs::File;
-use std::io::Read;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use prost::Message;
@@ -345,7 +343,7 @@ impl Api {
         mut on_progress: F,
     ) -> Result<ScottyFinalizeToken, ApiError>
     where
-        F: FnMut(i64, i64, usize),
+        F: FnMut(i64, i64, usize) + Send + 'static,
     {
         let metadata = std::fs::metadata(file_path).map_err(|e| ApiError::Io(e.to_string()))?;
         let file_size = metadata.len() as i64;
@@ -357,19 +355,38 @@ impl Api {
 
         let bearer = self.bearer_token().await?;
 
-        // Read file in chunks and stream through rate limiter
-        let mut file = File::open(file_path).map_err(|e| ApiError::Io(e.to_string()))?;
-        let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer).map_err(|e| ApiError::Io(e.to_string()))?;
-
+        let file = tokio::fs::File::open(file_path).await.map_err(|e| ApiError::Io(e.to_string()))?;
         let chunk_size = 64 * 1024;
-        let mut uploaded: usize = 0;
-        while uploaded < buffer.len() {
-            let next = std::cmp::min(uploaded + chunk_size, buffer.len());
-            self.rate_limiter.wait(next - uploaded).await;
-            uploaded = next;
-            on_progress(uploaded as i64, file_size, 1);
-        }
+        let rate_limiter = self.rate_limiter.clone();
+        let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel::<i64>();
+
+        let progress_handle = tokio::spawn(async move {
+            while let Some(uploaded) = progress_rx.recv().await {
+                on_progress(uploaded, file_size, 1);
+            }
+        });
+
+        let stream = futures_util::stream::unfold((file, 0i64), move |(mut file, mut uploaded)| {
+            let rate_limiter = rate_limiter.clone();
+            let progress_tx = progress_tx.clone();
+            async move {
+                use tokio::io::AsyncReadExt;
+                let mut buf = vec![0u8; chunk_size];
+                match file.read(&mut buf).await {
+                    Ok(0) => None,
+                    Ok(n) => {
+                        buf.truncate(n);
+                        rate_limiter.wait(n).await;
+                        uploaded += n as i64;
+                        let _ = progress_tx.send(uploaded);
+                        Some((Ok::<bytes::Bytes, std::io::Error>(bytes::Bytes::from(buf)), (file, uploaded)))
+                    }
+                    Err(e) => Some((Err(e), (file, uploaded))),
+                }
+            }
+        });
+
+        let body = reqwest::Body::wrap_stream(stream);
 
         let resp = self
             .client
@@ -378,10 +395,13 @@ impl Api {
             .header("Accept-Language", &self.language)
             .header("User-Agent", &self.user_agent)
             .header("Authorization", format!("Bearer {}", bearer))
-            .body(buffer)
+            .header("Content-Length", file_size.to_string())
+            .body(body)
             .send()
             .await
             .map_err(|e| ApiError::Network(e.to_string()))?;
+
+        let _ = progress_handle.await;
 
         let status = resp.status();
         let body_bytes = resp.bytes().await.map_err(|e| ApiError::Network(e.to_string()))?;

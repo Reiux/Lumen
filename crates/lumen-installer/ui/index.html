@@ -232,7 +232,7 @@
     }
 
     .custom-drawer.expanded {
-      max-height: 150px;
+      max-height: 175px;
       opacity: 1;
       padding: 14px 16px;
     }
@@ -291,8 +291,9 @@
 
     .drawer-checkboxes {
       display: flex;
+      flex-wrap: wrap;
       align-items: center;
-      gap: 24px;
+      gap: 10px 18px;
     }
 
     .checkbox-label {
@@ -442,6 +443,7 @@
       background: transparent;
       border: none;
       border-radius: 0;
+      overflow: hidden;
     }
 
     .wavy-track {
@@ -466,13 +468,34 @@
       transform: translateY(-50%);
     }
 
+    .wavy-fill {
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 100%;
+      width: 0%;
+      overflow: hidden;
+      border-radius: 4px;
+      transition: width 0.4s cubic-bezier(0.2, 0, 0, 1);
+    }
+
     .wavy-svg {
       position: absolute;
       top: 0;
       left: 0;
-      width: 100%;
+      width: 456px;
       height: 16px;
       overflow: visible;
+      animation: waveFlow 1.2s linear infinite;
+    }
+
+    @keyframes waveFlow {
+      0% {
+        transform: translateX(0);
+      }
+      100% {
+        transform: translateX(-38px);
+      }
     }
 
     .wavy-indicator {
@@ -482,7 +505,6 @@
       stroke-linecap: round;
       stroke-linejoin: round;
       filter: drop-shadow(0 0 6px rgba(168, 199, 250, 0.5));
-      transition: stroke-dashoffset 0.4s cubic-bezier(0.2, 0, 0, 1);
     }
 
     .progress-percent-label {
@@ -490,6 +512,62 @@
       font-weight: 600;
       color: var(--m3-primary);
       letter-spacing: 0.5px;
+    }
+
+    /* Running App Detection Modal */
+    .modal-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      z-index: 100;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      animation: fadeIn 0.2s cubic-bezier(0.2, 0, 0, 1) forwards;
+    }
+
+    .modal-card {
+      background: var(--m3-surface-container);
+      border: 1px solid var(--m3-outline-variant);
+      border-radius: var(--m3-radius-lg);
+      padding: 24px;
+      max-width: 420px;
+      width: 100%;
+      box-shadow: 0 16px 32px rgba(0, 0, 0, 0.5);
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      text-align: left;
+    }
+
+    .modal-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--m3-on-surface);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .modal-title svg {
+      fill: var(--m3-error);
+      flex-shrink: 0;
+    }
+
+    .modal-body {
+      font-size: 13px;
+      color: var(--m3-on-surface-variant);
+      line-height: 1.5;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 4px;
     }
 
     /* Installation Error Box */
@@ -633,6 +711,10 @@
             <span>Create desktop shortcut</span>
           </label>
           <label class="checkbox-label">
+            <input type="checkbox" id="chkStartupLaunch">
+            <span>Start Lumen on system startup</span>
+          </label>
+          <label class="checkbox-label">
             <input type="checkbox" id="chkLaunchAfter" checked>
             <span>Launch Lumen when finished</span>
           </label>
@@ -643,7 +725,7 @@
       <div id="uninstallOptions" style="display: none; margin-bottom: 12px;">
         <label class="checkbox-label">
           <input type="checkbox" id="chkPurgeConfig">
-          <span>Also delete account configuration and cache (<code id="configPathLabel" style="font-family: monospace; color: var(--m3-primary);">%APPDATA%\lumen</code>)</span>
+          <span>Also delete account configuration and cache (<code id="configPathLabel" style="font-family: monospace; color: var(--m3-primary);">%APPDATA%\Lumen</code>)</span>
         </label>
       </div>
 
@@ -671,9 +753,11 @@
         <div class="m3-wavy-svg-box">
           <div class="wavy-track"></div>
           <div class="wavy-track-stop"></div>
-          <svg class="wavy-svg" viewBox="0 0 380 16">
-            <path id="wavyIndicator" class="wavy-indicator" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100" d="M 0 8 C 5.5 4.5, 13.5 4.5, 19.0 8 C 24.5 11.5, 32.5 11.5, 38.0 8 C 43.5 4.5, 51.5 4.5, 57.0 8 C 62.5 11.5, 70.5 11.5, 76.0 8 C 81.5 4.5, 89.5 4.5, 95.0 8 C 100.5 11.5, 108.5 11.5, 114.0 8 C 119.5 4.5, 127.5 4.5, 133.0 8 C 138.5 11.5, 146.5 11.5, 152.0 8 C 157.5 4.5, 165.5 4.5, 171.0 8 C 176.5 11.5, 184.5 11.5, 190.0 8 C 195.5 4.5, 203.5 4.5, 209.0 8 C 214.5 11.5, 222.5 11.5, 228.0 8 C 233.5 4.5, 241.5 4.5, 247.0 8 C 252.5 11.5, 260.5 11.5, 266.0 8 C 271.5 4.5, 279.5 4.5, 285.0 8 C 290.5 11.5, 298.5 11.5, 304.0 8 C 309.5 4.5, 317.5 4.5, 323.0 8 C 328.5 11.5, 336.5 11.5, 342.0 8 C 347.5 4.5, 355.5 4.5, 361.0 8 C 366.5 11.5, 374.5 11.5, 380.0 8" />
-          </svg>
+          <div class="wavy-fill" id="wavyFill">
+            <svg class="wavy-svg" viewBox="0 0 456 16">
+              <path class="wavy-indicator" d="M 0 8 C 5.5 4.5, 13.5 4.5, 19.0 8 C 24.5 11.5, 32.5 11.5, 38.0 8 C 43.5 4.5, 51.5 4.5, 57.0 8 C 62.5 11.5, 70.5 11.5, 76.0 8 C 81.5 4.5, 89.5 4.5, 95.0 8 C 100.5 11.5, 108.5 11.5, 114.0 8 C 119.5 4.5, 127.5 4.5, 133.0 8 C 138.5 11.5, 146.5 11.5, 152.0 8 C 157.5 4.5, 165.5 4.5, 171.0 8 C 176.5 11.5, 184.5 11.5, 190.0 8 C 195.5 4.5, 203.5 4.5, 209.0 8 C 214.5 11.5, 222.5 11.5, 228.0 8 C 233.5 4.5, 241.5 4.5, 247.0 8 C 252.5 11.5, 260.5 11.5, 266.0 8 C 271.5 4.5, 279.5 4.5, 285.0 8 C 290.5 11.5, 298.5 11.5, 304.0 8 C 309.5 4.5, 317.5 4.5, 323.0 8 C 328.5 11.5, 336.5 11.5, 342.0 8 C 347.5 4.5, 355.5 4.5, 361.0 8 C 366.5 11.5, 374.5 11.5, 380.0 8 C 385.5 4.5, 393.5 4.5, 399.0 8 C 404.5 11.5, 412.5 11.5, 418.0 8 C 423.5 4.5, 431.5 4.5, 437.0 8 C 442.5 11.5, 450.5 11.5, 456.0 8" />
+            </svg>
+          </div>
         </div>
         <div class="progress-percent-label" id="progressPercentLabel">0%</div>
       </div>
@@ -713,6 +797,23 @@
       </div>
     </div>
 
+  </div>
+
+  <!-- Running Instance Detection Modal -->
+  <div class="modal-backdrop" id="runningAppModal" style="display: none;">
+    <div class="modal-card">
+      <div class="modal-title">
+        <svg width="22" height="22" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+        <span>Lumen is Currently Running</span>
+      </div>
+      <div class="modal-body">
+        Lumen is running in the background or system tray. To complete uninstallation cleanly, Lumen must be closed first.
+      </div>
+      <div class="modal-actions">
+        <button class="btn-m3-tonal" id="btnCancelRunningModal">Cancel</button>
+        <button class="btn-m3-danger" id="btnCloseAppAndContinue">Close Lumen & Continue</button>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -824,7 +925,8 @@
       document.getElementById('screenInstalling').style.display = 'flex';
       document.getElementById('installingTitle').textContent = "Repairing Lumen...";
       const desktopShortcut = document.getElementById('chkDesktopShortcut').checked;
-      await performInstall(installedTargetDir, desktopShortcut);
+      const launchOnStartup = document.getElementById('chkStartupLaunch').checked;
+      await performInstall(installedTargetDir, desktopShortcut, launchOnStartup);
     });
 
     document.getElementById('btnGoUninstall').addEventListener('click', () => {
@@ -845,29 +947,68 @@
       document.getElementById('progressWrapper').style.display = 'flex';
       const targetDir = document.getElementById('installPathInput').value;
       const desktopShortcut = document.getElementById('chkDesktopShortcut').checked;
-      await performInstall(targetDir, desktopShortcut);
+      const launchOnStartup = document.getElementById('chkStartupLaunch').checked;
+      await performInstall(targetDir, desktopShortcut, launchOnStartup);
     });
 
     document.getElementById('btnCancelInstall').addEventListener('click', () => {
       invoke('close_installer');
     });
 
-    // Main action button click
-    document.getElementById('btnMainInstall').addEventListener('click', async () => {
-      // Transition to Screen 2 (Installing)
+    // Running App Modal handlers
+    document.getElementById('btnCancelRunningModal').addEventListener('click', () => {
+      document.getElementById('runningAppModal').style.display = 'none';
+    });
+
+    document.getElementById('btnCloseAppAndContinue').addEventListener('click', async () => {
+      const btn = document.getElementById('btnCloseAppAndContinue');
+      btn.disabled = true;
+      btn.textContent = "Closing Lumen...";
+      try {
+        await invoke('kill_running_app');
+      } catch (err) {
+        console.error("kill_running_app failed:", err);
+      }
+      document.getElementById('runningAppModal').style.display = 'none';
+      btn.disabled = false;
+      btn.textContent = "Close Lumen & Continue";
+      await executeUninstallFlow();
+    });
+
+    async function requestUninstall() {
+      try {
+        const isRunning = await invoke('is_app_running');
+        if (isRunning) {
+          document.getElementById('runningAppModal').style.display = 'flex';
+          return;
+        }
+      } catch (err) {
+        console.warn("Could not check running state:", err);
+      }
+      await executeUninstallFlow();
+    }
+
+    async function executeUninstallFlow() {
       document.getElementById('screenWelcome').style.display = 'none';
       document.getElementById('screenInstalling').style.display = 'flex';
+      document.getElementById('installingTitle').textContent = "Uninstalling Lumen...";
+      document.getElementById('installingSubtitle').textContent = "Removing application files and shortcuts...";
+      const purge = document.getElementById('chkPurgeConfig').checked;
+      await performUninstall(purge);
+    }
 
+    // Main action button click
+    document.getElementById('btnMainInstall').addEventListener('click', async () => {
       if (isUninstallMode) {
-        document.getElementById('installingTitle').textContent = "Uninstalling Lumen...";
-        document.getElementById('installingSubtitle').textContent = "Removing application files and shortcuts...";
-        const purge = document.getElementById('chkPurgeConfig').checked;
-        await performUninstall(purge);
+        await requestUninstall();
       } else {
+        document.getElementById('screenWelcome').style.display = 'none';
+        document.getElementById('screenInstalling').style.display = 'flex';
         const targetDir = document.getElementById('installPathInput').value;
         installedTargetDir = targetDir;
         const desktopShortcut = document.getElementById('chkDesktopShortcut').checked;
-        await performInstall(targetDir, desktopShortcut);
+        const launchOnStartup = document.getElementById('chkStartupLaunch').checked;
+        await performInstall(targetDir, desktopShortcut, launchOnStartup);
       }
     });
 
@@ -876,20 +1017,21 @@
       if (statusText) {
         document.getElementById('installingSubtitle').textContent = statusText;
       }
-      const indicator = document.getElementById('wavyIndicator');
-      if (indicator) {
+      const fill = document.getElementById('wavyFill');
+      if (fill) {
         const clamped = Math.max(0, Math.min(100, pct));
-        indicator.style.strokeDashoffset = (100 - clamped);
+        fill.style.width = clamped + "%";
       }
       document.getElementById('progressPercentLabel').textContent = pct + "%";
     }
 
-    async function performInstall(targetDir, createShortcut) {
+    async function performInstall(targetDir, createShortcut, launchOnStartup) {
       setProgress(25, "Extracting application binaries...");
       try {
         await invoke('start_install', {
           targetDir,
           createDesktopShortcut: createShortcut,
+          launchOnStartup: Boolean(launchOnStartup),
           launchAfter: false // handled by Finish button
         });
 

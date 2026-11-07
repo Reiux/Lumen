@@ -1,7 +1,23 @@
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, LazyLock, RwLock};
 use std::time::Duration;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+
+static RESTRICTED_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b(AccountDisabled|AccountDeleted|ServiceDisabled|DeviceManagementRequired)\b").unwrap()
+});
+
+static SIGN_IN_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b(NeedsBrowser|BadAuthentication|WebLoginRequired|web\s+verification\s+challenge)\b").unwrap()
+});
+
+static RATE_LIMIT_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b(RateLimitExceeded|rate_limit_exceeded|TooManyRequests)\b").unwrap()
+});
+
+static STATUS_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(?:status(?:\s+code)?|HTTP)\s*[:=]?\s*([1-5]\d{2})\b").unwrap()
+});
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum CircuitState {
@@ -108,26 +124,22 @@ pub fn classify_error(err_msg: &str) -> ErrorKind {
     }
 
     // Account Restricted regex
-    let restricted_re = Regex::new(r"(?i)\b(AccountDisabled|AccountDeleted|ServiceDisabled|DeviceManagementRequired)\b").unwrap();
-    if restricted_re.is_match(err_msg) {
+    if RESTRICTED_RE.is_match(err_msg) {
         return ErrorKind::AccountRestricted;
     }
 
     // Sign In Required regex
-    let sign_in_re = Regex::new(r"(?i)\b(NeedsBrowser|BadAuthentication|WebLoginRequired|web\s+verification\s+challenge)\b").unwrap();
-    if sign_in_re.is_match(err_msg) {
+    if SIGN_IN_RE.is_match(err_msg) {
         return ErrorKind::SignInRequired;
     }
 
     // Rate Limited regex
-    let rate_limit_re = Regex::new(r"(?i)\b(RateLimitExceeded|rate_limit_exceeded|TooManyRequests)\b").unwrap();
-    if rate_limit_re.is_match(err_msg) {
+    if RATE_LIMIT_RE.is_match(err_msg) {
         return ErrorKind::RateLimited;
     }
 
     // Status codes with boundary: prevents false positives from IMG_4012.jpg or 401000 bytes
-    let status_re = Regex::new(r"(?i)(?:status(?:\s+code)?|HTTP)\s*[:=]?\s*([1-5]\d{2})\b").unwrap();
-    if let Some(caps) = status_re.captures(err_msg) {
+    if let Some(caps) = STATUS_RE.captures(err_msg) {
         if let Some(m) = caps.get(1) {
             if let Ok(code) = m.as_str().parse::<u16>() {
                 return match code {

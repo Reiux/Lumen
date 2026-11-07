@@ -51,6 +51,8 @@ pub struct Preferences {
     pub exclude_pattern: String,
     #[serde(default, rename = "minimize_to_tray")]
     pub minimize_to_tray: bool,
+    #[serde(default, rename = "launch_on_startup")]
+    pub launch_on_startup: bool,
     #[serde(default = "default_true", rename = "notify_on_complete")]
     pub notify_on_complete: bool,
     #[serde(default, rename = "use_local_hash_cache")]
@@ -100,6 +102,7 @@ impl Default for Preferences {
             set_date_from_filename: false,
             exclude_pattern: String::new(),
             minimize_to_tray: false,
+            launch_on_startup: false,
             notify_on_complete: true,
             use_local_hash_cache: false,
             upload_speed_limit_kbps: 0,
@@ -436,14 +439,7 @@ pub fn determine_config_path(override_path: Option<&Path>) -> PathBuf {
         }
     }
 
-    // 2. Check current working directory
-    if let Ok(cwd) = std::env::current_dir() {
-        if let Some(p) = existing_local_config(&cwd) {
-            return p;
-        }
-    }
-
-    // 3. User config directory: prefer ~/.config/lumen/lumen.config
+    // 2. User config directory: prefer ~/.config/lumen/lumen.config
     let user_config = get_user_config_dir();
     let lumen_dir = user_config.join("lumen");
     let lumen_config = lumen_dir.join("lumen.config");

@@ -159,13 +159,28 @@ impl AlbumRegistry {
         }
         if let Some(parent) = self.file_path.parent() {
             let _ = fs::create_dir_all(parent);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(parent, fs::Permissions::from_mode(0o700));
+            }
         }
         let entries = self.entries.read().unwrap();
         let json = serde_json::to_string_pretty(&*entries)
             .map_err(|e| AlbumError::Io(e.to_string()))?;
         let tmp = self.file_path.with_extension("tmp");
         fs::write(&tmp, json).map_err(|e| AlbumError::Io(e.to_string()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600));
+        }
         fs::rename(&tmp, &self.file_path).map_err(|e| AlbumError::Io(e.to_string()))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(&self.file_path, fs::Permissions::from_mode(0o600));
+        }
         Ok(())
     }
 

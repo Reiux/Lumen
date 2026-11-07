@@ -404,7 +404,15 @@ pub async fn handle_upload(
 pub async fn handle_creds(args: CredsArgs, config_manager: Arc<ConfigManager>) -> Result<()> {
     match args.command {
         CredsCommands::Add { credential } => {
-            let cred_str = credential.trim();
+            let cred_input = if credential.trim() == "-" {
+                use std::io::Read;
+                let mut buf = String::new();
+                std::io::stdin().read_to_string(&mut buf).context("Failed to read credential from standard input")?;
+                buf
+            } else {
+                credential
+            };
+            let cred_str = cred_input.trim();
             if cred_str.is_empty() {
                 bail!("Credential string cannot be empty.");
             }

@@ -323,6 +323,10 @@ export function SetMinimizeToTray(v: boolean): $CancellablePromise<void> {
     return $Call.ByID(929239970, v);
 }
 
+export function SetLaunchOnStartup(v: boolean): $CancellablePromise<void> {
+    return $Call.ByID(929239971, v);
+}
+
 export function SetNotifyOnComplete(v: boolean): $CancellablePromise<void> {
     return $Call.ByID(538645092, v);
 }

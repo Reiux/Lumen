@@ -42,8 +42,18 @@ impl HashCache {
     pub fn open(db_path: &Path) -> Result<Self, DedupError> {
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent)?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+            }
         }
         let conn = Connection::open(db_path)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(db_path, std::fs::Permissions::from_mode(0o600));
+        }
         let cache = Self {
             conn: Arc::new(Mutex::new(conn)),
         };

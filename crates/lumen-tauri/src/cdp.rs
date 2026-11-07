@@ -92,6 +92,9 @@ pub fn get_supported_browser_name() -> String {
 }
 
 fn which_browser(name: &str) -> Result<PathBuf> {
+    if name.contains('/') || name.contains('\\') || name.contains("..") {
+        bail!("invalid browser executable name");
+    }
     let output = Command::new("which").arg(name).output()?;
     if output.status.success() {
         let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -143,6 +146,11 @@ impl CdpSession {
             .context("No supported Chromium or Google Chrome browser found on this system.")?;
 
         let user_data_dir = tempfile::tempdir().context("Failed to create temporary browser profile")?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(user_data_dir.path(), fs::Permissions::from_mode(0o700));
+        }
 
         let child = Command::new(&browser_path)
             .arg(format!("--user-data-dir={}", user_data_dir.path().display()))

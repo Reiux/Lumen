@@ -397,6 +397,19 @@ export const ConfigManager = {
     }
   },
 
+  async GetLaunchOnStartup(): Promise<boolean> {
+    if (hasTauri()) {
+      return tauriInvoke('get_launch_on_startup');
+    }
+    return false;
+  },
+
+  async SetLaunchOnStartup(v: boolean): Promise<void> {
+    if (hasTauri()) {
+      return tauriInvoke('set_launch_on_startup', { v });
+    }
+  },
+
   async SetNotifyOnComplete(v: boolean): Promise<void> {
     if (hasTauri()) {
       return tauriInvoke('set_notify_on_complete', { v });
