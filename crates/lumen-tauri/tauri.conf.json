@@ -20,7 +20,9 @@
         "minHeight": 560,
         "center": true,
         "resizable": true,
-        "visible": true
+        "visible": false,
+        "backgroundColor": "#121316",
+        "dataDirectory": "webview_cache"
       }
     ],
     "security": {

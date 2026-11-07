@@ -20,7 +20,9 @@
         "center": true,
         "decorations": false,
         "shadow": true,
-        "visible": true
+        "visible": false,
+        "backgroundColor": "#121316",
+        "dataDirectory": "installer_cache"
       }
     ],
     "security": {

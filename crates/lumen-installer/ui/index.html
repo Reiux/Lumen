@@ -501,6 +501,41 @@
       letter-spacing: 0.5px;
     }
 
+    /* Installation Error Box */
+    .install-error-box {
+      width: 440px;
+      background: rgba(242, 184, 181, 0.1);
+      border: 1px solid rgba(242, 184, 181, 0.3);
+      border-radius: var(--m3-radius-md);
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      text-align: left;
+    }
+
+    .install-error-title {
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--m3-error);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .install-error-text {
+      font-size: 13px;
+      color: var(--m3-on-surface);
+      line-height: 1.4;
+      word-break: break-word;
+    }
+
+    .install-error-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
     /* Screen 3: Installation Complete Screen */
     .screen-complete {
       flex: 1;
@@ -617,14 +652,22 @@
       <div id="uninstallOptions" style="display: none; margin-bottom: 12px;">
         <label class="checkbox-label">
           <input type="checkbox" id="chkPurgeConfig">
-          <span>Also delete account configuration and cache (<code style="font-family: monospace; color: var(--m3-primary);">~/.config/lumen</code>)</span>
+          <span>Also delete account configuration and cache (<code id="configPathLabel" style="font-family: monospace; color: var(--m3-primary);">%APPDATA%\lumen</code>)</span>
         </label>
       </div>
 
-      <!-- Bottom Actions: Side-by-Side on the Right -->
-      <div class="bottom-actions">
+      <!-- Bottom Actions: Fresh Setup -->
+      <div class="bottom-actions" id="normalActions">
         <button class="btn-m3-tonal" id="btnToggleCustom">Customize</button>
         <button class="btn-m3-primary" id="btnMainInstall">Install</button>
+      </div>
+
+      <!-- Bottom Actions: Already Installed State -->
+      <div class="bottom-actions" id="installedActions" style="display: none;">
+        <button class="btn-m3-danger" id="btnGoUninstall" style="margin-right: auto;">Uninstall</button>
+        <button class="btn-m3-tonal" id="btnRepair">Repair</button>
+        <button class="btn-m3-tonal" id="btnToggleCustomInstalled">Customize</button>
+        <button class="btn-m3-primary" id="btnLaunchExisting">Launch Lumen</button>
       </div>
     </div>
 
@@ -633,7 +676,7 @@
       <div class="installing-title" id="installingTitle">Installing Lumen...</div>
       <div class="installing-subtitle" id="installingSubtitle">Extracting application binaries...</div>
 
-      <div class="m3-wavy-progress-wrapper">
+      <div class="m3-wavy-progress-wrapper" id="progressWrapper">
         <div class="m3-wavy-svg-box">
           <div class="wavy-track"></div>
           <div class="wavy-wave-container" id="wavyWaveContainer">
@@ -657,6 +700,19 @@
           </div>
         </div>
         <div class="progress-percent-label" id="progressPercentLabel">0%</div>
+      </div>
+
+      <!-- Installation Error Box -->
+      <div class="install-error-box" id="installErrorBox" style="display: none;">
+        <div class="install-error-title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+          Installation Problem
+        </div>
+        <div class="install-error-text" id="installErrorText"></div>
+        <div class="install-error-actions">
+          <button class="btn-m3-tonal" id="btnCancelInstall">Close</button>
+          <button class="btn-m3-primary" id="btnRetryInstall">Retry</button>
+        </div>
       </div>
     </div>
 
@@ -704,11 +760,16 @@
 
     // Drawer toggle
     const btnToggleCustom = document.getElementById('btnToggleCustom');
+    const btnToggleCustomInstalled = document.getElementById('btnToggleCustomInstalled');
     const customDrawer = document.getElementById('customDrawer');
-    btnToggleCustom.addEventListener('click', () => {
+
+    function toggleCustomDrawer(btn) {
       const isOpen = customDrawer.classList.toggle('expanded');
-      btnToggleCustom.textContent = isOpen ? "Hide Options" : "Customize";
-    });
+      btn.textContent = isOpen ? "Hide Options" : "Customize";
+    }
+
+    btnToggleCustom.addEventListener('click', () => toggleCustomDrawer(btnToggleCustom));
+    btnToggleCustomInstalled.addEventListener('click', () => toggleCustomDrawer(btnToggleCustomInstalled));
 
     // Sync chkLaunchAfter with chkFinishLaunch
     document.getElementById('chkLaunchAfter').addEventListener('change', (e) => {
@@ -734,24 +795,86 @@
         isUninstallMode = info.is_uninstall;
         installedTargetDir = info.default_path;
 
-        if (isUninstallMode) {
-          document.getElementById('windowTitle').textContent = "Lumen Uninstaller";
-          document.getElementById('heroTitle').innerHTML = "Uninstall Lumen?";
-          document.getElementById('heroSubtitle').textContent = "Remove Lumen and shortcuts from your computer";
-          document.getElementById('btnToggleCustom').style.display = 'none';
-          document.getElementById('customDrawer').style.display = 'none';
-          document.getElementById('uninstallOptions').style.display = 'block';
+        if (info.config_path) {
+          const configLabel = document.getElementById('configPathLabel');
+          if (configLabel) configLabel.textContent = info.config_path;
+        }
 
-          const btn = document.getElementById('btnMainInstall');
-          btn.textContent = "Uninstall";
-          btn.className = "btn-m3-danger";
+        if (isUninstallMode) {
+          switchToUninstallUI();
+        } else if (info.is_installed) {
+          document.getElementById('installPathInput').value = info.default_path;
+          document.getElementById('heroTitle').innerHTML = 'Lumen <span class="version-tag">Installed</span>';
+          document.getElementById('heroSubtitle').textContent = "Lumen is installed on your computer. Choose an action below.";
+          document.getElementById('normalActions').style.display = 'none';
+          document.getElementById('installedActions').style.display = 'flex';
         } else {
           document.getElementById('installPathInput').value = info.default_path;
+          document.getElementById('normalActions').style.display = 'flex';
+          document.getElementById('installedActions').style.display = 'none';
         }
       } catch (err) {
         console.error("Init error:", err);
+      } finally {
+        await invoke('show_window');
       }
     }
+
+    function switchToUninstallUI() {
+      isUninstallMode = true;
+      document.getElementById('windowTitle').textContent = "Lumen Uninstaller";
+      document.getElementById('heroTitle').innerHTML = "Uninstall Lumen?";
+      document.getElementById('heroSubtitle').textContent = "Remove Lumen and shortcuts from your computer";
+      document.getElementById('normalActions').style.display = 'flex';
+      document.getElementById('installedActions').style.display = 'none';
+      document.getElementById('btnToggleCustom').style.display = 'none';
+      customDrawer.classList.remove('expanded');
+      customDrawer.style.display = 'none';
+      document.getElementById('uninstallOptions').style.display = 'block';
+
+      const btn = document.getElementById('btnMainInstall');
+      btn.textContent = "Uninstall";
+      btn.className = "btn-m3-danger";
+    }
+
+    // Installed Actions handlers
+    document.getElementById('btnLaunchExisting').addEventListener('click', async () => {
+      await invoke('launch_app', { targetDir: installedTargetDir });
+      await invoke('close_installer');
+    });
+
+    document.getElementById('btnRepair').addEventListener('click', async () => {
+      document.getElementById('screenWelcome').style.display = 'none';
+      document.getElementById('screenInstalling').style.display = 'flex';
+      document.getElementById('installingTitle').textContent = "Repairing Lumen...";
+      const desktopShortcut = document.getElementById('chkDesktopShortcut').checked;
+      await performInstall(installedTargetDir, desktopShortcut);
+    });
+
+    document.getElementById('btnGoUninstall').addEventListener('click', () => {
+      switchToUninstallUI();
+    });
+
+    // Error Box handlers
+    function showInstallError(err) {
+      document.getElementById('progressWrapper').style.display = 'none';
+      document.getElementById('installingTitle').textContent = "Installation Problem";
+      document.getElementById('installingSubtitle').textContent = "Unable to finish copying or registering files.";
+      document.getElementById('installErrorText').textContent = String(err);
+      document.getElementById('installErrorBox').style.display = 'flex';
+    }
+
+    document.getElementById('btnRetryInstall').addEventListener('click', async () => {
+      document.getElementById('installErrorBox').style.display = 'none';
+      document.getElementById('progressWrapper').style.display = 'flex';
+      const targetDir = document.getElementById('installPathInput').value;
+      const desktopShortcut = document.getElementById('chkDesktopShortcut').checked;
+      await performInstall(targetDir, desktopShortcut);
+    });
+
+    document.getElementById('btnCancelInstall').addEventListener('click', () => {
+      invoke('close_installer');
+    });
 
     // Main action button click
     document.getElementById('btnMainInstall').addEventListener('click', async () => {
@@ -811,8 +934,7 @@
         }, 600);
 
       } catch (err) {
-        alert("Installation failed: " + err);
-        invoke('close_installer');
+        showInstallError(err);
       }
     }
 
