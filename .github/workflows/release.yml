@@ -123,8 +123,8 @@ jobs:
 
       - name: Build Standalone Universal CLI
         run: |
-          cargo build --release --bin lumen-cli --target x86_64-apple-darwin
-          cargo build --release --bin lumen-cli --target aarch64-apple-darwin
+          cargo build --release -p lumen-cli --bin lumen-cli --target x86_64-apple-darwin
+          cargo build --release -p lumen-cli --bin lumen-cli --target aarch64-apple-darwin
 
       - name: Stage Release Artifacts
         shell: bash
@@ -198,7 +198,7 @@ jobs:
         run: npx --prefix ../../frontend tauri build --bundles appimage,deb
 
       - name: Build Standalone Linux CLI
-        run: cargo build --release --bin lumen-cli
+        run: cargo build --release -p lumen-cli --bin lumen-cli
 
       - name: Stage Release Artifacts
         shell: bash
@@ -275,14 +275,14 @@ jobs:
       - name: Build Application Binaries
         shell: pwsh
         run: |
-          cargo build --release --bin lumen
-          cargo build --release --bin lumen-cli
+          cargo build --release -p lumen-tauri --bin lumen
+          cargo build --release -p lumen-cli --bin lumen-cli
 
       - name: Package Custom Installer
         shell: pwsh
         run: |
           tar -czf crates/lumen-installer/payload.tar.gz -C target/release lumen.exe lumen-cli.exe
-          cargo build --release --bin lumen-installer
+          cargo build --release -p lumen-installer --bin lumen-installer
 
       - name: Stage Release Artifacts
         shell: pwsh
@@ -349,14 +349,14 @@ jobs:
       - name: Build Application Binaries
         shell: pwsh
         run: |
-          cargo build --release --bin lumen --target aarch64-pc-windows-msvc
-          cargo build --release --bin lumen-cli --target aarch64-pc-windows-msvc
+          cargo build --release -p lumen-tauri --bin lumen --target aarch64-pc-windows-msvc
+          cargo build --release -p lumen-cli --bin lumen-cli --target aarch64-pc-windows-msvc
 
       - name: Package Custom Installer
         shell: pwsh
         run: |
           tar -czf crates/lumen-installer/payload.tar.gz -C target/aarch64-pc-windows-msvc/release lumen.exe lumen-cli.exe
-          cargo build --release --bin lumen-installer --target aarch64-pc-windows-msvc
+          cargo build --release -p lumen-installer --bin lumen-installer --target aarch64-pc-windows-msvc
 
       - name: Stage Release Artifacts
         shell: pwsh

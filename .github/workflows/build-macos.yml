@@ -42,8 +42,8 @@ jobs:
 
       - name: Build Standalone Universal CLI
         run: |
-          cargo build --release --bin lumen-cli --target x86_64-apple-darwin
-          cargo build --release --bin lumen-cli --target aarch64-apple-darwin
+          cargo build --release -p lumen-cli --bin lumen-cli --target x86_64-apple-darwin
+          cargo build --release -p lumen-cli --bin lumen-cli --target aarch64-apple-darwin
 
       - name: Stage Artifacts
         shell: bash
