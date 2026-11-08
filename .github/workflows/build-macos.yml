@@ -1,0 +1,78 @@
+name: Build macOS (Artifacts Only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-macos:
+    name: Build macOS Universal
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        run: npm ci --prefix frontend --engine-strict=false
+
+      - name: Build Frontend
+        run: npm run build --prefix frontend
+
+      - name: Build Tauri Universal Bundle (.dmg & .app)
+        working-directory: crates/lumen-tauri
+        run: npx --prefix ../../frontend tauri build --target universal-apple-darwin
+
+      - name: Build Standalone Universal CLI
+        run: |
+          cargo build --release --bin lumen-cli --target x86_64-apple-darwin
+          cargo build --release --bin lumen-cli --target aarch64-apple-darwin
+
+      - name: Stage Artifacts
+        shell: bash
+        run: |
+          V=$(grep -m1 '^version =' crates/lumen-tauri/Cargo.toml | cut -d '"' -f2)
+          mkdir -p dist
+
+          # 1. Universal DMG installer
+          DMG_FILE=$(find target/universal-apple-darwin/release/bundle/dmg -name "*.dmg" | head -n 1)
+          if [ -n "$DMG_FILE" ] && [ -f "$DMG_FILE" ]; then
+            cp "$DMG_FILE" "dist/lumen_${V}_macos_universal.dmg"
+          fi
+
+          # 2. Universal .app zip bundle
+          if [ -d "target/universal-apple-darwin/release/bundle/macos/Lumen.app" ]; then
+            (cd target/universal-apple-darwin/release/bundle/macos && zip -r "../../../../../dist/lumen_${V}_macos_universal.zip" Lumen.app)
+          fi
+
+          # 3. Universal CLI binary
+          lipo -create -output "dist/lumen-cli_${V}_macos_universal" \
+            target/x86_64-apple-darwin/release/lumen-cli \
+            target/aarch64-apple-darwin/release/lumen-cli
+          chmod +x "dist/lumen-cli_${V}_macos_universal"
+
+          ls -la dist/
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumen-macos-universal
+          path: dist/*
+          retention-days: 7

@@ -16,11 +16,88 @@ const EMBEDDED_PAYLOAD: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/payloa
 pub struct SetupInfo {
     pub is_uninstall: bool,
     pub is_installed: bool,
+    pub is_update: bool,
+    pub installed_version: String,
+    pub current_version: String,
     pub default_path: String,
     pub config_path: String,
 }
 
-fn get_installed_dir() -> Option<PathBuf> {
+#[derive(Debug, Clone, Default)]
+struct InstalledAppInfo {
+    dir: PathBuf,
+    version: String,
+    #[allow(dead_code)]
+    is_nsis: bool,
+}
+
+fn is_older_version(installed: &str, current: &str) -> bool {
+    let parse_v = |s: &str| -> Vec<u32> {
+        let clean = s.trim_start_matches('v').trim();
+        clean
+            .split('.')
+            .map(|part| {
+                part.chars()
+                    .take_while(|c| c.is_ascii_digit())
+                    .collect::<String>()
+                    .parse::<u32>()
+                    .unwrap_or(0)
+            })
+            .collect()
+    };
+    let inst_parts = parse_v(installed);
+    let cur_parts = parse_v(current);
+    for i in 0..cur_parts.len().max(inst_parts.len()) {
+        let inst_p = inst_parts.get(i).copied().unwrap_or(0);
+        let cur_p = cur_parts.get(i).copied().unwrap_or(0);
+        if inst_p < cur_p {
+            return true;
+        } else if inst_p > cur_p {
+            return false;
+        }
+    }
+    false
+}
+
+#[cfg(windows)]
+fn extract_dir_from_reg_key(key: &winreg::RegKey) -> Option<PathBuf> {
+    if let Ok(loc) = key.get_value::<String, _>("InstallLocation") {
+        let clean = loc.trim().trim_matches('"');
+        if !clean.is_empty() {
+            let p = PathBuf::from(clean);
+            if p.exists() {
+                return Some(p);
+            }
+        }
+    }
+    if let Ok(uninst_str) = key.get_value::<String, _>("UninstallString") {
+        let clean = uninst_str.trim().trim_matches('"');
+        let exe_part = if let Some(idx) = clean.to_lowercase().find(".exe") {
+            &clean[..idx + 4]
+        } else {
+            clean
+        };
+        let p = PathBuf::from(exe_part.trim().trim_matches('"'));
+        if let Some(parent) = p.parent() {
+            if parent.exists() {
+                return Some(parent.to_path_buf());
+            }
+        }
+    }
+    if let Ok(icon) = key.get_value::<String, _>("DisplayIcon") {
+        let clean = icon.trim().trim_matches('"');
+        let icon_part = clean.split(',').next().unwrap_or(clean).trim().trim_matches('"');
+        let p = PathBuf::from(icon_part);
+        if let Some(parent) = p.parent() {
+            if parent.exists() {
+                return Some(parent.to_path_buf());
+            }
+        }
+    }
+    None
+}
+
+fn get_legacy_nsis_info() -> Option<InstalledAppInfo> {
     let current_exe_dir = env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
@@ -30,43 +107,216 @@ fn get_installed_dir() -> Option<PathBuf> {
     {
         use winreg::enums::*;
         use winreg::RegKey;
-        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-        if let Ok(key) = hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Lumen") {
-            if let Ok(loc) = key.get_value::<String, _>("InstallLocation") {
-                let trimmed = loc.trim();
-                if !trimmed.is_empty() {
-                    let p = PathBuf::from(trimmed);
-                    if p.is_absolute()
-                        && is_safe_dedicated_install_dir(&p)
-                        && (p.join("Lumen.exe").is_file() || p.join("lumen.exe").is_file())
-                    {
-                        if let Ok(canon_p) = p.canonicalize() {
+
+        // 1. Direct scan of standard Program Files folders FIRST
+        // This is 100% reliable even if registry keys were wiped or corrupted
+        for pf_var in &["ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"] {
+            if let Ok(pf) = env::var(pf_var) {
+                let candidates = [
+                    PathBuf::from(&pf).join("Reiux").join("Lumen"),
+                    PathBuf::from(&pf).join("Lumen"),
+                    PathBuf::from(&pf).join("gotohp"),
+                ];
+                for candidate in candidates {
+                    if candidate.is_dir() {
+                        let has_app = candidate.join("Lumen.exe").is_file()
+                            || candidate.join("lumen.exe").is_file()
+                            || candidate.join("uninstall.exe").is_file()
+                            || candidate.join("wails.json").is_file()
+                            || candidate.read_dir().map(|mut d| d.next().is_some()).unwrap_or(false);
+                        if has_app {
                             if let Some(ref cur) = current_exe_dir {
-                                if canon_p != *cur {
-                                    return Some(p);
+                                if let Ok(canon) = candidate.canonicalize() {
+                                    if canon == *cur {
+                                        continue;
+                                    }
                                 }
-                            } else {
-                                return Some(p);
+                            }
+                            return Some(InstalledAppInfo {
+                                dir: candidate,
+                                version: "1.0.1".to_string(),
+                                is_nsis: true,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // 2. Scan HKLM, WOW6432Node, and HKCU Uninstall registry keys for legacy Go NSIS
+        let hives = [
+            (HKEY_LOCAL_MACHINE, "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall"),
+            (HKEY_LOCAL_MACHINE, "Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall"),
+            (HKEY_CURRENT_USER, "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall"),
+        ];
+
+        for (hkey, subpath) in hives {
+            let root = RegKey::predef(hkey);
+            if let Ok(uninstall_root) = root.open_subkey(subpath) {
+                for key_name in uninstall_root.enum_keys().filter_map(|r| r.ok()) {
+                    let lower_key = key_name.to_lowercase();
+                    let is_legacy_key = lower_key == "reiuxlumen"
+                        || lower_key == "reiux lumen"
+                        || lower_key == "gotohp"
+                        || (lower_key == "lumen" && hkey == HKEY_LOCAL_MACHINE);
+
+                    if is_legacy_key {
+                        if let Ok(app_key) = uninstall_root.open_subkey(&key_name) {
+                            let version: String = app_key.get_value("DisplayVersion").unwrap_or_default();
+                            let found_ver = if version.is_empty() { "1.0.1".to_string() } else { version };
+                            if let Some(p) = extract_dir_from_reg_key(&app_key) {
+                                if p.is_dir() {
+                                    if let Some(ref cur) = current_exe_dir {
+                                        if let Ok(canon) = p.canonicalize() {
+                                            if canon == *cur {
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                    return Some(InstalledAppInfo {
+                                        dir: p,
+                                        version: found_ver,
+                                        is_nsis: true,
+                                    });
+                                }
+                            }
+                            if let Ok(pf) = env::var("ProgramFiles") {
+                                let def_p = PathBuf::from(&pf).join("Reiux").join("Lumen");
+                                if def_p.is_dir() {
+                                    return Some(InstalledAppInfo {
+                                        dir: def_p,
+                                        version: found_ver,
+                                        is_nsis: true,
+                                    });
+                                }
                             }
                         }
                     }
                 }
             }
         }
-    }
-    let default_dir = get_default_install_dir();
-    if default_dir.join("Lumen.exe").is_file() || default_dir.join("lumen.exe").is_file() {
-        if let Ok(canon_default) = default_dir.canonicalize() {
-            if let Some(ref cur) = current_exe_dir {
-                if canon_default != *cur {
-                    return Some(default_dir);
+
+        // 3. Fallback: check All-Users Start Menu and Public Desktop shortcuts
+        if let Ok(pd) = env::var("ProgramData") {
+            for lnk_name in &["Lumen.lnk", "gotohp.lnk"] {
+                let start_lnk = PathBuf::from(&pd)
+                    .join("Microsoft")
+                    .join("Windows")
+                    .join("Start Menu")
+                    .join("Programs")
+                    .join(lnk_name);
+                if start_lnk.is_file() {
+                    let mut found_dir = PathBuf::from("C:\\Program Files\\Reiux\\Lumen");
+                    for pf_var in &["ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"] {
+                        if let Ok(pf) = env::var(pf_var) {
+                            for sub in &["Reiux\\Lumen", "Lumen", "gotohp"] {
+                                let c = PathBuf::from(&pf).join(sub);
+                                if c.is_dir() {
+                                    found_dir = c;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    return Some(InstalledAppInfo {
+                        dir: found_dir,
+                        version: "1.0.1".to_string(),
+                        is_nsis: true,
+                    });
                 }
-            } else {
-                return Some(default_dir);
+            }
+        }
+        if let Ok(public_dir) = env::var("PUBLIC") {
+            for lnk_name in &["Lumen.lnk", "gotohp.lnk"] {
+                let desktop_lnk = PathBuf::from(&public_dir).join("Desktop").join(lnk_name);
+                if desktop_lnk.is_file() {
+                    let mut found_dir = PathBuf::from("C:\\Program Files\\Reiux\\Lumen");
+                    for pf_var in &["ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"] {
+                        if let Ok(pf) = env::var(pf_var) {
+                            for sub in &["Reiux\\Lumen", "Lumen", "gotohp"] {
+                                let c = PathBuf::from(&pf).join(sub);
+                                if c.is_dir() {
+                                    found_dir = c;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    return Some(InstalledAppInfo {
+                        dir: found_dir,
+                        version: "1.0.1".to_string(),
+                        is_nsis: true,
+                    });
+                }
             }
         }
     }
+    let _ = current_exe_dir;
     None
+}
+
+fn get_modern_installed_info() -> Option<InstalledAppInfo> {
+    let current_exe_dir = env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .and_then(|d| d.canonicalize().ok());
+
+    #[cfg(windows)]
+    {
+        use winreg::enums::*;
+        use winreg::RegKey;
+
+        // Check HKCU uninstall key specifically
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        if let Ok(uninstall_root) = hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall") {
+            if let Ok(app_key) = uninstall_root.open_subkey("Lumen") {
+                let version = app_key.get_value::<String, _>("DisplayVersion").unwrap_or_default();
+                if let Some(p) = extract_dir_from_reg_key(&app_key) {
+                    let norm_p = p.to_string_lossy().to_lowercase();
+                    if !norm_p.contains("program files") && (p.join("Lumen.exe").is_file() || p.join("lumen.exe").is_file()) {
+                        if let Some(ref cur) = current_exe_dir {
+                            if let Ok(canon) = p.canonicalize() {
+                                if canon == *cur {
+                                    return None;
+                                }
+                            }
+                        }
+                        return Some(InstalledAppInfo {
+                            dir: p,
+                            version,
+                            is_nsis: false,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    let default_dir = get_default_install_dir();
+    if default_dir.join("Lumen.exe").is_file() || default_dir.join("lumen.exe").is_file() {
+        if let Some(ref cur) = current_exe_dir {
+            if let Ok(canon_default) = default_dir.canonicalize() {
+                if canon_default == *cur {
+                    return None;
+                }
+            }
+        }
+        return Some(InstalledAppInfo {
+            dir: default_dir,
+            version: String::new(),
+            is_nsis: false,
+        });
+    }
+    let _ = current_exe_dir;
+    None
+}
+
+fn get_installed_info() -> Option<InstalledAppInfo> {
+    get_legacy_nsis_info().or_else(get_modern_installed_info)
+}
+
+fn get_installed_dir() -> Option<PathBuf> {
+    get_installed_info().map(|info| info.dir)
 }
 
 fn check_if_installed(install_dir: &Path) -> bool {
@@ -147,33 +397,42 @@ fn get_default_install_dir() -> PathBuf {
 #[tauri::command]
 fn get_setup_info() -> SetupInfo {
     let is_uninstall = is_uninstall_invocation();
+    let current_version = env!("CARGO_PKG_VERSION").to_string();
     let default_dir = get_default_install_dir();
-    let installed_dir = get_installed_dir();
-    let is_installed = installed_dir.is_some() || check_if_installed(&default_dir);
+    let legacy_nsis = get_legacy_nsis_info();
+    let modern_installed = get_modern_installed_info();
+    let default_installed = check_if_installed(&default_dir);
 
-    #[cfg(windows)]
-    {
-        // If registry entry exists but no actual installed binaries exist on disk,
-        // clean up the orphaned registry key so it doesn't falsely indicate installation
-        if !is_installed {
-            let _ = unregister_windows_uninstall();
+    let is_installed = legacy_nsis.is_some() || modern_installed.is_some() || default_installed;
+    let mut is_update = false;
+    let mut installed_version = String::new();
+    let mut default_path = default_dir.to_string_lossy().to_string();
+
+    if let Some(ref legacy) = legacy_nsis {
+        // Legacy NSIS install is always upgraded and migrated to modern per-user Rust install
+        is_update = true;
+        installed_version = if legacy.version.is_empty() {
+            "1.0.1".to_string()
+        } else {
+            legacy.version.clone()
+        };
+        default_path = default_dir.to_string_lossy().to_string();
+    } else if let Some(ref modern) = modern_installed {
+        installed_version = modern.version.clone();
+        if modern.version.is_empty() || is_older_version(&modern.version, &current_version) {
+            is_update = true;
         }
+        default_path = modern.dir.to_string_lossy().to_string();
     }
 
-    let default_path = if is_installed {
-        if let Some(ref dir) = installed_dir {
-            dir.to_string_lossy().to_string()
-        } else {
-            default_dir.to_string_lossy().to_string()
-        }
-    } else {
-        default_dir.to_string_lossy().to_string()
-    };
     let config_path = get_config_display_path();
 
     SetupInfo {
         is_uninstall,
         is_installed,
+        is_update,
+        installed_version,
+        current_version,
         default_path,
         config_path,
     }
@@ -227,7 +486,7 @@ fn is_safe_dedicated_install_dir(dir: &Path) -> bool {
     }
 
     let folder_name = parts[parts.len() - 1];
-    if !folder_name.eq_ignore_ascii_case("lumen") {
+    if !folder_name.eq_ignore_ascii_case("lumen") && !folder_name.eq_ignore_ascii_case("gotohp") {
         return false;
     }
 
@@ -432,6 +691,11 @@ async fn start_install(
     // Terminate any running Lumen instances before unpacking
     let _ = kill_running_app();
 
+    #[cfg(windows)]
+    {
+        remove_legacy_nsis_installation();
+    }
+
     // 1. Extract embedded payload
     let decoder = GzDecoder::new(Cursor::new(EMBEDDED_PAYLOAD));
     let mut archive = Archive::new(decoder);
@@ -510,6 +774,11 @@ async fn start_install(
 async fn start_uninstall(purge_config: bool) -> Result<(), String> {
     // 1. Terminate running app instances first so files are not locked
     let _ = kill_running_app();
+
+    #[cfg(windows)]
+    {
+        remove_legacy_nsis_installation();
+    }
 
     let install_dir = if let Some(dir) = get_installed_dir() {
         dir
@@ -752,12 +1021,189 @@ fn register_windows_uninstall(
 }
 
 #[cfg(windows)]
+fn remove_legacy_nsis_installation() {
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+    use winreg::enums::*;
+    use winreg::RegKey;
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    let mut legacy_dirs: Vec<PathBuf> = Vec::new();
+
+    // 1. Scan standard Program Files folders
+    for pf_var in &["ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"] {
+        if let Ok(pf) = env::var(pf_var) {
+            let candidates = [
+                PathBuf::from(&pf).join("Reiux").join("Lumen"),
+                PathBuf::from(&pf).join("Lumen"),
+                PathBuf::from(&pf).join("gotohp"),
+            ];
+            for p in candidates {
+                if p.is_dir() {
+                    legacy_dirs.push(p);
+                }
+            }
+        }
+    }
+
+    // 2. Scan HKLM, WOW6432Node, and HKCU Uninstall registry keys for legacy Go NSIS paths
+    let hives = [
+        (HKEY_LOCAL_MACHINE, "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall"),
+        (HKEY_LOCAL_MACHINE, "Software\\WOW6432Node\\Microsoft\\Windows\\CurrentVersion\\Uninstall"),
+        (HKEY_CURRENT_USER, "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall"),
+    ];
+
+    for (hkey, root_path) in hives {
+        let root = RegKey::predef(hkey);
+        if let Ok(uninstall_root) = root.open_subkey(root_path) {
+            for key_name in uninstall_root.enum_keys().filter_map(|r| r.ok()) {
+                let lower_key = key_name.to_lowercase();
+                if lower_key == "reiuxlumen" || lower_key == "reiux lumen" || lower_key == "gotohp"
+                    || (lower_key == "lumen" && hkey == HKEY_LOCAL_MACHINE)
+                {
+                    if let Ok(app_key) = uninstall_root.open_subkey(&key_name) {
+                        if let Some(p) = extract_dir_from_reg_key(&app_key) {
+                            if p.is_dir() {
+                                legacy_dirs.push(p);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Always include standard default Program Files paths for safety
+    if let Ok(pf) = env::var("ProgramFiles") {
+        let def_p = PathBuf::from(&pf).join("Reiux").join("Lumen");
+        if def_p.is_dir() {
+            legacy_dirs.push(def_p);
+        }
+    }
+    if let Ok(pf86) = env::var("ProgramFiles(x86)") {
+        let def_p86 = PathBuf::from(&pf86).join("Reiux").join("Lumen");
+        if def_p86.is_dir() {
+            legacy_dirs.push(def_p86);
+        }
+    }
+
+    legacy_dirs.sort();
+    legacy_dirs.dedup();
+
+    // Build elevated PowerShell script to cleanly uninstall and purge legacy Program Files & HKLM
+    let mut dir_list_ps = String::new();
+    for d in &legacy_dirs {
+        dir_list_ps.push_str(&format!("'{}', ", escape_powershell_single_quote(&d.to_string_lossy())));
+    }
+    let dir_list_ps = dir_list_ps.trim_end_matches(", ");
+
+    let script = format!(
+        r#"$dirs = @({dirs});
+foreach ($d in $dirs) {{
+    if (Test-Path -LiteralPath $d) {{
+        $uninst = Join-Path $d 'uninstall.exe';
+        if (Test-Path -LiteralPath $uninst) {{
+            Start-Process -FilePath 'cmd.exe' -ArgumentList ('/c `"' + $uninst + '`" /S _?=' + $d) -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue;
+            Start-Sleep -Milliseconds 800;
+        }}
+        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {{ $_.ExecutablePath -and $_.ExecutablePath.StartsWith($d, [System.StringComparison]::OrdinalIgnoreCase) }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }};
+        for ($i = 0; $i -lt 5; $i++) {{
+            Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue;
+            if (-not (Test-Path -LiteralPath $d)) {{ break }}
+            Start-Sleep -Milliseconds 400;
+        }}
+    }}
+}}
+
+$reiuxRoots = @('C:\Program Files\Reiux', 'C:\Program Files (x86)\Reiux');
+foreach ($r in $reiuxRoots) {{
+    if (Test-Path -LiteralPath $r) {{
+        $items = Get-ChildItem -LiteralPath $r -ErrorAction SilentlyContinue;
+        if (-not $items -or $items.Count -eq 0) {{
+            Remove-Item -LiteralPath $r -Recurse -Force -ErrorAction SilentlyContinue;
+        }}
+    }}
+}}
+
+$regKeys = @(
+    'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\ReiuxLumen',
+    'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Reiux Lumen',
+    'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Lumen',
+    'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\gotohp',
+    'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\ReiuxLumen',
+    'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Reiux Lumen',
+    'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Lumen',
+    'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\gotohp'
+);
+foreach ($reg in $regKeys) {{
+    Remove-Item -LiteralPath $reg -Recurse -Force -ErrorAction SilentlyContinue;
+}}
+
+$pdata = $env:ProgramData;
+if ($pdata) {{
+    Remove-Item -LiteralPath "$pdata\Microsoft\Windows\Start Menu\Programs\Lumen.lnk" -Force -ErrorAction SilentlyContinue;
+    Remove-Item -LiteralPath "$pdata\Microsoft\Windows\Start Menu\Programs\gotohp.lnk" -Force -ErrorAction SilentlyContinue;
+    Remove-Item -LiteralPath "$pdata\Microsoft\Windows\Start Menu\Programs\Reiux\Lumen.lnk" -Force -ErrorAction SilentlyContinue;
+    Remove-Item -LiteralPath "$pdata\Microsoft\Windows\Start Menu\Programs\Reiux" -Recurse -Force -ErrorAction SilentlyContinue;
+    Remove-Item -LiteralPath "$pdata\Microsoft\Windows\Start Menu\Programs\Lumen" -Recurse -Force -ErrorAction SilentlyContinue;
+}}
+$pub = $env:PUBLIC;
+if ($pub) {{
+    Remove-Item -LiteralPath "$pub\Desktop\Lumen.lnk" -Force -ErrorAction SilentlyContinue;
+    Remove-Item -LiteralPath "$pub\Desktop\gotohp.lnk" -Force -ErrorAction SilentlyContinue;
+}}
+"#,
+        dirs = dir_list_ps
+    );
+
+    let temp_ps1 = env::temp_dir().join("lumen_legacy_cleanup.ps1");
+    if fs::write(&temp_ps1, script).is_ok() {
+        let ps_arg = format!(
+            "Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{}\"' -Verb RunAs -Wait",
+            escape_powershell_single_quote(&temp_ps1.to_string_lossy())
+        );
+        let _ = Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &ps_arg])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+        let _ = fs::remove_file(&temp_ps1);
+    }
+
+    // Clean up user-scoped shortcuts and HKCU keys
+    if let Ok(appdata) = env::var("APPDATA") {
+        let user_start = PathBuf::from(appdata)
+            .join("Microsoft")
+            .join("Windows")
+            .join("Start Menu")
+            .join("Programs");
+        let _ = fs::remove_file(user_start.join("gotohp.lnk"));
+        let _ = fs::remove_file(user_start.join("Reiux").join("Lumen.lnk"));
+        let _ = fs::remove_dir_all(user_start.join("Reiux"));
+    }
+    if let Ok(userprofile) = env::var("USERPROFILE") {
+        let user_desktop = PathBuf::from(userprofile).join("Desktop");
+        let _ = fs::remove_file(user_desktop.join("gotohp.lnk"));
+    }
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    if let Ok(uninstall_root) = hkcu.open_subkey_with_flags("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall", KEY_WRITE) {
+        let _ = uninstall_root.delete_subkey_all("ReiuxLumen");
+        let _ = uninstall_root.delete_subkey_all("Reiux Lumen");
+        let _ = uninstall_root.delete_subkey_all("gotohp");
+    }
+}
+
+#[cfg(windows)]
 fn unregister_windows_uninstall() -> Result<(), String> {
     use winreg::enums::*;
     use winreg::RegKey;
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let _ = hkcu.delete_subkey_all("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Lumen");
+    let _ = hkcu.delete_subkey_all("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ReiuxLumen");
+    let _ = hkcu.delete_subkey_all("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\gotohp");
+
     Ok(())
 }
 
@@ -847,5 +1293,18 @@ mod tests {
         assert!(!is_safe_dedicated_install_dir(Path::new("/home/user/Desktop/Lumen/..")));
         assert!(is_safe_dedicated_install_dir(Path::new("/home/user/.local/share/Lumen")));
         assert!(is_safe_dedicated_install_dir(Path::new("C:\\Users\\User\\AppData\\Local\\Programs\\Lumen")));
+        assert!(is_safe_dedicated_install_dir(Path::new("C:\\Program Files\\Reiux\\Lumen")));
+        assert!(is_safe_dedicated_install_dir(Path::new("C:\\Program Files\\Lumen")));
+    }
+
+    #[test]
+    fn test_is_older_version() {
+        assert!(is_older_version("1.0.0", "1.1.0"));
+        assert!(is_older_version("v1.0.0", "1.1.0"));
+        assert!(is_older_version("1.0.9", "1.1.0"));
+        assert!(is_older_version("0.9.0", "1.0.0"));
+        assert!(!is_older_version("1.1.0", "1.1.0"));
+        assert!(!is_older_version("1.2.0", "1.1.0"));
+        assert!(!is_older_version("2.0.0", "1.1.0"));
     }
 }

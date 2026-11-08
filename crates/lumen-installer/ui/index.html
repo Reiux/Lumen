@@ -807,10 +807,6 @@
             <input type="checkbox" id="chkStartupLaunch">
             <span>Start Lumen on system startup</span>
           </label>
-          <label class="checkbox-label">
-            <input type="checkbox" id="chkLaunchAfter" checked>
-            <span>Launch Lumen when finished</span>
-          </label>
         </div>
       </div>
 
@@ -826,6 +822,13 @@
       <div class="bottom-actions" id="normalActions">
         <button class="btn-m3-tonal" id="btnToggleCustom">Customize</button>
         <button class="btn-m3-primary" id="btnMainInstall">Install</button>
+      </div>
+
+      <!-- Bottom Actions: Update Mode -->
+      <div class="bottom-actions" id="updateActions" style="display: none;">
+        <button class="btn-m3-danger" id="btnGoUninstallFromUpdate" style="margin-right: auto;">Uninstall</button>
+        <button class="btn-m3-tonal" id="btnToggleCustomUpdate">Customize</button>
+        <button class="btn-m3-primary" id="btnMainUpdate">Update</button>
       </div>
 
       <!-- Bottom Actions: Already Installed State -->
@@ -903,6 +906,9 @@
 
     let isUninstallMode = false;
     let isInstalledState = false;
+    let isUpdateState = false;
+    let installedVersion = "";
+    let currentVersion = "";
     let installedTargetDir = "";
 
     // Window controls
@@ -921,6 +927,7 @@
     // Drawer toggle
     const btnToggleCustom = document.getElementById('btnToggleCustom');
     const btnToggleCustomInstalled = document.getElementById('btnToggleCustomInstalled');
+    const btnToggleCustomUpdate = document.getElementById('btnToggleCustomUpdate');
     const customDrawer = document.getElementById('customDrawer');
 
     function toggleCustomDrawer() {
@@ -928,10 +935,12 @@
       const label = isOpen ? "Hide Options" : "Customize";
       if (btnToggleCustom) btnToggleCustom.textContent = label;
       if (btnToggleCustomInstalled) btnToggleCustomInstalled.textContent = label;
+      if (btnToggleCustomUpdate) btnToggleCustomUpdate.textContent = label;
     }
 
     if (btnToggleCustom) btnToggleCustom.addEventListener('click', toggleCustomDrawer);
     if (btnToggleCustomInstalled) btnToggleCustomInstalled.addEventListener('click', toggleCustomDrawer);
+    if (btnToggleCustomUpdate) btnToggleCustomUpdate.addEventListener('click', toggleCustomDrawer);
 
     // M3 Expressive state-layer ripple for interactive buttons
     document.addEventListener('pointerdown', (e) => {
@@ -964,11 +973,6 @@
       }, 160);
     }
 
-    // Sync chkLaunchAfter with chkFinishLaunch
-    document.getElementById('chkLaunchAfter').addEventListener('change', (e) => {
-      document.getElementById('chkFinishLaunch').checked = e.target.checked;
-    });
-
     // Browse Directory
     document.getElementById('btnBrowse').addEventListener('click', async () => {
       try {
@@ -990,9 +994,11 @@
       customDrawer.classList.remove('expanded');
       if (btnToggleCustom) btnToggleCustom.textContent = "Customize";
       if (btnToggleCustomInstalled) btnToggleCustomInstalled.textContent = "Customize";
+      if (btnToggleCustomUpdate) btnToggleCustomUpdate.textContent = "Customize";
 
       document.getElementById('normalActions').style.display = 'none';
       document.getElementById('installedActions').style.display = 'none';
+      document.getElementById('updateActions').style.display = 'none';
 
       const purgeBox = document.getElementById('uninstallOptions');
       purgeBox.style.display = 'block';
@@ -1016,10 +1022,12 @@
       customDrawer.classList.remove('expanded');
       if (btnToggleCustom) btnToggleCustom.textContent = "Customize";
       if (btnToggleCustomInstalled) btnToggleCustomInstalled.textContent = "Customize";
+      if (btnToggleCustomUpdate) btnToggleCustomUpdate.textContent = "Customize";
 
       document.getElementById('uninstallOptions').style.display = 'none';
       document.getElementById('uninstallActions').style.display = 'none';
       document.getElementById('normalActions').style.display = 'none';
+      document.getElementById('updateActions').style.display = 'none';
 
       const instActions = document.getElementById('installedActions');
       instActions.style.display = 'flex';
@@ -1037,10 +1045,12 @@
       customDrawer.classList.remove('expanded');
       if (btnToggleCustom) btnToggleCustom.textContent = "Customize";
       if (btnToggleCustomInstalled) btnToggleCustomInstalled.textContent = "Customize";
+      if (btnToggleCustomUpdate) btnToggleCustomUpdate.textContent = "Customize";
 
       document.getElementById('uninstallOptions').style.display = 'none';
       document.getElementById('uninstallActions').style.display = 'none';
       document.getElementById('installedActions').style.display = 'none';
+      document.getElementById('updateActions').style.display = 'none';
 
       const normActions = document.getElementById('normalActions');
       normActions.style.display = 'flex';
@@ -1049,12 +1059,39 @@
       normActions.classList.add('m3-shared-axis-enter');
     }
 
+    function switchToUpdateUI(installedVer, curVer) {
+      isUninstallMode = false;
+      document.getElementById('windowTitle').textContent = "Lumen Update";
+      const tagText = installedVer ? `Update from v${installedVer.replace(/^v/, '')}` : "Update Available";
+      document.getElementById('heroTitle').innerHTML = `Lumen <span class="version-tag">${tagText}</span>`;
+      document.getElementById('heroSubtitle').textContent = "A previous installation was detected. Update to the latest version seamlessly.";
+
+      customDrawer.classList.remove('expanded');
+      if (btnToggleCustom) btnToggleCustom.textContent = "Customize";
+      if (btnToggleCustomInstalled) btnToggleCustomInstalled.textContent = "Customize";
+      if (btnToggleCustomUpdate) btnToggleCustomUpdate.textContent = "Customize";
+
+      document.getElementById('uninstallOptions').style.display = 'none';
+      document.getElementById('uninstallActions').style.display = 'none';
+      document.getElementById('normalActions').style.display = 'none';
+      document.getElementById('installedActions').style.display = 'none';
+
+      const updActions = document.getElementById('updateActions');
+      updActions.style.display = 'flex';
+      updActions.classList.remove('m3-shared-axis-enter');
+      void updActions.offsetWidth;
+      updActions.classList.add('m3-shared-axis-enter');
+    }
+
     // Initialize
     async function init() {
       try {
         const info = await invoke('get_setup_info');
         isUninstallMode = info.is_uninstall;
         isInstalledState = info.is_installed;
+        isUpdateState = info.is_update;
+        installedVersion = info.installed_version || "";
+        currentVersion = info.current_version || "";
         installedTargetDir = info.default_path;
 
         if (info.config_path) {
@@ -1064,6 +1101,9 @@
 
         if (isUninstallMode) {
           switchToUninstallUI();
+        } else if (info.is_update) {
+          document.getElementById('installPathInput').value = info.default_path;
+          switchToUpdateUI(info.installed_version, info.current_version);
         } else if (info.is_installed) {
           document.getElementById('installPathInput').value = info.default_path;
           switchToInstalledUI();
@@ -1104,8 +1144,14 @@
       switchToUninstallUI();
     });
 
+    document.getElementById('btnGoUninstallFromUpdate').addEventListener('click', () => {
+      switchToUninstallUI();
+    });
+
     document.getElementById('btnCancelUninstall').addEventListener('click', () => {
-      if (isInstalledState) {
+      if (isUpdateState) {
+        switchToUpdateUI(installedVersion, currentVersion);
+      } else if (isInstalledState) {
         switchToInstalledUI();
       } else {
         invoke('close_installer');
@@ -1190,6 +1236,24 @@
       );
     });
 
+    // Main update button click (Update Mode)
+    document.getElementById('btnMainUpdate').addEventListener('click', () => {
+      const targetDir = document.getElementById('installPathInput').value || installedTargetDir;
+      installedTargetDir = targetDir;
+      const desktopShortcut = document.getElementById('chkDesktopShortcut').checked;
+      const launchOnStartup = document.getElementById('chkStartupLaunch').checked;
+
+      transitionScreens(
+        document.getElementById('screenWelcome'),
+        document.getElementById('screenInstalling'),
+        () => {
+          document.getElementById('installingTitle').textContent = "Updating Lumen...";
+          document.getElementById('installingSubtitle').textContent = "Removing legacy version and upgrading files...";
+          performInstall(targetDir, desktopShortcut, launchOnStartup);
+        }
+      );
+    });
+
     // Update the Wavy Progress Bar
     function setProgress(pct, statusText) {
       if (statusText) {
@@ -1204,11 +1268,12 @@
     }
 
     async function performInstall(targetDir, createShortcut, launchOnStartup) {
+      installedTargetDir = targetDir;
       const errBox = document.getElementById('installErrorBox');
       if (errBox) errBox.style.display = 'none';
       const progressWrapper = document.getElementById('progressWrapper');
       if (progressWrapper) progressWrapper.style.display = 'flex';
-      setProgress(25, "Extracting application binaries...");
+      setProgress(25, isUpdateState ? "Updating application binaries..." : "Extracting application binaries...");
       try {
         await invoke('start_install', {
           targetDir,
@@ -1220,13 +1285,17 @@
         setProgress(75, "Creating shortcuts & registering app...");
 
         setTimeout(() => {
-          setProgress(100, "Finishing setup...");
+          setProgress(100, isUpdateState ? "Finishing update..." : "Finishing setup...");
           setTimeout(() => {
             transitionScreens(
               document.getElementById('screenInstalling'),
               document.getElementById('screenComplete'),
               () => {
                 document.body.classList.remove('installing-active');
+                if (isUpdateState) {
+                  document.getElementById('completeTitle').textContent = "Update Complete";
+                  document.getElementById('completeSubtitle').textContent = "Lumen has been updated to the latest version and is ready for use.";
+                }
               }
             );
 

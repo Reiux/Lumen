@@ -69,12 +69,57 @@ pub struct Preferences {
     pub recent_albums: Vec<String>,
     #[serde(default = "default_true", rename = "auto_check_updates")]
     pub auto_check_updates: bool,
-    #[serde(default, rename = "last_update_check")]
+    #[serde(default, rename = "last_update_check", deserialize_with = "deserialize_last_update_check")]
     pub last_update_check: i64,
     #[serde(default, skip_serializing)]
     pub album_name: String,
     #[serde(default, skip_serializing)]
     pub album_auto_mode: bool,
+}
+
+fn deserialize_last_update_check<'de, D>(deserializer: D) -> Result<i64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct LastUpdateCheckVisitor;
+
+    impl<'de> serde::de::Visitor<'de> for LastUpdateCheckVisitor {
+        type Value = i64;
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("an integer timestamp or a string timestamp")
+        }
+
+        fn visit_i64<E>(self, v: i64) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(v)
+        }
+
+        fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(v as i64)
+        }
+
+        fn visit_str<E>(self, v: &str) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(v.parse::<i64>().unwrap_or(0))
+        }
+
+        fn visit_string<E>(self, v: String) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(v.parse::<i64>().unwrap_or(0))
+        }
+    }
+
+    deserializer.deserialize_any(LastUpdateCheckVisitor)
 }
 
 fn default_true() -> bool {
@@ -625,5 +670,29 @@ force_upload: true
         fs::write(path.join("album_registry.json"), b"").unwrap();
         assert_eq!(determine_hash_cache_path(path), path.join("hash_cache.db"));
         assert_eq!(determine_album_registry_path(path), path.join("album_registry.json"));
+    }
+
+    #[test]
+    fn test_go_yaml_config_with_string_last_update_check() {
+        let yaml_str = r#"
+account:
+  credentials:
+    - "Email=test%40gmail.com&Token=secret_token"
+  selected: "test@gmail.com"
+preferences:
+  proxy: ""
+  use_quota: false
+  saver: true
+  recursive: true
+  force_upload: false
+  upload_threads: 4
+  auto_check_updates: true
+  last_update_check: "2026-11-08T12:34:56Z"
+"#;
+        let cfg: Config = serde_yaml::from_str(yaml_str).expect("Failed to deserialize Go config");
+        assert_eq!(cfg.account.selected, "test@gmail.com");
+        assert_eq!(cfg.preferences.upload_threads, 4);
+        assert!(cfg.preferences.saver);
+        assert_eq!(cfg.preferences.last_update_check, 0);
     }
 }
