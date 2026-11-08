@@ -5,6 +5,7 @@ members = [
     "crates/lumen-tauri",
     "crates/lumen-installer",
 ]
+default-members = ["crates/lumen-tauri"]
 resolver = "2"
 
 [profile.release]

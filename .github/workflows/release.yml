@@ -118,7 +118,8 @@ jobs:
         run: npm run build --prefix frontend
 
       - name: Build Tauri Universal Bundle
-        run: npx --prefix frontend tauri build --config crates/lumen-tauri/tauri.conf.json --target universal-apple-darwin
+        working-directory: crates/lumen-tauri
+        run: npx --prefix ../../frontend tauri build --target universal-apple-darwin
 
       - name: Build Standalone Universal CLI
         run: |
@@ -193,7 +194,8 @@ jobs:
         run: npm run build --prefix frontend
 
       - name: Build Tauri Bundles (.deb & AppImage)
-        run: npx --prefix frontend tauri build --config crates/lumen-tauri/tauri.conf.json --bundles appimage,deb
+        working-directory: crates/lumen-tauri
+        run: npx --prefix ../../frontend tauri build --bundles appimage,deb
 
       - name: Build Standalone Linux CLI
         run: cargo build --release --bin lumen-cli
