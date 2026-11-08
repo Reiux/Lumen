@@ -52,18 +52,21 @@ jobs:
           mkdir -p dist
 
           # 1. Universal DMG installer (styled using dmgbuild to write .DS_Store directly on headless CI)
-          python3 -m pip install --break-system-packages dmgbuild biplist || pip3 install dmgbuild biplist || pip install dmgbuild biplist || true
+          python3 -m pip install --break-system-packages dmgbuild biplist ds_store mac_alias || python3 -m pip install dmgbuild biplist ds_store mac_alias
           APP_PATH="target/universal-apple-darwin/release/bundle/macos/Lumen.app"
-          if command -v dmgbuild >/dev/null 2>&1 && [ -d "$APP_PATH" ]; then
+          OUT_DMG="dist/lumen_${V}_macos_universal.dmg"
+
+          if [ -d "$APP_PATH" ]; then
             echo "Building styled DMG with dmgbuild..."
-            dmgbuild -s scripts/dmg_settings.py -D app="$APP_PATH" "Lumen" "dist/lumen_${V}_macos_universal.dmg" || true
+            python3 -m dmgbuild -s scripts/dmg_settings.py -D app="$APP_PATH" "Lumen" "$OUT_DMG" || true
           fi
 
-          # Fallback to Tauri DMG if dmgbuild was not run or failed
-          if [ ! -f "dist/lumen_${V}_macos_universal.dmg" ]; then
+          # Fallback to Tauri DMG only if dmgbuild failed to generate the file
+          if [ ! -f "$OUT_DMG" ]; then
+            echo "Warning: dmgbuild failed, falling back to Tauri DMG..."
             DMG_FILE=$(find target/universal-apple-darwin/release/bundle/dmg -name "*.dmg" | head -n 1)
             if [ -n "$DMG_FILE" ] && [ -f "$DMG_FILE" ]; then
-              cp "$DMG_FILE" "dist/lumen_${V}_macos_universal.dmg"
+              cp "$DMG_FILE" "$OUT_DMG"
             fi
           fi
 

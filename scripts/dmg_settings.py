@@ -10,6 +10,7 @@ except NameError:
 
 application = _app or os.environ.get('DMG_APP_PATH') or os.path.join(REPO_ROOT, 'target/universal-apple-darwin/release/bundle/macos/Lumen.app')
 appname = os.path.basename(application)
+app_base = os.path.splitext(appname)[0]
 
 # Disk image format
 format = 'UDZO'
@@ -18,6 +19,7 @@ size = None
 # Content to include
 files = [application]
 symlinks = {'Applications': '/Applications'}
+hide_extensions = [appname]
 
 # Volume icon & background image
 icon = os.path.join(REPO_ROOT, 'crates/lumen-tauri/icons/icon.icns')
@@ -32,5 +34,6 @@ text_size = 12
 # Icon positions centered vertically at y=190
 icon_locations = {
     appname: (130, 190),
+    app_base: (130, 190),
     'Applications': (410, 190),
 }
