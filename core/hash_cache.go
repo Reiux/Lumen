@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -111,6 +112,7 @@ func (c *HashCache) initSchema() error {
 
 // Get retrieves the media key for an account, SHA1 base64 hash, and file size.
 func (c *HashCache) Get(accountEmail string, sha1_b64 string, fileSize int64) (string, bool, error) {
+	accountEmail = strings.ToLower(strings.TrimSpace(accountEmail))
 	if c == nil || c.db == nil || sha1_b64 == "" || accountEmail == "" {
 		return "", false, nil
 	}
@@ -134,6 +136,7 @@ func (c *HashCache) Get(accountEmail string, sha1_b64 string, fileSize int64) (s
 
 // Put records or updates an (account, hash, size) -> mediaKey mapping.
 func (c *HashCache) Put(accountEmail string, sha1_b64 string, mediaKey string, fileSize int64, mtime int64) error {
+	accountEmail = strings.ToLower(strings.TrimSpace(accountEmail))
 	if c == nil || c.db == nil || sha1_b64 == "" || mediaKey == "" || accountEmail == "" {
 		return nil
 	}
@@ -165,6 +168,7 @@ func (c *HashCache) Count(accountEmail string) (int64, error) {
 
 	var count int64
 	var err error
+	accountEmail = strings.ToLower(strings.TrimSpace(accountEmail))
 	if accountEmail != "" {
 		err = c.db.QueryRow("SELECT COUNT(*) FROM file_hashes WHERE account_email = ?", accountEmail).Scan(&count)
 	} else {
@@ -187,6 +191,7 @@ func (c *HashCache) Clear(accountEmail string) (int64, error) {
 
 	var res sql.Result
 	var err error
+	accountEmail = strings.ToLower(strings.TrimSpace(accountEmail))
 	if accountEmail != "" {
 		res, err = c.db.Exec("DELETE FROM file_hashes WHERE account_email = ?", accountEmail)
 	} else {

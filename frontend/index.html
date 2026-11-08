@@ -1,12 +1,13 @@
 <!DOCTYPE html>
-<html lang="en" style="background-color: #141416; color: #e6e8eb;">
+<html lang="en" style="background-color: #121316; color: #e6e8eb;">
   <head>
     <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data: blob:; connect-src 'self' ipc: wails: http://127.0.0.1:* ws://127.0.0.1:*;" />
     <link rel="icon" type="image/svg+xml" href="/lumen-logo.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Lumen</title>
   </head>
-  <body style="background-color: #141416; margin: 0; padding: 0; overflow: hidden;">
+  <body style="background-color: #121316; margin: 0; padding: 0; overflow: hidden;">
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

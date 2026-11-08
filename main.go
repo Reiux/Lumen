@@ -95,7 +95,7 @@ func runGUI() {
 		EnableFileDrop:      true,
 		DisableResize:       false,
 		MaximiseButtonState: application.ButtonEnabled,
-		BackgroundColour:    application.NewRGB(20, 20, 22),
+		BackgroundColour:    application.NewRGB(18, 19, 22),
 		BackgroundType:      bgType,
 		Hidden:              true,
 		Mac: application.MacWindow{
@@ -114,13 +114,12 @@ func runGUI() {
 			window.Show()
 		})
 	}
-	window.OnWindowEvent(events.Common.WindowRuntimeReady, func(*application.WindowEvent) {
-		showWindow()
-	})
+	// Window starts hidden with native dark background (#121316) to eliminate white flash.
+	// It is shown only once the frontend UI mounts and emits "app:ready".
 	wailsApp.Event.On("app:ready", func(*application.CustomEvent) {
 		showWindow()
 	})
-	time.AfterFunc(1500*time.Millisecond, showWindow)
+	time.AfterFunc(2500*time.Millisecond, showWindow)
 
 	// Detect if system tray is supported on this desktop environment
 	traySupported := true

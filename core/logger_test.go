@@ -93,7 +93,7 @@ func TestLogBuffer_ProblemFiltering(t *testing.T) {
 }
 
 func TestLogBuffer_SecretRedaction(t *testing.T) {
-	rawSecret := "Upload failed: oauth_token=secret_1234567890abcdef and Token=master_token_xyz"
+	rawSecret := "Upload failed: oauth_token=secret_1234567890abcdef and Token=master_token_xyz with Bearer ya29.a0AfH6SMDI_test and aas_et/AK60b_test"
 	redacted := RedactSecrets(rawSecret)
 
 	if strings.Contains(redacted, "secret_1234567890abcdef") {
@@ -101,6 +101,12 @@ func TestLogBuffer_SecretRedaction(t *testing.T) {
 	}
 	if strings.Contains(redacted, "master_token_xyz") {
 		t.Errorf("redacted string leaked master Token: %s", redacted)
+	}
+	if strings.Contains(redacted, "ya29.a0AfH6SMDI_test") {
+		t.Errorf("redacted string leaked Google access token: %s", redacted)
+	}
+	if strings.Contains(redacted, "aas_et/AK60b_test") {
+		t.Errorf("redacted string leaked Android auth token: %s", redacted)
 	}
 
 	buf := NewLogBuffer(5)

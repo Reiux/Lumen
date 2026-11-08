@@ -189,3 +189,59 @@ func TestScanner_ContextCancellation(t *testing.T) {
 		t.Errorf("expected context.Canceled error, got nil (files: %v)", files)
 	}
 }
+
+func TestScanner_ExcludePattern(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create test structure:
+	// tmpDir/keep.jpg
+	// tmpDir/skip_me.jpg
+	// tmpDir/skip_dir/photo.jpg
+	// tmpDir/sub/thumb_abc.jpg
+	// tmpDir/sub/valid.jpg
+	_ = os.WriteFile(filepath.Join(tmpDir, "keep.jpg"), []byte("data"), 0o644)
+	_ = os.WriteFile(filepath.Join(tmpDir, "skip_me.jpg"), []byte("data"), 0o644)
+
+	skipDir := filepath.Join(tmpDir, "skip_dir")
+	_ = os.MkdirAll(skipDir, 0o755)
+	_ = os.WriteFile(filepath.Join(skipDir, "photo.jpg"), []byte("data"), 0o644)
+
+	subDir := filepath.Join(tmpDir, "sub")
+	_ = os.MkdirAll(subDir, 0o755)
+	_ = os.WriteFile(filepath.Join(subDir, "thumb_abc.jpg"), []byte("data"), 0o644)
+	_ = os.WriteFile(filepath.Join(subDir, "valid.jpg"), []byte("data"), 0o644)
+
+	// Test 1: Wildcard file exclusion
+	files, err := ScanDirectoriesIncremental(context.Background(), []string{tmpDir}, ScanOptions{
+		Recursive:              true,
+		MaxDepth:               5,
+		FilterUnsupportedFiles: true,
+		ExcludePattern:         "*thumb*",
+	})
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+
+	for _, f := range files {
+		if filepath.Base(f) == "thumb_abc.jpg" {
+			t.Errorf("expected thumb_abc.jpg to be excluded by *thumb*")
+		}
+	}
+
+	// Test 2: Directory exclusion
+	files, err = ScanDirectoriesIncremental(context.Background(), []string{tmpDir}, ScanOptions{
+		Recursive:              true,
+		MaxDepth:               5,
+		FilterUnsupportedFiles: true,
+		ExcludePattern:         "skip_dir",
+	})
+	if err != nil {
+		t.Fatalf("scan failed: %v", err)
+	}
+
+	for _, f := range files {
+		if filepath.Base(f) == "photo.jpg" {
+			t.Errorf("expected photo.jpg inside skip_dir to be excluded")
+		}
+	}
+}

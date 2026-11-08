@@ -1,7 +1,7 @@
 name: "lumen-cli"
 arch: ${GOARCH}
 platform: "linux"
-version: "1.0.1"
+version: "1.1.0"
 section: "utils"
 priority: "optional"
 maintainer: ${GIT_COMMITTER_NAME} <${GIT_COMMITTER_EMAIL}>

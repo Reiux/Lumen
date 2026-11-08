@@ -412,11 +412,11 @@ func CloseBrowserGracefullyWithOptions(
 
 	// 4. Delete temp profile dir strictly AFTER the process has exited
 	if tempDir != "" {
-		for i := 0; i < 5; i++ {
+		for i := 0; i < 20; i++ {
 			if rmErr := os.RemoveAll(tempDir); rmErr == nil || os.IsNotExist(rmErr) {
 				break
 			}
-			time.Sleep(20 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 
@@ -476,6 +476,7 @@ func RunBrowserSignInWithOptions(ctx context.Context, opts BrowserSignInOptions)
 	args := []string{
 		"--user-data-dir=" + tempDir,
 		"--remote-debugging-port=" + strconv.Itoa(port),
+		"--remote-debugging-address=127.0.0.1",
 		"--no-first-run",
 		"--no-default-browser-check",
 		"--user-agent=" + AndroidPixel8UserAgent,

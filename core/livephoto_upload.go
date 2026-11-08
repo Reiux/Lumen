@@ -264,6 +264,16 @@ func reconcileExistingLivePhoto(
 	if mediaKey == "" {
 		return "", fmt.Errorf("updated Live Photo media key not received")
 	}
+
+	if options.UseLocalHashCache && options.AccountEmail != "" {
+		if cache := GetGlobalHashCache(); cache != nil {
+			photoB64 := base64.StdEncoding.EncodeToString(photoSHA1)
+			videoB64 := base64.StdEncoding.EncodeToString(videoSHA1)
+			_ = cache.Put(options.AccountEmail, photoB64, mediaKey, photoInfo.Size(), photoInfo.ModTime().Unix())
+			_ = cache.Put(options.AccountEmail, videoB64, mediaKey, videoInfo.Size(), videoInfo.ModTime().Unix())
+		}
+	}
+
 	if options.DeleteFromHost {
 		if err := removeLivePhotoFiles(pair); err != nil {
 			return mediaKey, err

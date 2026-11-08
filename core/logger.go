@@ -329,10 +329,12 @@ func MapErrorToProblem(err error) ProblemDetails {
 }
 
 var (
-	// Redact sensitive patterns: OAuth cookies, master tokens, emails, home dirs
-	oauthTokenRegex = regexp.MustCompile(`(?i)(oauth_token=)[^&\s]+`)
+	// Redact sensitive patterns: OAuth cookies, master tokens, bearer tokens, Google access tokens
+	oauthTokenRegex  = regexp.MustCompile(`(?i)(oauth_token=)[^&\s]+`)
 	masterTokenRegex = regexp.MustCompile(`(?i)(Token=)[^&\s]+`)
 	bearerRegex      = regexp.MustCompile(`(?i)(Bearer\s+)[A-Za-z0-9_\-\.]+`)
+	ya29TokenRegex   = regexp.MustCompile(`\bya29\.[A-Za-z0-9_\-]+\b`)
+	aasTokenRegex    = regexp.MustCompile(`\baas_et/[A-Za-z0-9_\-]+\b`)
 )
 
 // RedactSecrets removes sensitive credentials, tokens, and authorization headers from text.
@@ -343,6 +345,8 @@ func RedactSecrets(text string) string {
 	text = oauthTokenRegex.ReplaceAllString(text, "${1}[REDACTED]")
 	text = masterTokenRegex.ReplaceAllString(text, "${1}[REDACTED]")
 	text = bearerRegex.ReplaceAllString(text, "${1}[REDACTED]")
+	text = ya29TokenRegex.ReplaceAllString(text, "ya29.[REDACTED]")
+	text = aasTokenRegex.ReplaceAllString(text, "aas_et/[REDACTED]")
 	return text
 }
 

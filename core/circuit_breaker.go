@@ -256,11 +256,53 @@ func (cb *CircuitBreaker) Trip(kind ErrorKind, email, message string) {
 	}
 }
 
+// WaitWhilePaused blocks while the circuit breaker is in the CircuitPaused state,
+// or returns early if ctx is cancelled or the circuit becomes CircuitBlocked.
+// Returns false if the context was cancelled or the circuit was blocked.
+func (cb *CircuitBreaker) WaitWhilePaused(ctx context.Context) bool {
+	for {
+		cb.mu.RLock()
+		state := cb.state
+		resumeAt := cb.resumeAt
+		cb.mu.RUnlock()
+
+		if state == CircuitBlocked {
+			return false
+		}
+		if state != CircuitPaused {
+			return true
+		}
+
+		waitDur := time.Until(resumeAt)
+		if waitDur <= 0 {
+			waitDur = 50 * time.Millisecond
+		}
+		if waitDur > 500*time.Millisecond {
+			waitDur = 500 * time.Millisecond
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(waitDur):
+		}
+	}
+}
+
 // Pause pauses the workers for the given cooldown duration (HTTP 429), emitting a rate limit event.
 func (cb *CircuitBreaker) Pause(ctx context.Context, duration time.Duration, email, message string) {
 	cb.mu.Lock()
 	if cb.state == CircuitBlocked {
 		cb.mu.Unlock()
+		return
+	}
+	if cb.state == CircuitPaused {
+		// Already paused; extend resumeAt if longer, then wait
+		newResume := time.Now().Add(duration)
+		if newResume.After(cb.resumeAt) {
+			cb.resumeAt = newResume
+		}
+		cb.mu.Unlock()
+		_ = cb.WaitWhilePaused(ctx)
 		return
 	}
 	cb.state = CircuitPaused

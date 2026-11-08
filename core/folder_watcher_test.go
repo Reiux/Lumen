@@ -88,3 +88,37 @@ type testError struct {
 func (e *testError) Error() string {
 	return e.msg
 }
+
+func TestFolderWatcher_IsSubfolderAllowedLocked(t *testing.T) {
+	fw := &FolderWatcher{
+		folderConfigs: map[string]bool{
+			filepath.Clean("/media/photos"): true,
+			filepath.Clean("/media/docs"):   false,
+		},
+	}
+
+	// Exact match
+	if !fw.isSubfolderAllowedLocked("/media/photos") {
+		t.Errorf("expected exact match to be allowed")
+	}
+
+	// Subfolder when allowed
+	if !fw.isSubfolderAllowedLocked("/media/photos/2026/01") {
+		t.Errorf("expected subfolder of /media/photos to be allowed")
+	}
+
+	// Direct child of non-subfolder folder is allowed (files inside the folder)
+	if !fw.isSubfolderAllowedLocked("/media/docs/file.txt") {
+		t.Errorf("expected direct file inside /media/docs to be allowed")
+	}
+
+	// Nested subfolder when subfolders=false should NOT be allowed
+	if fw.isSubfolderAllowedLocked("/media/docs/nested/file.txt") {
+		t.Errorf("expected nested subfolder of /media/docs to NOT be allowed")
+	}
+
+	// Unrelated path
+	if fw.isSubfolderAllowedLocked("/other/path") {
+		t.Errorf("expected unrelated path to NOT be allowed")
+	}
+}

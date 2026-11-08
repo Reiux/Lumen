@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -242,6 +243,9 @@ func (g *ConfigManager) SetUploadThreads(uploadThreads int) {
 	if uploadThreads < 1 {
 		return
 	}
+	if uploadThreads > 32 {
+		uploadThreads = 32
+	}
 	updateAppConfig(func(config *Config) {
 		config.Preferences.UploadThreads = uploadThreads
 	})
@@ -435,13 +439,21 @@ func (g *ConfigManager) UpdateWatchedFolderConfig(cfg WatchedFolderConfig) error
 	return err
 }
 
+func isPathWithinDir(path, dir string) bool {
+	p := filepath.Clean(path)
+	d := filepath.Clean(dir)
+	if runtime.GOOS == "windows" {
+		p = strings.ToLower(p)
+		d = strings.ToLower(d)
+	}
+	return p == d || strings.HasPrefix(p, d+string(filepath.Separator))
+}
+
 func (g *ConfigManager) GetWatchedFolderConfigForPath(filePath string) *WatchedFolderConfig {
 	configMu.RLock()
 	defer configMu.RUnlock()
-	cleaned := filepath.Clean(filePath)
 	for _, fc := range AppConfig.Preferences.WatchedFolderConfigs {
-		dir := filepath.Clean(fc.Path)
-		if cleaned == dir || strings.HasPrefix(cleaned, dir+string(filepath.Separator)) {
+		if isPathWithinDir(filePath, fc.Path) {
 			copy := fc
 			return &copy
 		}
@@ -599,10 +611,8 @@ func (g *ConfigManager) GetInotifyError() string {
 func (g *ConfigManager) GetAccountForPath(filePath string) string {
 	configMu.RLock()
 	defer configMu.RUnlock()
-	cleaned := filepath.Clean(filePath)
 	for _, fc := range AppConfig.Preferences.WatchedFolderConfigs {
-		dir := filepath.Clean(fc.Path)
-		if strings.HasPrefix(cleaned, dir) {
+		if isPathWithinDir(filePath, fc.Path) {
 			if fc.AccountEmail != "" {
 				return fc.AccountEmail
 			}
@@ -706,7 +716,7 @@ func (g *ConfigManager) AddTokenBindingAliasFromADB(email string) error {
 		if err != nil {
 			continue
 		}
-		if params.Get("Email") != email {
+		if !strings.EqualFold(params.Get("Email"), email) {
 			continue
 		}
 		params.Set("token_binding_alias", alias)
@@ -735,7 +745,7 @@ func (g *ConfigManager) RemoveCredentials(email string) error {
 			continue // skip malformed entries
 		}
 
-		if params.Get("Email") == email {
+		if strings.EqualFold(params.Get("Email"), email) {
 			found = true
 			continue // skip this credential (effectively removing it)
 		}
@@ -757,7 +767,7 @@ func (g *ConfigManager) RemoveCredentials(email string) error {
 	AppConfig.Account.Credentials = updatedCredentials
 
 	// If we're removing the currently selected credential, clear the selection
-	if AppConfig.Account.Selected == email {
+	if strings.EqualFold(AppConfig.Account.Selected, email) {
 		AppConfig.Account.Selected = ""
 	}
 
@@ -786,12 +796,6 @@ func extractTokenBindingAliasFromADB(email string) (string, error) {
 		return "", fmt.Errorf("adb was not found in PATH")
 	}
 
-	escapedEmail := strings.ReplaceAll(email, "'", "''")
-	query := fmt.Sprintf(
-		"select extras.value from extras join accounts on accounts._id=extras.accounts_id where accounts.name='%s' and extras.key='lstBindingKeyAlias';",
-		escapedEmail,
-	)
-
 	devices, err := listADBDevices()
 	if err != nil {
 		return "", err
@@ -802,7 +806,7 @@ func extractTokenBindingAliasFromADB(email string) (string, error) {
 	for _, device := range devices {
 		_ = exec.Command("adb", "-s", device, "root").Run()
 
-		alias, rooted, err := readTokenBindingAliasFromDevice(device, query)
+		alias, rooted, err := readTokenBindingAliasFromDevice(device, email)
 		if rooted {
 			reachableRoot = true
 		}
@@ -836,7 +840,7 @@ func extractTokenBindingAliasFromADB(email string) (string, error) {
 // temporary copy is always removed via defer - including on a panic. The rooted
 // return reports whether the device was reachable with root, used to produce an
 // accurate error message.
-func readTokenBindingAliasFromDevice(device, query string) (alias string, rooted bool, err error) {
+func readTokenBindingAliasFromDevice(device, email string) (alias string, rooted bool, err error) {
 	dbPath, cleanup, err := pullAccountsDB(device)
 	if err != nil {
 		// A non-root failure means we did reach the device with root but
@@ -845,7 +849,7 @@ func readTokenBindingAliasFromDevice(device, query string) (alias string, rooted
 	}
 	defer cleanup()
 
-	alias, err = queryTokenBindingAlias(dbPath, query)
+	alias, err = queryTokenBindingAlias(dbPath, email)
 	if err != nil {
 		return "", true, err
 	}
@@ -954,9 +958,9 @@ func isADBRootFailure(msg string) bool {
 }
 
 // queryTokenBindingAlias opens the pulled database locally with a pure-Go SQLite
-// driver and runs the lookup query. The local copy is private to this process,
+// driver and runs the parameterized lookup query. The local copy is private to this process,
 // so it is opened read-write to allow WAL recovery.
-func queryTokenBindingAlias(dbPath, query string) (string, error) {
+func queryTokenBindingAlias(dbPath, email string) (string, error) {
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to open accounts db: %w", err)
@@ -964,7 +968,8 @@ func queryTokenBindingAlias(dbPath, query string) (string, error) {
 	defer func() { _ = db.Close() }()
 
 	var alias string
-	if err := db.QueryRow(query).Scan(&alias); err != nil {
+	const query = "select extras.value from extras join accounts on accounts._id=extras.accounts_id where accounts.name=? COLLATE NOCASE and extras.key='lstBindingKeyAlias';"
+	if err := db.QueryRow(query, email).Scan(&alias); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", nil
 		}
@@ -1487,6 +1492,8 @@ func (g *ConfigManager) StartBrowserSignIn() (string, error) {
 }
 
 // StartBrowserSignInWithOptions runs the browser sign-in flow with custom options (used for testing and injection).
+//
+//wails:ignore
 func (g *ConfigManager) StartBrowserSignInWithOptions(opts BrowserSignInOptions) (string, error) {
 	accountRiskMu.RLock()
 	acknowledged := accountRiskAcknowledged

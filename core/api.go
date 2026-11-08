@@ -346,7 +346,7 @@ func (a *Api) GetUploadToken(shaHashB64 string, fileSize int64) (string, error) 
 		"User-Agent":              a.userAgent,
 		"Authorization":           "Bearer " + bearerToken,
 		"X-Goog-Hash":             "sha1=" + shaHashB64,
-		"X-Upload-Content-Length": strconv.Itoa(int(fileSize)),
+		"X-Upload-Content-Length": strconv.FormatInt(fileSize, 10),
 	}
 
 	// Create the request

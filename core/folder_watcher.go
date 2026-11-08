@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -314,13 +315,19 @@ func (fw *FolderWatcher) loop() {
 func (fw *FolderWatcher) isSubfolderAllowedLocked(path string) bool {
 	clean := filepath.Clean(path)
 	for root, subfolders := range fw.folderConfigs {
-		if clean == root {
+		r := root
+		c := clean
+		if runtime.GOOS == "windows" {
+			r = strings.ToLower(r)
+			c = strings.ToLower(c)
+		}
+		if c == r {
 			return true
 		}
-		if filepath.Dir(clean) == root {
+		if filepath.Dir(c) == r {
 			return true
 		}
-		if subfolders && strings.HasPrefix(clean, root+string(filepath.Separator)) {
+		if subfolders && strings.HasPrefix(c, r+string(filepath.Separator)) {
 			return true
 		}
 	}

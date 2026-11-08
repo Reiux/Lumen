@@ -2,6 +2,7 @@ package core
 
 import (
 	"compress/gzip"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"math/rand"
@@ -14,6 +15,9 @@ import (
 func NewHTTPClientWithProxy(proxyURLStr string) (*http.Client, error) {
 	// Create the base transport with default values
 	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if transport.TLSClientConfig == nil {
+		transport.TLSClientConfig = &tls.Config{}
+	}
 	transport.TLSClientConfig.InsecureSkipVerify = false
 
 	// Configure connection pooling for concurrent uploads
@@ -23,13 +27,13 @@ func NewHTTPClientWithProxy(proxyURLStr string) (*http.Client, error) {
 	transport.IdleConnTimeout = 90 * time.Second
 
 	// Configure proxy if provided
+	proxyURLStr = strings.TrimSpace(proxyURLStr)
 	if proxyURLStr != "" {
 		proxyURL, err := url.Parse(proxyURLStr)
 		if err != nil {
 			return nil, err
 		}
 		transport.Proxy = http.ProxyURL(proxyURL)
-		transport.TLSClientConfig.InsecureSkipVerify = true
 	}
 
 	client := &http.Client{

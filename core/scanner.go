@@ -84,6 +84,17 @@ type dirStackItem struct {
 	depth int
 }
 
+func matchesExcludePattern(pattern, name string) bool {
+	if pattern == "" {
+		return false
+	}
+	if name == pattern {
+		return true
+	}
+	matched, err := filepath.Match(pattern, name)
+	return err == nil && matched
+}
+
 // ScanDirectoriesIncremental iteratively walks roots using an explicit stack with depth limits,
 // symlink cycle detection, .nomedia skipping, and throttled progress reporting.
 func ScanDirectoriesIncremental(ctx context.Context, paths []string, opts ScanOptions) ([]string, error) {
@@ -125,10 +136,18 @@ func ScanDirectoriesIncremental(ctx context.Context, paths []string, opts ScanOp
 
 		if !info.IsDir() {
 			// Single file
+			name := filepath.Base(rootPath)
+			if matchesExcludePattern(opts.ExcludePattern, name) {
+				continue
+			}
 			if !opts.FilterUnsupportedFiles || isSupportedByGooglePhotos(rootPath) {
 				clean := filepath.Clean(rootPath)
-				if !seenFiles[clean] {
-					seenFiles[clean] = true
+				key := clean
+				if runtime.GOOS == "windows" {
+					key = strings.ToLower(key)
+				}
+				if !seenFiles[key] {
+					seenFiles[key] = true
 					supportedFiles = append(supportedFiles, clean)
 				}
 			}
@@ -190,7 +209,7 @@ func ScanDirectoriesIncremental(ctx context.Context, paths []string, opts ScanOp
 					if !opts.Recursive {
 						continue
 					}
-					if opts.ExcludePattern != "" && name == opts.ExcludePattern {
+					if matchesExcludePattern(opts.ExcludePattern, name) {
 						continue
 					}
 					if IsTrashOrHiddenDirectory(name) {
@@ -200,6 +219,9 @@ func ScanDirectoriesIncremental(ctx context.Context, paths []string, opts ScanOp
 					stack = append(stack, dirStackItem{path: fullPath, depth: item.depth + 1})
 				} else {
 					// File entry
+					if matchesExcludePattern(opts.ExcludePattern, name) {
+						continue
+					}
 					if opts.FilterUnsupportedFiles && !isSupportedByGooglePhotos(name) {
 						continue
 					}

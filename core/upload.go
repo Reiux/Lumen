@@ -886,6 +886,66 @@ func (m *UploadManager) runWorker(
 			})
 			return // Stop if cancellation is requested
 		default:
+		}
+
+		path := uploadWorkPrimaryPath(item)
+		paths := uploadWorkPaths(item)
+		isLivePhoto := item.Kind == UploadWorkLivePhoto
+		var itemSize int64
+		for _, p := range paths {
+			if fi, err := os.Stat(p); err == nil {
+				itemSize += fi.Size()
+			}
+		}
+
+		var (
+			mediaKey   string
+			skipped    bool
+			err        error
+			durationMs int64
+		)
+
+		for {
+			if cb != nil {
+				waitCtx, waitCancel := context.WithCancel(context.Background())
+				go func() {
+					select {
+					case <-cancel:
+						waitCancel()
+					case <-waitCtx.Done():
+					}
+				}()
+				ok := cb.WaitWhilePaused(waitCtx)
+				waitCancel()
+				if !ok {
+					if cb.IsBlocked() {
+						m.reporter.ThreadStatus(ThreadStatus{
+							WorkerID: workerID,
+							Status:   "idle",
+							FilePath: path,
+							FileName: filepath.Base(path),
+							Message:  "Paused: Account issue detected",
+						})
+						return
+					}
+					m.reporter.ThreadStatus(ThreadStatus{
+						WorkerID: workerID,
+						Status:   "idle",
+						Message:  "Cancelled",
+					})
+					return
+				}
+			}
+
+			if m.isCancelled() {
+				m.reporter.ThreadStatus(ThreadStatus{
+					WorkerID: workerID,
+					Status:   "idle",
+					Message:  "Cancelled",
+				})
+				return
+			}
+
 			ctx, cancelUpload := context.WithCancel(context.Background())
 			go func() {
 				select {
@@ -897,17 +957,8 @@ func (m *UploadManager) runWorker(
 			}()
 
 			startItem := time.Now()
-			path := uploadWorkPrimaryPath(item)
-			paths := uploadWorkPaths(item)
-			isLivePhoto := item.Kind == UploadWorkLivePhoto
-			var itemSize int64
-			for _, p := range paths {
-				if fi, err := os.Stat(p); err == nil {
-					itemSize += fi.Size()
-				}
-			}
-			mediaKey, skipped, err := uploadWorkItem(ctx, api, item, opts, workerID, m.reporter)
-			durationMs := time.Since(startItem).Milliseconds()
+			mediaKey, skipped, err = uploadWorkItem(ctx, api, item, opts, workerID, m.reporter)
+			durationMs = time.Since(startItem).Milliseconds()
 			cancelUpload()
 
 			// Check if circuit breaker tripped during this item or while in flight
@@ -945,13 +996,29 @@ func (m *UploadManager) runWorker(
 						cooldown = rateErr.RetryAfter
 					}
 					if cb != nil {
-						cb.Pause(ctx, cooldown, opts.AccountEmail, err.Error())
+						pauseCtx, pauseCancel := context.WithCancel(context.Background())
+						go func() {
+							select {
+							case <-cancel:
+								pauseCancel()
+							case <-pauseCtx.Done():
+							}
+						}()
+						cb.Pause(pauseCtx, cooldown, opts.AccountEmail, err.Error())
+						pauseCancel()
 					}
 					if cb != nil && cb.IsBlocked() {
 						return
 					}
+					if m.isCancelled() {
+						return
+					}
+					// Retry upload of this item after cooldown
+					continue
 				}
 			}
+			break
+		}
 
 			if err != nil && mediaKey != "" {
 				results <- FileUploadResult{
@@ -1046,7 +1113,6 @@ func (m *UploadManager) runWorker(
 				Message:  "Waiting for next file...",
 			})
 		}
-	}
 
 	// Final idle status when no more work
 	m.reporter.ThreadStatus(ThreadStatus{
