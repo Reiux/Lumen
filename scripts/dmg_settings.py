@@ -28,12 +28,12 @@ background = os.path.join(REPO_ROOT, 'crates/lumen-tauri/icons/background.png')
 # Window geometry (540x380 matching background.png exactly)
 window_rect = ((200, 120), (540, 380))
 default_view = 'icon-view'
-icon_size = 128
+icon_size = 96
 text_size = 12
 
 # Icon positions centered vertically at y=190
 icon_locations = {
-    appname: (130, 190),
-    app_base: (130, 190),
-    'Applications': (410, 190),
+    appname: (150, 190),
+    app_base: (150, 190),
+    'Applications': (390, 190),
 }

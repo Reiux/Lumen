@@ -893,7 +893,7 @@ pub async fn check_for_updates(manual: bool) -> UpdateInfo {
     let info = checker
         .check_for_updates(
             DEFAULT_RELEASES_URL,
-            "1.1.0",
+            env!("CARGO_PKG_VERSION"),
             manual,
             0,
         )
@@ -915,7 +915,7 @@ pub async fn check_for_updates(manual: bool) -> UpdateInfo {
 pub async fn check_for_updates_with_redirect_url(redirect_url: String, manual: bool) -> UpdateInfo {
     let checker = UpdateChecker::new();
     let info = checker
-        .check_for_updates(&redirect_url, "1.1.0", manual, 0)
+        .check_for_updates(&redirect_url, env!("CARGO_PKG_VERSION"), manual, 0)
         .await;
 
     UpdateInfo {
@@ -961,7 +961,7 @@ pub fn get_release_notes(_tag: String) -> String {
 
 #[tauri::command]
 pub fn get_app_version() -> String {
-    "1.1.0".to_string()
+    env!("CARGO_PKG_VERSION").to_string()
 }
 
 #[tauri::command]
