@@ -58,15 +58,18 @@ jobs:
 
           if [ -d "$APP_PATH" ]; then
             echo "Building styled DMG with dmgbuild..."
-            python3 -m dmgbuild -s scripts/dmg_settings.py -D app="$APP_PATH" "Lumen" "$OUT_DMG" || true
+            python3 -m dmgbuild -s scripts/dmg_settings.py -D app="$APP_PATH" -D repo_root="$PWD" "Lumen" "$OUT_DMG"
           fi
 
           # Fallback to Tauri DMG only if dmgbuild failed to generate the file
           if [ ! -f "$OUT_DMG" ]; then
             echo "Warning: dmgbuild failed, falling back to Tauri DMG..."
-            DMG_FILE=$(find target/universal-apple-darwin/release/bundle/dmg -name "*.dmg" | head -n 1)
+            DMG_FILE=$(find target/universal-apple-darwin/release/bundle -name "*.dmg" 2>/dev/null | head -n 1)
             if [ -n "$DMG_FILE" ] && [ -f "$DMG_FILE" ]; then
               cp "$DMG_FILE" "$OUT_DMG"
+            else
+              echo "Error: Failed to produce DMG installer."
+              exit 1
             fi
           fi
 

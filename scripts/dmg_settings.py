@@ -1,7 +1,16 @@
 import os
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, '..'))
+try:
+    _repo = defines.get('repo_root')
+except NameError:
+    _repo = None
+
+if _repo:
+    REPO_ROOT = os.path.abspath(_repo)
+elif '__file__' in globals():
+    REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
+else:
+    REPO_ROOT = os.getcwd()
 
 try:
     _app = defines.get('app')
