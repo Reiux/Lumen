@@ -53,3 +53,36 @@ jobs:
 
       - name: Run Workspace Clippy
         run: cargo clippy --workspace --all-targets
+
+      - name: Build Standalone Linux CLI (Dev Build)
+        run: cargo build --release -p lumen-cli --bin lumen-cli
+
+      - name: Build Linux GUI Bundle (Dev Build)
+        working-directory: crates/lumen-tauri
+        run: npx --prefix ../../frontend tauri build --bundles appimage,deb
+
+      - name: Stage Dev Artifacts
+        shell: bash
+        run: |
+          mkdir -p dev-artifacts
+          APPIMAGE=$(find target/release/bundle/appimage -name "*.AppImage" 2>/dev/null | head -n 1)
+          if [ -n "$APPIMAGE" ] && [ -f "$APPIMAGE" ]; then
+            cp "$APPIMAGE" dev-artifacts/lumen_dev_linux_x64.AppImage
+          fi
+          DEB_FILE=$(find target/release/bundle/deb -name "*.deb" 2>/dev/null | head -n 1)
+          if [ -n "$DEB_FILE" ] && [ -f "$DEB_FILE" ]; then
+            cp "$DEB_FILE" dev-artifacts/lumen_dev_linux_x64.deb
+          fi
+          if [ -f "target/release/lumen" ]; then
+            cp "target/release/lumen" dev-artifacts/lumen_dev_linux_x64
+          fi
+          if [ -f "target/release/lumen-cli" ]; then
+            cp "target/release/lumen-cli" dev-artifacts/lumen-cli_dev_linux_x64
+          fi
+
+      - name: Upload Dev Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumen-dev-linux-x64
+          path: dev-artifacts/*
+          retention-days: 7
