@@ -54,35 +54,323 @@ jobs:
       - name: Run Workspace Clippy
         run: cargo clippy --workspace --all-targets
 
-      - name: Build Standalone Linux CLI (Dev Build)
-        run: cargo build --release -p lumen-cli --bin lumen-cli
+  build-dev-linux:
+    name: Build Linux Dev Artifacts (x64)
+    needs: [test]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
 
-      - name: Build Linux GUI Bundle (Dev Build)
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Linux System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev libayatana-appindicator3-dev librsvg2-dev protobuf-compiler
+
+      - name: Install Frontend Dependencies
+        run: npm ci --prefix frontend --engine-strict=false
+
+      - name: Build Frontend
+        run: npm run build --prefix frontend
+
+      - name: Build Tauri Bundles (.deb & AppImage)
         working-directory: crates/lumen-tauri
         run: npx --prefix ../../frontend tauri build --bundles appimage,deb
+
+      - name: Build Standalone Linux CLI
+        run: cargo build --release -p lumen-cli --bin lumen-cli
 
       - name: Stage Dev Artifacts
         shell: bash
         run: |
-          mkdir -p dev-artifacts
+          CARGO_VER=$(grep -m1 '^version =' crates/lumen-tauri/Cargo.toml | cut -d '"' -f2)
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          V="${CARGO_VER}-dev.${SHORT_SHA}"
+          mkdir -p dist
+
+          # 1. AppImage
           APPIMAGE=$(find target/release/bundle/appimage -name "*.AppImage" 2>/dev/null | head -n 1)
           if [ -n "$APPIMAGE" ] && [ -f "$APPIMAGE" ]; then
-            cp "$APPIMAGE" dev-artifacts/lumen_dev_linux_x64.AppImage
+            cp "$APPIMAGE" "dist/lumen_${V}_linux_x64.AppImage"
+            chmod +x "dist/lumen_${V}_linux_x64.AppImage"
           fi
+
+          # 2. Debian / Ubuntu .deb
           DEB_FILE=$(find target/release/bundle/deb -name "*.deb" 2>/dev/null | head -n 1)
           if [ -n "$DEB_FILE" ] && [ -f "$DEB_FILE" ]; then
-            cp "$DEB_FILE" dev-artifacts/lumen_dev_linux_x64.deb
+            cp "$DEB_FILE" "dist/lumen_${V}_linux_x64.deb"
           fi
+
+          # 3. Standalone GUI binary
           if [ -f "target/release/lumen" ]; then
-            cp "target/release/lumen" dev-artifacts/lumen_dev_linux_x64
+            cp "target/release/lumen" "dist/lumen_${V}_linux_x64"
+            chmod +x "dist/lumen_${V}_linux_x64"
           fi
+
+          # 4. Standalone CLI binary
           if [ -f "target/release/lumen-cli" ]; then
-            cp "target/release/lumen-cli" dev-artifacts/lumen-cli_dev_linux_x64
+            cp "target/release/lumen-cli" "dist/lumen-cli_${V}_linux_x64"
+            chmod +x "dist/lumen-cli_${V}_linux_x64"
           fi
+
+          ls -la dist/
 
       - name: Upload Dev Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: lumen-dev-linux-x64
-          path: dev-artifacts/*
+          path: dist/*
+          retention-days: 7
+
+  build-dev-macos:
+    name: Build macOS Dev Artifacts (Universal)
+    needs: [test]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        run: npm ci --prefix frontend --engine-strict=false
+
+      - name: Build Frontend
+        run: npm run build --prefix frontend
+
+      - name: Build Tauri Universal Bundle (.app)
+        working-directory: crates/lumen-tauri
+        run: npx --prefix ../../frontend tauri build --target universal-apple-darwin --bundles app
+
+      - name: Build Standalone Universal CLI
+        run: |
+          cargo build --release -p lumen-cli --bin lumen-cli --target x86_64-apple-darwin
+          cargo build --release -p lumen-cli --bin lumen-cli --target aarch64-apple-darwin
+
+      - name: Stage Dev Artifacts
+        shell: bash
+        run: |
+          CARGO_VER=$(grep -m1 '^version =' crates/lumen-tauri/Cargo.toml | cut -d '"' -f2)
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          V="${CARGO_VER}-dev.${SHORT_SHA}"
+          mkdir -p dist
+
+          # 1. Universal DMG installer
+          python3 -m pip install --break-system-packages dmgbuild biplist ds_store mac_alias || python3 -m pip install dmgbuild biplist ds_store mac_alias
+          APP_PATH="target/universal-apple-darwin/release/bundle/macos/Lumen.app"
+          OUT_DMG="dist/lumen_${V}_macos_universal.dmg"
+
+          if [ -d "$APP_PATH" ]; then
+            echo "Building styled DMG with dmgbuild..."
+            python3 -m dmgbuild -s scripts/dmg_settings.py -D app="$APP_PATH" -D repo_root="$PWD" "Lumen" "$OUT_DMG" || true
+          fi
+
+          if [ ! -f "$OUT_DMG" ]; then
+            echo "Warning: dmgbuild failed, falling back to Tauri DMG..."
+            DMG_FILE=$(find target/universal-apple-darwin/release/bundle -name "*.dmg" 2>/dev/null | head -n 1)
+            if [ -n "$DMG_FILE" ] && [ -f "$DMG_FILE" ]; then
+              cp "$DMG_FILE" "$OUT_DMG"
+            fi
+          fi
+
+          # 2. Universal .app zip bundle
+          if [ -d "target/universal-apple-darwin/release/bundle/macos/Lumen.app" ]; then
+            (cd target/universal-apple-darwin/release/bundle/macos && zip -r "../../../../../dist/lumen_${V}_macos_universal.zip" Lumen.app)
+          fi
+
+          # 3. Universal CLI binary
+          lipo -create -output "dist/lumen-cli_${V}_macos_universal" \
+            target/x86_64-apple-darwin/release/lumen-cli \
+            target/aarch64-apple-darwin/release/lumen-cli
+          chmod +x "dist/lumen-cli_${V}_macos_universal"
+
+          ls -la dist/
+
+      - name: Upload Dev Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumen-dev-macos-universal
+          path: dist/*
+          retention-days: 7
+
+  build-dev-windows-x64:
+    name: Build Windows Dev Artifacts (x64)
+    needs: [test]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        shell: pwsh
+        run: npm ci --prefix frontend --engine-strict=false
+
+      - name: Build Frontend
+        shell: pwsh
+        run: npm run build --prefix frontend
+
+      - name: Build Application Binaries
+        shell: pwsh
+        run: |
+          cargo build --release -p lumen-tauri --bin lumen
+          cargo build --release -p lumen-cli --bin lumen-cli
+
+      - name: Package Custom Installer
+        shell: pwsh
+        run: |
+          tar -czf crates/lumen-installer/payload.tar.gz -C target/release lumen.exe lumen-cli.exe
+          cargo build --release -p lumen-installer --bin lumen-installer
+
+      - name: Stage Dev Artifacts
+        shell: pwsh
+        run: |
+          $CARGO_VER = (Select-String -Path crates/lumen-tauri/Cargo.toml -Pattern '^version = "(.*)"').Matches.Groups[1].Value
+          $SHORT_SHA = "${{ github.sha }}".Substring(0, 7)
+          $V = "$CARGO_VER-dev.$SHORT_SHA"
+          New-Item -ItemType Directory -Force -Path dist
+
+          # 1. Custom Setup Installer
+          if (Test-Path "target/release/lumen-installer.exe") {
+            Copy-Item -Path "target/release/lumen-installer.exe" -Destination "dist/lumen_${V}_windows_x64-setup.exe"
+          }
+
+          # 2. Standalone GUI executable
+          if (Test-Path "target/release/lumen.exe") {
+            Copy-Item -Path "target/release/lumen.exe" -Destination "dist/lumen_${V}_windows_x64.exe"
+          }
+
+          # 3. Standalone CLI executable
+          if (Test-Path "target/release/lumen-cli.exe") {
+            Copy-Item -Path "target/release/lumen-cli.exe" -Destination "dist/lumen-cli_${V}_windows_x64.exe"
+          }
+
+          Get-ChildItem -Path dist
+
+      - name: Upload Dev Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumen-dev-windows-x64
+          path: dist/*
+          retention-days: 7
+
+  build-dev-windows-arm64:
+    name: Build Windows Dev Artifacts (ARM64)
+    needs: [test]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-pc-windows-msvc
+
+      - name: Install Protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        shell: pwsh
+        run: npm ci --prefix frontend --engine-strict=false
+
+      - name: Build Frontend
+        shell: pwsh
+        run: npm run build --prefix frontend
+
+      - name: Build Application Binaries
+        shell: pwsh
+        run: |
+          cargo build --release -p lumen-tauri --bin lumen --target aarch64-pc-windows-msvc
+          cargo build --release -p lumen-cli --bin lumen-cli --target aarch64-pc-windows-msvc
+
+      - name: Package Custom Installer
+        shell: pwsh
+        run: |
+          tar -czf crates/lumen-installer/payload.tar.gz -C target/aarch64-pc-windows-msvc/release lumen.exe lumen-cli.exe
+          cargo build --release -p lumen-installer --bin lumen-installer --target aarch64-pc-windows-msvc
+
+      - name: Stage Dev Artifacts
+        shell: pwsh
+        run: |
+          $CARGO_VER = (Select-String -Path crates/lumen-tauri/Cargo.toml -Pattern '^version = "(.*)"').Matches.Groups[1].Value
+          $SHORT_SHA = "${{ github.sha }}".Substring(0, 7)
+          $V = "$CARGO_VER-dev.$SHORT_SHA"
+          New-Item -ItemType Directory -Force -Path dist
+
+          # 1. Custom Setup Installer (ARM64)
+          if (Test-Path "target/aarch64-pc-windows-msvc/release/lumen-installer.exe") {
+            Copy-Item -Path "target/aarch64-pc-windows-msvc/release/lumen-installer.exe" -Destination "dist/lumen_${V}_windows_arm64-setup.exe"
+          }
+
+          # 2. Standalone GUI executable (ARM64)
+          if (Test-Path "target/aarch64-pc-windows-msvc/release/lumen.exe") {
+            Copy-Item -Path "target/aarch64-pc-windows-msvc/release/lumen.exe" -Destination "dist/lumen_${V}_windows_arm64.exe"
+          }
+
+          # 3. Standalone CLI executable (ARM64)
+          if (Test-Path "target/aarch64-pc-windows-msvc/release/lumen-cli.exe") {
+            Copy-Item -Path "target/aarch64-pc-windows-msvc/release/lumen-cli.exe" -Destination "dist/lumen-cli_${V}_windows_arm64.exe"
+          }
+
+          Get-ChildItem -Path dist
+
+      - name: Upload Dev Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumen-dev-windows-arm64
+          path: dist/*
           retention-days: 7
