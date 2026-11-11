@@ -175,7 +175,7 @@ const queueList = computed<QueueRowItem[]>(() => {
   // 1. Active worker threads
   for (const thread of threadsList.value) {
     const rawStatus = (thread.Status || '').toLowerCase()
-    let status: QueueRowItem['status'] = 'uploading'
+    let status: QueueRowItem['status']
     let progressPercent: number | undefined
 
     if (rawStatus.includes('commit')) {

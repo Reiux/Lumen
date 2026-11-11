@@ -52,9 +52,8 @@ pub fn normalize_oauth_token(mut val: &str) -> Result<String, AuthError> {
 }
 
 pub fn generate_android_id() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
-    format!("{:016x}", (now ^ 0x5a5a5a5a5a5a5a5a) & 0x7fffffffffffffff)
+    let rand_val: u64 = rand::random::<u64>() & 0x7fffffffffffffff;
+    format!("{:016x}", rand_val)
 }
 
 pub fn build_google_photos_credential(email: &str, master_token: &str, android_id: &str) -> String {
@@ -119,6 +118,27 @@ pub async fn exchange_embedded_setup_token(
     oauth_token: &str,
     android_id: &str,
 ) -> Result<GoogleAuthExchange, AuthError> {
+    let parsed_url = url::Url::parse(endpoint.trim())
+        .map_err(|e| AuthError::InvalidFormat(format!("Invalid auth endpoint URL: {}", e)))?;
+    if !parsed_url.username().is_empty() || parsed_url.password().is_some() {
+        return Err(AuthError::InvalidFormat(
+            "Auth endpoint URL must not contain embedded credentials".to_string(),
+        ));
+    }
+    let host = parsed_url
+        .host_str()
+        .ok_or_else(|| AuthError::InvalidFormat("Auth endpoint URL is missing a host".to_string()))?;
+    let is_loopback = matches!(host, "127.0.0.1" | "localhost" | "[::1]");
+    match parsed_url.scheme() {
+        "https" => {}
+        "http" if is_loopback => {}
+        _ => {
+            return Err(AuthError::InvalidFormat(
+                "Auth endpoint URL must use https:// (or http:// on loopback for testing)".to_string(),
+            ));
+        }
+    }
+
     let clean_token = normalize_oauth_token(oauth_token)?;
 
     let params = [
@@ -152,7 +172,10 @@ pub async fn exchange_embedded_setup_token(
         .map_err(|e| AuthError::Network(e.to_string()))?;
 
     let status = resp.status();
-    let body = resp.text().await.map_err(|e| AuthError::Network(e.to_string()))?;
+    let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
+        .await
+        .map_err(AuthError::Network)?;
+    let body = String::from_utf8_lossy(&body_bytes).to_string();
 
     if !status.is_success() {
         return Err(classify_auth_error_message(&format!("HTTP {}: {}", status.as_u16(), body)));
@@ -227,6 +250,10 @@ impl TokenManager {
 
     pub fn invalidate(&self) {
         if let Ok(mut state) = self.inner.write() {
+            let len = state.access_token.len();
+            if len > 0 {
+                state.access_token.replace_range(.., &"0".repeat(len));
+            }
             state.access_token.clear();
             state.expires_at = UNIX_EPOCH;
         }

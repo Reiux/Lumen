@@ -83,6 +83,44 @@ impl GlobalRateLimiter {
     }
 }
 
+pub fn validate_proxy_url(proxy: &str) -> Result<(), String> {
+    let trimmed = proxy.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+    let parsed = url::Url::parse(trimmed).map_err(|e| format!("Invalid proxy URL: {}", e))?;
+    let scheme = parsed.scheme();
+    if scheme != "http" && scheme != "https" && scheme != "socks5" && scheme != "socks5h" {
+        return Err("Proxy URL must use http, https, or socks5 protocol".to_string());
+    }
+    if parsed.host_str().is_none() {
+        return Err("Proxy URL must specify a valid host".to_string());
+    }
+    reqwest::Proxy::all(trimmed).map_err(|e| format!("Unsupported proxy configuration: {}", e))?;
+    Ok(())
+}
+
+pub const MAX_RESPONSE_BODY_BYTES: usize = 4 * 1024 * 1024;
+
+pub async fn read_response_bytes_bounded(
+    mut resp: reqwest::Response,
+    max_bytes: usize,
+) -> Result<Vec<u8>, String> {
+    if let Some(len) = resp.content_length() {
+        if len > max_bytes as u64 {
+            return Err(format!("Response body exceeds maximum allowed size ({} bytes)", max_bytes));
+        }
+    }
+    let mut buf = Vec::new();
+    while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
+        if buf.len().saturating_add(chunk.len()) > max_bytes {
+            return Err(format!("Response body exceeds maximum allowed size ({} bytes)", max_bytes));
+        }
+        buf.extend_from_slice(&chunk);
+    }
+    Ok(buf)
+}
+
 pub fn create_http_client(proxy: Option<&str>) -> Result<reqwest::Client, String> {
     let mut builder = reqwest::Client::builder()
         .timeout(Duration::from_secs(60))
@@ -91,6 +129,7 @@ pub fn create_http_client(proxy: Option<&str>) -> Result<reqwest::Client, String
     if let Some(p) = proxy {
         let trimmed = p.trim();
         if !trimmed.is_empty() {
+            validate_proxy_url(trimmed)?;
             let proxy_obj = reqwest::Proxy::all(trimmed).map_err(|e| e.to_string())?;
             builder = builder.proxy(proxy_obj);
         }

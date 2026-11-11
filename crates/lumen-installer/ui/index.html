@@ -1063,7 +1063,12 @@
       isUninstallMode = false;
       document.getElementById('windowTitle').textContent = "Lumen Update";
       const tagText = installedVer ? `Update from v${installedVer.replace(/^v/, '')}` : "Update Available";
-      document.getElementById('heroTitle').innerHTML = `Lumen <span class="version-tag">${tagText}</span>`;
+      const heroTitle = document.getElementById('heroTitle');
+      heroTitle.textContent = "Lumen ";
+      const span = document.createElement('span');
+      span.className = 'version-tag';
+      span.textContent = tagText;
+      heroTitle.appendChild(span);
       document.getElementById('heroSubtitle').textContent = "A previous installation was detected. Update to the latest version seamlessly.";
 
       customDrawer.classList.remove('expanded');

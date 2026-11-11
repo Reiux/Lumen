@@ -3,7 +3,6 @@ import { computed, onMounted, ref, watch } from 'vue'
 import {
   clearMockCircuitBreaker,
   detectDebugBuild,
-  devOptionsState,
   initMockMode,
   isDevMode,
   mockState,

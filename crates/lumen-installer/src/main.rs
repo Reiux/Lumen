@@ -356,7 +356,7 @@ fn get_config_display_path() -> String {
     }
     #[cfg(unix)]
     {
-        return "~/.config/lumen".to_string();
+        "~/.config/lumen".to_string()
     }
 }
 
@@ -500,6 +500,14 @@ fn is_safe_dedicated_install_dir(dir: &Path) -> bool {
                 }
             }
         }
+        if let Ok(sysroot) = env::var("SystemRoot") {
+            let norm_sr = sysroot.replace('\\', "/").to_lowercase();
+            let sr_trimmed = norm_sr.trim_end_matches('/');
+            let lower_trimmed = trimmed.to_lowercase();
+            if lower_trimmed == sr_trimmed || lower_trimmed.starts_with(&format!("{}/", sr_trimmed)) {
+                return false;
+            }
+        }
         if let Ok(userprofile) = env::var("USERPROFILE") {
             let norm_up = userprofile.replace('\\', "/");
             let up_trimmed = norm_up.trim_end_matches('/');
@@ -514,6 +522,13 @@ fn is_safe_dedicated_install_dir(dir: &Path) -> bool {
 
     #[cfg(unix)]
     {
+        for sys_dir in &[
+            "/etc", "/usr", "/bin", "/sbin", "/lib", "/lib64", "/var", "/boot", "/sys", "/proc", "/dev", "/root",
+        ] {
+            if trimmed == *sys_dir || trimmed.starts_with(&format!("{}/", sys_dir)) {
+                return false;
+            }
+        }
         if let Ok(home) = env::var("HOME") {
             let h = home.trim_end_matches('/');
             if trimmed == h {
@@ -561,7 +576,7 @@ fn is_app_running() -> bool {
             current_pid, cur_exe_escaped
         );
 
-        let output = Command::new("powershell")
+        let output = Command::new(get_system_powershell())
             .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
             .creation_flags(CREATE_NO_WINDOW)
             .output();
@@ -644,7 +659,7 @@ fn kill_running_app() -> Result<(), String> {
             current_pid, cur_exe_escaped
         );
 
-        let _ = Command::new("powershell")
+        let _ = Command::new(get_system_powershell())
             .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
             .creation_flags(CREATE_NO_WINDOW)
             .output();
@@ -686,6 +701,12 @@ async fn start_install(
     } else {
         PathBuf::from(&target_dir)
     };
+    if !is_safe_dedicated_install_dir(&dest_path) {
+        return Err(format!(
+            "Target install directory '{}' is not a dedicated, safe Lumen directory.",
+            dest_path.display()
+        ));
+    }
     fs::create_dir_all(&dest_path).map_err(|e| format!("Failed to create install dir: {}", e))?;
 
     // Terminate any running Lumen instances before unpacking
@@ -696,12 +717,38 @@ async fn start_install(
         remove_legacy_nsis_installation();
     }
 
-    // 1. Extract embedded payload
+    // 1. Extract embedded payload securely (preventing Tar Slip and symlink escapes)
     let decoder = GzDecoder::new(Cursor::new(EMBEDDED_PAYLOAD));
     let mut archive = Archive::new(decoder);
-    archive
-        .unpack(&dest_path)
-        .map_err(|e| format!("Failed to unpack payload: {}", e))?;
+    for entry in archive.entries().map_err(|e| format!("Failed to read payload: {}", e))? {
+        let mut entry = entry.map_err(|e| format!("Corrupt payload entry: {}", e))?;
+        let entry_path = entry.path().map_err(|e| format!("Invalid payload path: {}", e))?.to_path_buf();
+
+        for comp in entry_path.components() {
+            match comp {
+                std::path::Component::ParentDir | std::path::Component::Prefix(_) | std::path::Component::RootDir => {
+                    return Err(format!("Unsafe path component in payload entry: {}", entry_path.display()));
+                }
+                _ => {}
+            }
+        }
+
+        let entry_type = entry.header().entry_type();
+        if entry_type.is_symlink() || entry_type.is_hard_link() {
+            if let Ok(Some(link_target)) = entry.link_name() {
+                for comp in link_target.components() {
+                    match comp {
+                        std::path::Component::ParentDir | std::path::Component::Prefix(_) | std::path::Component::RootDir => {
+                            return Err(format!("Unsafe link target in payload entry: {}", link_target.display()));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        entry.unpack_in(&dest_path).map_err(|e| format!("Failed to unpack {}: {}", entry_path.display(), e))?;
+    }
 
     // Standardize executable name as Lumen.exe
     let main_exe = if dest_path.join("Lumen.exe").is_file() {
@@ -763,7 +810,7 @@ async fn start_install(
     }
 
     // 4. Launch app if requested
-    if launch_after && main_exe.exists() {
+    if launch_after && main_exe.exists() && is_safe_dedicated_install_dir(&dest_path) {
         let _ = std::process::Command::new(&main_exe).spawn();
     }
 
@@ -899,10 +946,20 @@ async fn start_uninstall(purge_config: bool) -> Result<(), String> {
 #[tauri::command]
 fn launch_app(target_dir: String) -> Result<(), String> {
     let dest_path = PathBuf::from(&target_dir);
+    if !is_safe_dedicated_install_dir(&dest_path) {
+        return Err("Untrusted execution directory".to_string());
+    }
+    #[cfg(windows)]
     let main_exe = if dest_path.join("Lumen.exe").is_file() {
         dest_path.join("Lumen.exe")
     } else {
         dest_path.join("lumen.exe")
+    };
+    #[cfg(not(windows))]
+    let main_exe = if dest_path.join("Lumen").is_file() {
+        dest_path.join("Lumen")
+    } else {
+        dest_path.join("lumen")
     };
     if main_exe.is_file() {
         std::process::Command::new(main_exe)
@@ -959,6 +1016,17 @@ fn show_window(window: Window) {
 }
 
 #[cfg(windows)]
+fn get_system_powershell() -> PathBuf {
+    if let Ok(sysroot) = env::var("SystemRoot") {
+        let ps = PathBuf::from(sysroot).join("System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+        if ps.is_file() {
+            return ps;
+        }
+    }
+    PathBuf::from("powershell.exe")
+}
+
+#[cfg(windows)]
 fn escape_powershell_single_quote(s: &str) -> String {
     s.replace('\'', "''").replace(['\r', '\n', '\0', ';', '`', '$'], "")
 }
@@ -975,7 +1043,7 @@ fn create_windows_shortcut(target_exe: &Path, shortcut_path: &Path) -> Result<()
         "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('{}'); $s.TargetPath = '{}'; $s.Save()",
         shortcut, target
     );
-    let output = Command::new("powershell")
+    let output = Command::new(get_system_powershell())
         .creation_flags(CREATE_NO_WINDOW)
         .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
         .output()
@@ -1104,7 +1172,8 @@ foreach ($d in $dirs) {{
     if (Test-Path -LiteralPath $d) {{
         $uninst = Join-Path $d 'uninstall.exe';
         if (Test-Path -LiteralPath $uninst) {{
-            Start-Process -FilePath 'cmd.exe' -ArgumentList ('/c `"' + $uninst + '`" /S _?=' + $d) -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue;
+            $sysCmd = Join-Path $env:SystemRoot 'System32\cmd.exe';
+            Start-Process -FilePath $sysCmd -ArgumentList ('/c `"' + $uninst + '`" /S _?=' + $d) -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue;
             Start-Sleep -Milliseconds 800;
         }}
         Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {{ $_.ExecutablePath -and $_.ExecutablePath.StartsWith($d, [System.StringComparison]::OrdinalIgnoreCase) }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }};
@@ -1157,13 +1226,19 @@ if ($pub) {{
         dirs = dir_list_ps
     );
 
-    let temp_ps1 = env::temp_dir().join("lumen_legacy_cleanup.ps1");
+    let random_id: u64 = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    let temp_ps1 = env::temp_dir().join(format!("lumen_legacy_cleanup_{:016x}.ps1", random_id));
     if fs::write(&temp_ps1, script).is_ok() {
+        let ps_bin = escape_powershell_single_quote(&get_system_powershell().to_string_lossy());
         let ps_arg = format!(
-            "Start-Process powershell -WindowStyle Hidden -ArgumentList '-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{}\"' -Verb RunAs -Wait",
+            "Start-Process '{}' -WindowStyle Hidden -ArgumentList '-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{}\"' -Verb RunAs -Wait",
+            ps_bin,
             escape_powershell_single_quote(&temp_ps1.to_string_lossy())
         );
-        let _ = Command::new("powershell")
+        let _ = Command::new(get_system_powershell())
             .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &ps_arg])
             .creation_flags(CREATE_NO_WINDOW)
             .output();
@@ -1241,7 +1316,7 @@ fn schedule_self_deletion(install_dir: &Path, delete_dir: bool) {
         target, remove_local_cmd, target
     );
 
-    let _ = Command::new("powershell")
+    let _ = Command::new(get_system_powershell())
         .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
         .creation_flags(CREATE_NO_WINDOW)
         .spawn();

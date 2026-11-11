@@ -16,6 +16,27 @@ use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
 static BROWSER_CLOSE_FAILED: AtomicBool = AtomicBool::new(false);
+static ACTIVE_BROWSER_PID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static BROWSER_CANCELLED: AtomicBool = AtomicBool::new(false);
+
+pub fn cancel_active_browser() {
+    BROWSER_CANCELLED.store(true, Ordering::SeqCst);
+    let pid = ACTIVE_BROWSER_PID.swap(0, Ordering::SeqCst);
+    if pid > 0 {
+        #[cfg(unix)]
+        {
+            let _ = std::process::Command::new("kill")
+                .args(["-TERM", &pid.to_string()])
+                .output();
+        }
+        #[cfg(windows)]
+        {
+            let _ = std::process::Command::new("taskkill")
+                .args(["/F", "/T", "/PID", &pid.to_string()])
+                .output();
+        }
+    }
+}
 
 pub fn set_browser_close_failed(failed: bool) {
     BROWSER_CLOSE_FAILED.store(failed, Ordering::SeqCst);
@@ -31,6 +52,11 @@ pub fn find_chromium_browser() -> Option<PathBuf> {
     let user_flatpak_chromium = format!("{}/.local/share/flatpak/exports/bin/org.chromium.Chromium", home);
     let user_flatpak_chrome = format!("{}/.local/share/flatpak/exports/bin/com.google.Chrome", home);
     let user_flatpak_edge = format!("{}/.local/share/flatpak/exports/bin/com.microsoft.Edge", home);
+
+    let win_local = std::env::var("LOCALAPPDATA").unwrap_or_default();
+    let win_user_chrome = format!("{}\\Google\\Chrome\\Application\\chrome.exe", win_local);
+    let win_user_brave = format!("{}\\BraveSoftware\\Brave-Browser\\Application\\brave.exe", win_local);
+    let win_user_edge = format!("{}\\Microsoft\\Edge\\Application\\msedge.exe", win_local);
 
     let candidates = [
         "google-chrome-stable",
@@ -58,9 +84,14 @@ pub fn find_chromium_browser() -> Option<PathBuf> {
         "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
         "/Applications/Chromium.app/Contents/MacOS/Chromium",
         "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+        win_user_chrome.as_str(),
+        win_user_brave.as_str(),
+        win_user_edge.as_str(),
         "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
         "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
         "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
+        "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+        "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
     ];
 
     for candidate in &candidates {
@@ -95,9 +126,24 @@ fn which_browser(name: &str) -> Result<PathBuf> {
     if name.contains('/') || name.contains('\\') || name.contains("..") {
         bail!("invalid browser executable name");
     }
-    let output = Command::new("which").arg(name).output()?;
+    let cmd = if cfg!(windows) {
+        if let Ok(sysroot) = std::env::var("SystemRoot") {
+            let where_path = PathBuf::from(sysroot).join("System32\\where.exe");
+            if where_path.is_file() {
+                where_path
+            } else {
+                PathBuf::from("where.exe")
+            }
+        } else {
+            PathBuf::from("where.exe")
+        }
+    } else {
+        PathBuf::from("which")
+    };
+    let output = Command::new(cmd).arg(name).output()?;
     if output.status.success() {
-        let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let path_str = stdout.lines().next().unwrap_or("").trim().to_string();
         if !path_str.is_empty() {
             return Ok(PathBuf::from(path_str));
         }
@@ -161,6 +207,9 @@ impl CdpSession {
             .spawn()
             .context("Failed to spawn browser process")?;
 
+        BROWSER_CANCELLED.store(false, Ordering::SeqCst);
+        ACTIVE_BROWSER_PID.store(child.id(), Ordering::SeqCst);
+
         let port_file = user_data_dir.path().join("DevToolsActivePort");
 
         let mut port_content = String::new();
@@ -185,9 +234,17 @@ impl CdpSession {
             bail!("Invalid DevToolsActivePort file format from browser");
         }
 
-        let port = lines[0].trim();
+        let port_str = lines[0].trim();
+        let port: u16 = port_str
+            .parse()
+            .context("Invalid DevToolsActivePort: port is not a valid number")?;
         let ws_path = lines[1].trim();
-        let ws_url = format!("ws://127.0.0.1:{}{}", port, ws_path);
+        let clean_ws_path = if ws_path.starts_with('/') {
+            ws_path.to_string()
+        } else {
+            format!("/{}", ws_path)
+        };
+        let ws_url = format!("ws://127.0.0.1:{}{}", port, clean_ws_path);
 
         Ok(Self {
             child,
@@ -201,6 +258,11 @@ impl CdpSession {
             .context("Failed to connect to Chromium CDP WebSocket")?;
 
         for _ in 0..180 {
+            if BROWSER_CANCELLED.load(Ordering::SeqCst) {
+                let _ = self.close();
+                bail!("Browser sign-in was cancelled by user.");
+            }
+
             // Check if user closed the browser early
             match self.child.try_wait() {
                 Ok(Some(status)) => {
@@ -227,7 +289,8 @@ impl CdpSession {
                 if let Ok(resp) = serde_json::from_str::<CdpResponse>(&text) {
                     if let Some(res) = resp.result {
                         for c in &res.cookies {
-                            if c.domain.contains("google") && c.name == "oauth_token" && !c.value.is_empty() {
+                            let name_matches = c.name.eq_ignore_ascii_case("oauth_token") || c.name.eq_ignore_ascii_case("token");
+                            if c.domain.contains("google") && name_matches && !c.value.is_empty() {
                                 return Ok(c.value.clone());
                             }
                         }
@@ -242,6 +305,7 @@ impl CdpSession {
     }
 
     pub fn close(&mut self) -> bool {
+        ACTIVE_BROWSER_PID.store(0, Ordering::SeqCst);
         let mut success = true;
         if let Err(e) = self.child.kill() {
             tracing::warn!("Failed to terminate browser process: {}", e);
@@ -272,5 +336,12 @@ mod tests {
         let name = get_supported_browser_name();
         assert!(!name.is_empty());
         println!("Detected browser: {:?} ({})", browser, name);
+    }
+
+    #[test]
+    fn test_cancel_active_browser_safe_when_idle() {
+        cancel_active_browser();
+        assert!(BROWSER_CANCELLED.load(Ordering::SeqCst));
+        assert_eq!(ACTIVE_BROWSER_PID.load(Ordering::SeqCst), 0);
     }
 }

@@ -303,6 +303,13 @@ impl ConfigManager {
         if !path.exists() {
             return Ok(Config::default());
         }
+        let meta = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
+        if !meta.is_file() || meta.file_type().is_symlink() {
+            return Err("Config file is a symlink or not a regular file".to_string());
+        }
+        if meta.len() > 5 * 1024 * 1024 {
+            return Err("Config file exceeds maximum allowed size (5 MB)".to_string());
+        }
         let content = fs::read_to_string(path).map_err(|e| e.to_string())?;
         if content.trim().is_empty() {
             return Ok(Config::default());
@@ -354,13 +361,26 @@ impl ConfigManager {
 
         let yaml = serde_yaml::to_string(config).map_err(|e| e.to_string())?;
         let temp_path = path.with_extension("tmp");
+        let _ = fs::remove_file(&temp_path);
 
-        fs::write(&temp_path, yaml.as_bytes()).map_err(|e| e.to_string())?;
-
-        #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(&temp_path, fs::Permissions::from_mode(0o600));
+            use std::io::Write;
+            let mut opts = fs::OpenOptions::new();
+            opts.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                opts.mode(0o600);
+                opts.custom_flags(libc::O_NOFOLLOW);
+            }
+            let mut f = opts.open(&temp_path).map_err(|e| e.to_string())?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = f.set_permissions(fs::Permissions::from_mode(0o600));
+            }
+            f.write_all(yaml.as_bytes()).map_err(|e| e.to_string())?;
+            f.sync_all().map_err(|e| e.to_string())?;
         }
 
         fs::rename(&temp_path, path).map_err(|e| e.to_string())?;
@@ -498,17 +518,48 @@ pub fn determine_config_path(override_path: Option<&Path>) -> PathBuf {
     let legacy_config = legacy_dir.join("gotohp.config");
 
     if legacy_config.exists() {
-        let _ = fs::create_dir_all(&lumen_dir);
-        if fs::copy(&legacy_config, &lumen_config).is_ok() {
-            let legacy_db = legacy_dir.join("hash_cache.db");
-            if legacy_db.exists() {
-                let _ = fs::copy(&legacy_db, lumen_dir.join("hash_cache.db"));
+        let legacy_meta = fs::symlink_metadata(&legacy_config).ok();
+        if let Some(m) = legacy_meta {
+            if m.is_file() && !m.file_type().is_symlink() {
+                let _ = fs::create_dir_all(&lumen_dir);
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = fs::set_permissions(&lumen_dir, fs::Permissions::from_mode(0o700));
+                }
+                if fs::copy(&legacy_config, &lumen_config).is_ok() {
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        let _ = fs::set_permissions(&lumen_config, fs::Permissions::from_mode(0o600));
+                    }
+                    let legacy_db = legacy_dir.join("hash_cache.db");
+                    if let Ok(db_meta) = fs::symlink_metadata(&legacy_db) {
+                        if db_meta.is_file() && !db_meta.file_type().is_symlink() {
+                            let target_db = lumen_dir.join("hash_cache.db");
+                            let _ = fs::copy(&legacy_db, &target_db);
+                            #[cfg(unix)]
+                            {
+                                use std::os::unix::fs::PermissionsExt;
+                                let _ = fs::set_permissions(&target_db, fs::Permissions::from_mode(0o600));
+                            }
+                        }
+                    }
+                    let legacy_reg = legacy_dir.join("album_registry.json");
+                    if let Ok(reg_meta) = fs::symlink_metadata(&legacy_reg) {
+                        if reg_meta.is_file() && !reg_meta.file_type().is_symlink() {
+                            let target_reg = lumen_dir.join("album_registry.json");
+                            let _ = fs::copy(&legacy_reg, &target_reg);
+                            #[cfg(unix)]
+                            {
+                                use std::os::unix::fs::PermissionsExt;
+                                let _ = fs::set_permissions(&target_reg, fs::Permissions::from_mode(0o600));
+                            }
+                        }
+                    }
+                    return lumen_config;
+                }
             }
-            let legacy_reg = legacy_dir.join("album_registry.json");
-            if legacy_reg.exists() {
-                let _ = fs::copy(&legacy_reg, lumen_dir.join("album_registry.json"));
-            }
-            return lumen_config;
         }
         return legacy_config;
     }

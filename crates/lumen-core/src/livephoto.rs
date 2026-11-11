@@ -86,6 +86,10 @@ impl Default for LivePhotoClassificationOptions {
 }
 
 pub fn read_photo_content_identifier(path: &Path) -> Result<String, LivePhotoError> {
+    let meta = std::fs::symlink_metadata(path).map_err(|e| LivePhotoError::Io(e.to_string()))?;
+    if !meta.is_file() || meta.file_type().is_symlink() {
+        return Err(LivePhotoError::Io("Not a regular file".to_string()));
+    }
     let mut file = File::open(path).map_err(|e| LivePhotoError::Io(e.to_string()))?;
     let mut buf = Vec::new();
     file.by_ref()
@@ -189,6 +193,10 @@ fn parse_apple_maker_note(data: &[u8]) -> Result<String, LivePhotoError> {
 }
 
 pub fn read_video_live_photo_metadata(path: &Path) -> Result<LivePhotoMetadata, LivePhotoError> {
+    let meta = std::fs::symlink_metadata(path).map_err(|e| LivePhotoError::Io(e.to_string()))?;
+    if !meta.is_file() || meta.file_type().is_symlink() {
+        return Err(LivePhotoError::Io("Not a regular file".to_string()));
+    }
     let mut file = File::open(path).map_err(|e| LivePhotoError::Io(e.to_string()))?;
     let mut buf = Vec::new();
     // Read up to 2MB to find QuickTime metadata atoms

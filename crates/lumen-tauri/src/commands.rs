@@ -18,8 +18,8 @@ use lumen_core::auth::{
 use lumen_core::config::ConfigManager;
 use lumen_core::dedup::HashCache;
 use lumen_core::livephoto::{classify_upload_work, LivePhotoClassificationOptions};
-use lumen_core::net::create_http_client;
-use lumen_core::scanner::{scan_directories_incremental, ScanOptions};
+use lumen_core::net::{create_http_client, validate_proxy_url};
+use lumen_core::scanner::{scan_directories_incremental, validate_exclude_pattern, ScanOptions};
 use lumen_core::updater::{UpdateChecker, DEFAULT_RELEASES_URL};
 use lumen_core::upload::{UploadEngine, UploadEvent, UploadOptions};
 
@@ -209,8 +209,10 @@ pub fn set_set_date_from_filename(v: bool, state: tauri::State<AppState>) -> Res
 
 #[tauri::command]
 pub fn set_exclude_pattern(pattern: String, state: tauri::State<AppState>) -> Result<(), String> {
+    let trimmed = pattern.trim();
+    validate_exclude_pattern(trimmed)?;
     state.config_manager.update(|cfg| {
-        cfg.preferences.exclude_pattern = pattern;
+        cfg.preferences.exclude_pattern = trimmed.to_string();
     })
 }
 
@@ -385,8 +387,10 @@ pub fn set_watch_folders_enabled(v: bool, state: tauri::State<AppState>) -> Resu
 
 #[tauri::command]
 pub fn set_proxy(proxy: String, state: tauri::State<AppState>) -> Result<(), String> {
+    let trimmed = proxy.trim();
+    validate_proxy_url(trimmed)?;
     state.config_manager.update(|cfg| {
-        cfg.preferences.proxy = proxy;
+        cfg.preferences.proxy = trimmed.to_string();
     })
 }
 
@@ -530,6 +534,10 @@ pub fn add_watched_folder(folder: String, state: tauri::State<AppState>) -> Resu
     if folder.is_empty() {
         return Ok(());
     }
+    let p = std::path::Path::new(&folder);
+    if !p.is_dir() {
+        return Err(format!("'{}' is not an accessible directory", folder));
+    }
     let res = state.config_manager.update(|cfg| {
         if !cfg.preferences.watched_folders.contains(&folder) {
             cfg.preferences.watched_folders.push(folder.clone());
@@ -560,6 +568,10 @@ pub fn add_watched_folder_with_account(
     let folder = folder.trim().to_string();
     if folder.is_empty() {
         return Ok(());
+    }
+    let p = std::path::Path::new(&folder);
+    if !p.is_dir() {
+        return Err(format!("'{}' is not an accessible directory", folder));
     }
     let res = state.config_manager.update(|cfg| {
         if !cfg.preferences.watched_folders.contains(&folder) {
@@ -617,15 +629,59 @@ pub fn update_watched_folder_config(
     res
 }
 
+pub fn path_starts_with_case_insensitive(path: &Path, prefix: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        let p_str = path.to_string_lossy().to_lowercase().replace('/', "\\");
+        let pref_str = prefix.to_string_lossy().to_lowercase().replace('/', "\\");
+        let p_trimmed = p_str.trim_end_matches('\\');
+        let pref_trimmed = pref_str.trim_end_matches('\\');
+        if p_trimmed == pref_trimmed {
+            return true;
+        }
+        if p_str.starts_with(pref_trimmed) {
+            let rem = &p_str[pref_trimmed.len()..];
+            return rem.starts_with('\\');
+        }
+        false
+    }
+    #[cfg(not(windows))]
+    {
+        path.starts_with(prefix)
+    }
+}
+
 pub fn find_watched_folder_config_for_path(
     file_path: &str,
     state: &AppState,
 ) -> Option<WatchedFolderConfig> {
     let p = Path::new(file_path);
     let cfg = state.config_manager.get_config();
-    for folder_cfg in &cfg.preferences.watched_folder_configs {
+    let mut configs = cfg.preferences.watched_folder_configs.clone();
+    // Sort descending by path length to ensure the most specific folder config matches first
+    configs.sort_by_key(|a| std::cmp::Reverse(a.path.len()));
+
+    for folder_cfg in &configs {
         let folder_path = Path::new(&folder_cfg.path);
-        if p.starts_with(folder_path) {
+        if path_starts_with_case_insensitive(p, folder_path) {
+            if !folder_cfg.include_subfolders {
+                if let Some(parent) = p.parent() {
+                    #[cfg(windows)]
+                    {
+                        let parent_s = parent.to_string_lossy().to_lowercase().replace('/', "\\");
+                        let folder_s = folder_path.to_string_lossy().to_lowercase().replace('/', "\\");
+                        if parent_s.trim_end_matches('\\') != folder_s.trim_end_matches('\\') {
+                            continue;
+                        }
+                    }
+                    #[cfg(not(windows))]
+                    {
+                        if parent != folder_path {
+                            continue;
+                        }
+                    }
+                }
+            }
             return Some(WatchedFolderConfig {
                 path: folder_cfg.path.clone(),
                 account_email: folder_cfg.account_email.clone(),
@@ -648,21 +704,25 @@ pub fn get_watched_folder_config_for_path(
 }
 
 #[tauri::command]
-pub fn count_folder_backlog(folder: String) -> usize {
-    let p = Path::new(&folder);
-    if !p.exists() || !p.is_dir() {
-        return 0;
-    }
-    let opts = ScanOptions {
-        recursive: true,
-        filter_unsupported_files: true,
-        ..Default::default()
-    };
-    let cancelled = Arc::new(AtomicBool::new(false));
-    match scan_directories_incremental(&[p.to_path_buf()], &opts, cancelled, |_| {}) {
-        Ok(files) => files.len(),
-        Err(_) => 0,
-    }
+pub async fn count_folder_backlog(folder: String) -> usize {
+    tokio::task::spawn_blocking(move || {
+        let p = Path::new(&folder);
+        if !p.exists() || !p.is_dir() {
+            return 0;
+        }
+        let opts = ScanOptions {
+            recursive: true,
+            filter_unsupported_files: true,
+            ..Default::default()
+        };
+        let cancelled = Arc::new(AtomicBool::new(false));
+        match scan_directories_incremental(&[p.to_path_buf()], &opts, cancelled, |_| {}) {
+            Ok(files) => files.len(),
+            Err(_) => 0,
+        }
+    })
+    .await
+    .unwrap_or(0)
 }
 
 #[tauri::command]
@@ -796,6 +856,7 @@ pub async fn start_browser_sign_in_with_options(
 
 #[tauri::command]
 pub fn cancel_browser_sign_in() -> Result<(), String> {
+    cdp::cancel_active_browser();
     Ok(())
 }
 
@@ -1026,6 +1087,30 @@ pub async fn pick_watched_folder(app: AppHandle) -> String {
 // Upload Orchestration & Events
 // -------------------------------------------------------------
 
+fn spawn_drain_pending_watch_files(app: AppHandle, state: AppState) {
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        let next_batch: Vec<String> = {
+            let mut pending = state.pending_watch_files.lock().unwrap();
+            if pending.is_empty() {
+                Vec::new()
+            } else {
+                pending.drain(..).collect()
+            }
+        };
+        if !next_batch.is_empty() {
+            let _ = app.emit(
+                "folder-watch:detected",
+                serde_json::json!({
+                    "files": &next_batch,
+                    "count": next_batch.len(),
+                }),
+            );
+            let _ = execute_upload(next_batch, app, state, true);
+        }
+    });
+}
+
 pub fn execute_upload(
     files: Vec<String>,
     app: AppHandle,
@@ -1036,8 +1121,18 @@ pub fn execute_upload(
         return Ok(());
     }
 
+    if state
+        .is_uploading
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        let mut pending = state.pending_watch_files.lock().unwrap();
+        pending.extend(files);
+        return Ok(());
+    }
+
     state.upload_cancel.store(false, Ordering::SeqCst);
-    state.is_uploading.store(true, Ordering::SeqCst);
+    state.scan_cancel.store(false, Ordering::SeqCst);
 
     let cfg = state.config_manager.get_config();
     let mut account = cfg.account.selected.clone();
@@ -1094,7 +1189,8 @@ pub fn execute_upload(
             format!("Could not retrieve credentials for {}: {}", account, e)
         })?;
 
-    let cancel_flag = state.upload_cancel.clone();
+    let upload_cancel_flag = state.upload_cancel.clone();
+    let scan_cancel_flag = state.scan_cancel.clone();
     let is_uploading_flag = state.is_uploading.clone();
     let notify_on_complete = cfg.preferences.notify_on_complete;
     let hash_cache = state.hash_cache.clone();
@@ -1113,12 +1209,45 @@ pub fn execute_upload(
             exclude_pattern: cfg.preferences.exclude_pattern.clone(),
             ..Default::default()
         };
-        let scanned_files = match scan_directories_incremental(&path_bufs, &scan_opts, cancel_flag.clone(), |_| {}) {
-            Ok(f) => f,
+
+        // Combine upload_cancel and scan_cancel for scanning loop
+        let scan_cancelled = Arc::new(AtomicBool::new(false));
+        let scan_cancelled_thread = scan_cancelled.clone();
+        let uc = upload_cancel_flag.clone();
+        let sc = scan_cancel_flag.clone();
+        let cancel_poll = tokio::spawn(async move {
+            while !uc.load(Ordering::Relaxed) && !sc.load(Ordering::Relaxed) && !scan_cancelled_thread.load(Ordering::Relaxed) {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            scan_cancelled_thread.store(true, Ordering::SeqCst);
+        });
+
+        let app_for_scan = app_clone.clone();
+        let scanned_files = match scan_directories_incremental(
+            &path_bufs,
+            &scan_opts,
+            scan_cancelled.clone(),
+            move |p| {
+                let _ = app_for_scan.emit("scan:progress", serde_json::json!({
+                    "filesFound": p.files_found,
+                    "currentDirectory": p.current_directory,
+                    "isScanning": p.is_scanning,
+                }));
+            },
+        ) {
+            Ok(f) => {
+                cancel_poll.abort();
+                f
+            }
             Err(e) => {
+                cancel_poll.abort();
                 tracing::error!("Scan error: {}", e);
+                if e.contains("cancelled") {
+                    let _ = app_clone.emit("scan:cancelled", ());
+                }
                 is_uploading_flag.store(false, Ordering::SeqCst);
                 let _ = app_clone.emit("uploadStop", ());
+                spawn_drain_pending_watch_files(app_clone.clone(), state_for_drain.clone());
                 return;
             }
         };
@@ -1129,7 +1258,18 @@ pub fn execute_upload(
             ignore_apple_metadata: false,
             default_account: account.clone(),
         };
-        let (mut items, _preflight_warnings) = classify_upload_work(&scanned_files, &live_photo_opts);
+        let (mut items, preflight_warnings) = classify_upload_work(&scanned_files, &live_photo_opts);
+
+        for w in preflight_warnings {
+            let _ = app_clone.emit(
+                "uploadWarning",
+                crate::models::PreflightWarning {
+                    paths: w.paths.into_iter().map(|p| p.to_string_lossy().to_string()).collect(),
+                    code: w.code,
+                    message: w.message,
+                },
+            );
+        }
 
         // Ensure each work item is mapped to its folder-configured account to prevent cross-account leaks
         for item in &mut items {
@@ -1175,7 +1315,7 @@ pub fn execute_upload(
             config_manager,
             if cfg.preferences.use_local_hash_cache { hash_cache } else { None },
             album_registry,
-        ).with_cancelled(cancel_flag);
+        ).with_cancelled(upload_cancel_flag);
 
         let event_handle = tokio::spawn({
             let app_clone = app_clone.clone();
@@ -1203,17 +1343,34 @@ pub fn execute_upload(
                             let error_message = if res.error_message.is_empty() { None } else { Some(res.error_message.clone()) };
                             let skip_reason = if res.skip_reason.is_empty() { None } else { Some(res.skip_reason.clone()) };
 
-                            let _ = app_clone.emit("FileStatus", &res);
+                            let res_model = crate::models::FileUploadResult {
+                                media_key: res.media_key.clone(),
+                                is_error: res.is_error,
+                                is_live_photo: res.is_live_photo,
+                                skipped: res.skipped,
+                                skip_code: res.skip_code.clone(),
+                                skip_reason: res.skip_reason.clone(),
+                                error_message: res.error_message.clone(),
+                                path: path_str.clone(),
+                                paths: res.paths.iter().map(|p| p.to_string_lossy().to_string()).collect(),
+                                duration_ms: Some(res.duration_ms as u64),
+                                size_bytes: Some(res.size_bytes as u64),
+                            };
+                            let _ = app_clone.emit("FileStatus", &res_model);
 
+                            let log_id = std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis();
                             let log_entry = LogEntry {
-                                id: format!("log-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+                                id: format!("log-{}", log_id),
                                 timestamp: chrono_iso(),
                                 level: if is_error { "ERROR".to_string() } else { "INFO".to_string() },
                                 category: "Upload".to_string(),
                                 file_name: Some(file_name),
                                 file_path: Some(path_str),
-                                size_bytes: None,
-                                duration_ms: None,
+                                size_bytes: Some(res.size_bytes as u64),
+                                duration_ms: Some(res.duration_ms as u64),
                                 outcome: if is_error { Some("FAILED".to_string()) } else if skipped { Some("SKIPPED".to_string()) } else { Some("UPLOADED".to_string()) },
                                 user_message: error_message.clone().or_else(|| skip_reason.clone()),
                                 ..Default::default()
@@ -1222,7 +1379,43 @@ pub fn execute_upload(
                             let _ = app_clone.emit("log:entry", log_entry);
                         }
                         UploadEvent::ThreadProgress(status) => {
-                            let _ = app_clone.emit("ThreadStatus", status);
+                            let status_model = crate::models::ThreadStatus {
+                                worker_id: status.worker_id,
+                                status: status.status,
+                                file_path: status.file_path,
+                                file_name: status.file_name,
+                                message: status.message,
+                                bytes_uploaded: status.bytes_uploaded.max(0) as u64,
+                                bytes_total: status.bytes_total.max(0) as u64,
+                                attempt: status.attempt,
+                            };
+                            let _ = app_clone.emit("ThreadStatus", status_model);
+                        }
+                        UploadEvent::AlbumProgress {
+                            album_name,
+                            items_added,
+                            total_items,
+                            album_keys,
+                            is_complete,
+                        } => {
+                            let status_model = crate::models::AlbumStatus {
+                                album_name: album_name.clone(),
+                                items_added,
+                                total_items,
+                                album_keys,
+                                is_complete,
+                            };
+                            let _ = app_clone.emit("albumProgress", &status_model);
+                            if is_complete {
+                                let _ = app_clone.emit("albumComplete", &status_model);
+                            }
+                        }
+                        UploadEvent::AlbumError { album_name, error } => {
+                            let error_model = crate::models::AlbumError {
+                                album_name,
+                                error,
+                            };
+                            let _ = app_clone.emit("albumError", error_model);
                         }
                         UploadEvent::AccountBlocked { reason, email, message } => {
                             let _ = app_clone.emit(
@@ -1255,30 +1448,7 @@ pub fn execute_upload(
         is_uploading_flag.store(false, Ordering::SeqCst);
         let _ = app_clone.emit("uploadStop", ());
 
-        // Drain queued watch files matching Go main.go
-        let ah_drain = app_clone.clone();
-        let state_drain = state_for_drain.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(500)).await;
-            let next_batch: Vec<String> = {
-                let mut pending = state_drain.pending_watch_files.lock().unwrap();
-                if pending.is_empty() {
-                    Vec::new()
-                } else {
-                    pending.drain(..).collect()
-                }
-            };
-            if !next_batch.is_empty() {
-                let _ = ah_drain.emit(
-                    "folder-watch:detected",
-                    serde_json::json!({
-                        "files": &next_batch,
-                        "count": next_batch.len(),
-                    }),
-                );
-                let _ = execute_upload(next_batch, ah_drain, state_drain, true);
-            }
-        });
+        spawn_drain_pending_watch_files(app_clone.clone(), state_for_drain.clone());
     });
 
     Ok(())
@@ -1332,6 +1502,9 @@ pub fn open_url(app: AppHandle, url: String) -> Result<(), String> {
     }
     if parsed.host_str().is_none() {
         return Err("URL must specify a valid host".to_string());
+    }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err("URLs containing embedded credentials are not permitted".to_string());
     }
     app.opener().open_url(parsed.as_str(), None::<&str>).map_err(|e| e.to_string())
 }
@@ -1400,6 +1573,55 @@ pub fn credential_needs_token_binding(auth_string: String) -> bool {
 #[tauri::command]
 pub fn add_token_binding_alias_from_adb(_email: String) -> Result<(), String> {
     Ok(())
+}
+
+#[tauri::command]
+pub fn get_matugen_status() -> crate::matugen::MatugenStatus {
+    #[cfg(target_os = "linux")]
+    {
+        if let Some((path, colors)) = crate::matugen::linux::find_active_color_source() {
+            crate::matugen::MatugenStatus {
+                supported: true,
+                available: true,
+                active_path: Some(path.to_string_lossy().to_string()),
+                colors: Some(colors),
+            }
+        } else {
+            let has_cli = std::path::Path::new("/usr/bin/matugen").exists()
+                || std::process::Command::new("which")
+                    .arg("matugen")
+                    .output()
+                    .map(|o| o.status.success())
+                    .unwrap_or(false);
+            crate::matugen::MatugenStatus {
+                supported: true,
+                available: has_cli,
+                active_path: None,
+                colors: None,
+            }
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        crate::matugen::non_linux::get_status()
+    }
+}
+
+#[tauri::command]
+pub fn get_matugen_colors() -> Option<std::collections::HashMap<String, String>> {
+    #[cfg(target_os = "linux")]
+    {
+        crate::matugen::linux::find_active_color_source().map(|(_, colors)| colors)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
+#[tauri::command]
+pub fn reload_matugen_colors() -> Option<std::collections::HashMap<String, String>> {
+    get_matugen_colors()
 }
 
 fn chrono_iso() -> String {

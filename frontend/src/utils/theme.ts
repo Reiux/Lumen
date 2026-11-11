@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { applyDynamicTheme, generateM3Scheme } from '@materialwebunofficial/md3e-web'
+import { tauriInvoke, Events } from '../tauri-compat/wails-runtime'
 
 export type M3PaletteVariant = 'tonal-spot' | 'vibrant' | 'expressive'
 
@@ -109,6 +110,12 @@ export const THEME_PRESETS: ThemePreset[] = [
 
 const SEED_STORAGE_KEY = 'lumen_theme_seed'
 const VARIANT_STORAGE_KEY = 'lumen_theme_variant'
+const THEME_MODE_STORAGE_KEY = 'lumen_theme_mode'
+
+export const isMatugenSupported = ref(false)
+export const isMatugenActive = ref(false)
+export const matugenSource = ref<string | null>(null)
+export const matugenColors = ref<Record<string, string> | null>(null)
 
 function getInitialSeed(): string {
   if (typeof localStorage !== 'undefined') {
@@ -153,6 +160,52 @@ export function updateAppFavicon(primaryColor: string) {
   }
 }
 
+export function applyMatugenPalette(colors: Record<string, string>) {
+  if (typeof document === 'undefined') return
+  const root = document.documentElement
+
+  for (const [key, val] of Object.entries(colors)) {
+    if (typeof val === 'string' && val.startsWith('#')) {
+      const token = key.startsWith('--') ? key : `--md-sys-color-${key.replace(/_/g, '-')}`
+      root.style.setProperty(token, val)
+    }
+  }
+
+  // Synchronize CSS custom property semantic mappings
+  const surface = colors.surface || colors['--md-sys-color-surface']
+  const onSurface = colors.on_surface || colors['--md-sys-color-on-surface']
+  const surfaceContainer = colors.surface_container || colors['--md-sys-color-surface-container']
+  const surfaceContainerHigh = colors.surface_container_high || colors['--md-sys-color-surface-container-high']
+  const primary = colors.primary || colors['--md-sys-color-primary']
+  const onPrimary = colors.on_primary || colors['--md-sys-color-on-primary']
+  const secondary = colors.secondary_container || colors.secondary || colors['--md-sys-color-secondary-container']
+  const onSecondary = colors.on_secondary_container || colors.on_secondary || colors['--md-sys-color-on-secondary-container']
+  const outlineVariant = colors.outline_variant || colors['--md-sys-color-outline-variant']
+  const error = colors.error || colors['--md-sys-color-error']
+  const onError = colors.on_error || colors['--md-sys-color-on-error']
+
+  if (surface) root.style.setProperty('--background', surface)
+  if (onSurface) root.style.setProperty('--foreground', onSurface)
+  if (surfaceContainer) root.style.setProperty('--card', surfaceContainer)
+  if (surfaceContainerHigh) root.style.setProperty('--popover', surfaceContainerHigh)
+  if (primary) {
+    root.style.setProperty('--primary', primary)
+    root.style.setProperty('--ring', primary)
+    updateAppFavicon(primary)
+  }
+  if (onPrimary) root.style.setProperty('--primary-foreground', onPrimary)
+  if (secondary) root.style.setProperty('--secondary', secondary)
+  if (onSecondary) root.style.setProperty('--secondary-foreground', onSecondary)
+  if (outlineVariant) {
+    root.style.setProperty('--border', outlineVariant)
+    root.style.setProperty('--input', outlineVariant)
+  }
+  if (error) root.style.setProperty('--destructive', error)
+  if (onError) root.style.setProperty('--destructive-foreground', onError)
+
+  themePulseCounter.value++
+}
+
 export function applyTheme(seed: string = currentThemeSeed.value, variant: M3PaletteVariant = currentPaletteVariant.value) {
   try {
     applyDynamicTheme(seed, true, variant)
@@ -164,6 +217,12 @@ export function applyTheme(seed: string = currentThemeSeed.value, variant: M3Pal
 }
 
 export function setThemeSeed(seed: string) {
+  if (isMatugenActive.value) {
+    isMatugenActive.value = false
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(THEME_MODE_STORAGE_KEY, 'preset')
+    }
+  }
   currentThemeSeed.value = seed
   if (typeof localStorage !== 'undefined') {
     localStorage.setItem(SEED_STORAGE_KEY, seed)
@@ -176,7 +235,35 @@ export function setPaletteVariant(variant: M3PaletteVariant) {
   if (typeof localStorage !== 'undefined') {
     localStorage.setItem(VARIANT_STORAGE_KEY, variant)
   }
-  applyTheme(currentThemeSeed.value, variant)
+  if (!isMatugenActive.value) {
+    applyTheme(currentThemeSeed.value, variant)
+  }
+}
+
+export async function setMatugenEnabled(enabled: boolean) {
+  isMatugenActive.value = enabled
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(THEME_MODE_STORAGE_KEY, enabled ? 'matugen' : 'preset')
+  }
+
+  if (enabled) {
+    if (matugenColors.value) {
+      applyMatugenPalette(matugenColors.value)
+    } else {
+      const colors = await tauriInvoke<Record<string, string>>('get_matugen_colors')
+      if (colors) {
+        matugenColors.value = colors
+        applyMatugenPalette(colors)
+      }
+    }
+  } else {
+    // Clear custom style overrides and restore chosen preset theme
+    if (typeof document !== 'undefined') {
+      const root = document.documentElement
+      root.removeAttribute('style')
+    }
+    applyTheme(currentThemeSeed.value, currentPaletteVariant.value)
+  }
 }
 
 const presetPreviewCache = new Map<string, { primary: string; container: string; tertiary: string }>()
@@ -212,6 +299,19 @@ export function getPresetPreviewColors(preset: ThemePreset, variant: M3PaletteVa
 }
 
 export function cycleNextTheme() {
+  if (isMatugenSupported.value) {
+    if (!isMatugenActive.value && matugenColors.value) {
+      // Switch into Matugen dynamic
+      setMatugenEnabled(true)
+      return
+    }
+  }
+
+  isMatugenActive.value = false
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(THEME_MODE_STORAGE_KEY, 'preset')
+  }
+
   const currentIndex = THEME_PRESETS.findIndex(
     p => p.seed.toLowerCase() === currentThemeSeed.value.toLowerCase()
   )
@@ -219,10 +319,48 @@ export function cycleNextTheme() {
   setThemeSeed(THEME_PRESETS[nextIndex].seed)
 }
 
-export function initTheme() {
+export async function initTheme() {
   const seed = getInitialSeed()
   const variant = getInitialVariant()
   currentThemeSeed.value = seed
   currentPaletteVariant.value = variant
+
+  // Initial preset application
   applyTheme(seed, variant)
+
+  // Query Linux Matugen support
+  try {
+    interface MatugenStatusResponse {
+      supported: boolean
+      available: boolean
+      active_path?: string
+      colors?: Record<string, string>
+    }
+    const status = await tauriInvoke<MatugenStatusResponse>('get_matugen_status')
+    if (status && status.supported) {
+      isMatugenSupported.value = true
+      matugenSource.value = status.active_path || null
+      matugenColors.value = status.colors || null
+
+      const savedMode = typeof localStorage !== 'undefined' ? localStorage.getItem(THEME_MODE_STORAGE_KEY) : null
+      // If user selected matugen or this is first run on Linux with available matugen colors, enable dynamic theming
+      const shouldActivate = savedMode === 'matugen' || (savedMode === null && status.available)
+      if (shouldActivate && status.colors) {
+        isMatugenActive.value = true
+        applyMatugenPalette(status.colors)
+      }
+
+      // Wire live wallpaper / color change listener
+      Events.On('matugen:colors-changed', (event: { data: Record<string, string> }) => {
+        if (event && event.data) {
+          matugenColors.value = event.data
+          if (isMatugenActive.value) {
+            applyMatugenPalette(event.data)
+          }
+        }
+      })
+    }
+  } catch (e) {
+    console.debug('Matugen dynamic theme not active:', e)
+  }
 }

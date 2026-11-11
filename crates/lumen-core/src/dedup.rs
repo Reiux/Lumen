@@ -15,6 +15,10 @@ pub enum DedupError {
 }
 
 pub fn calculate_file_sha1(path: &Path) -> io::Result<(Vec<u8>, String)> {
+    let meta = std::fs::symlink_metadata(path)?;
+    if !meta.is_file() || meta.file_type().is_symlink() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "Path is not a regular file"));
+    }
     let mut file = File::open(path)?;
     let mut hasher = Sha1::new();
     let mut buffer = [0u8; 64 * 1024];
@@ -48,16 +52,44 @@ impl HashCache {
                 let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
             }
         }
-        let conn = Connection::open(db_path)?;
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = std::fs::set_permissions(db_path, std::fs::Permissions::from_mode(0o600));
+            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+            for suffix in ["", "-wal", "-shm"] {
+                let mut p = db_path.as_os_str().to_os_string();
+                p.push(suffix);
+                let target = std::path::PathBuf::from(p);
+                if let Ok(meta) = std::fs::symlink_metadata(&target) {
+                    if meta.file_type().is_symlink() {
+                        let _ = std::fs::remove_file(&target);
+                    }
+                }
+                let mut opts = std::fs::OpenOptions::new();
+                opts.write(true).create(true).truncate(false);
+                opts.mode(0o600);
+                opts.custom_flags(libc::O_NOFOLLOW);
+                if let Ok(f) = opts.open(&target) {
+                    let _ = f.set_permissions(std::fs::Permissions::from_mode(0o600));
+                }
+            }
         }
+        let conn = Connection::open(db_path)?;
         let cache = Self {
             conn: Arc::new(Mutex::new(conn)),
         };
         cache.init_schema()?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for suffix in ["", "-wal", "-shm"] {
+                let mut p = db_path.as_os_str().to_os_string();
+                p.push(suffix);
+                let target = std::path::PathBuf::from(p);
+                if target.exists() {
+                    let _ = std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o600));
+                }
+            }
+        }
         Ok(cache)
     }
 
@@ -132,7 +164,7 @@ impl HashCache {
         let conn = self.conn.lock().unwrap();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_default()
             .as_secs() as i64;
 
         conn.execute(

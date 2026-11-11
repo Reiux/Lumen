@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { onClickOutside, useColorMode, useWindowSize } from '@vueuse/core'
+import { useColorMode, useWindowSize } from '@vueuse/core'
 import { toast } from 'vue-sonner'
 import { Events } from '@wailsio/runtime'
 import { ConfigManager } from '../bindings/app/core'
@@ -11,7 +11,6 @@ import M3TextField from './components/ui/M3TextField.vue'
 import M3LoadingIndicator from './components/ui/M3LoadingIndicator.vue'
 import M3WavyProgress from './components/ui/M3WavyProgress.vue'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import GoogleAccountSelect from './components/GoogleAccountSelect.vue'
 import GoogleAuthSetup from './components/GoogleAuthSetup.vue'
 import SettingsPanel from './SettingsPanel.vue'
 import FoldersView from './FoldersView.vue'
@@ -66,7 +65,7 @@ const tabOrder = computed<readonly LumenTab[]>(() =>
     ? ['upload', 'folders', 'activity', 'accounts', 'settings', 'about', 'developer']
     : ['upload', 'folders', 'activity', 'accounts', 'settings', 'about']
 )
-const activeTabIndex = computed(() => {
+const _activeTabIndex = computed(() => {
   const idx = tabOrder.value.indexOf(activeTab.value)
   return idx >= 0 ? idx : 0
 })
@@ -102,7 +101,7 @@ const isSidebarExpanded = computed({
   },
 })
 
-function toggleSidebar() {
+function _toggleSidebar() {
   isSidebarExpanded.value = !isSidebarExpanded.value
 }
 
@@ -256,7 +255,7 @@ const displayProblems = computed(() => {
   return activityProblems.value
 })
 
-const displayLogs = computed(() => {
+const _displayLogs = computed(() => {
   let list = activityLogs.value
   if (mockState.enabled && list.length === 0) {
     list = mockLogEntries
@@ -380,12 +379,9 @@ const displaySelectedOption = computed({
 })
 
 const displayOptions = computed(() => {
-  let list: string[] = []
-  if (isDevMode() && mockState.enabled) {
-    list = mockState.currentView === 'empty' ? [] : [...mockState.accounts]
-  } else {
-    list = [...options.value]
-  }
+  const list: string[] = (isDevMode() && mockState.enabled)
+    ? (mockState.currentView === 'empty' ? [] : [...mockState.accounts])
+    : [...options.value]
   const active = displaySelectedOption.value
   if (active && list.includes(active)) {
     return [active, ...list.filter((email) => email !== active)]

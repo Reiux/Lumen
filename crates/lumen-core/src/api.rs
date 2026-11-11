@@ -93,6 +93,35 @@ impl ScottyFinalizeToken {
 
 impl Api {
     pub fn new(opts: ApiOptions, credentials: &str) -> Result<Self, ApiError> {
+        let custom_endpoint_base = match opts.custom_endpoint_base {
+            Some(ref base) if !base.trim().is_empty() => {
+                let trimmed = base.trim().to_string();
+                let parsed = url::Url::parse(&trimmed).map_err(|e| {
+                    ApiError::Network(format!("Invalid custom endpoint URL: {}", e))
+                })?;
+                if !parsed.username().is_empty() || parsed.password().is_some() {
+                    return Err(ApiError::Network(
+                        "Custom endpoint URL must not contain embedded credentials".to_string(),
+                    ));
+                }
+                let host = parsed.host_str().ok_or_else(|| {
+                    ApiError::Network("Custom endpoint URL is missing a host".to_string())
+                })?;
+                let is_loopback = matches!(host, "127.0.0.1" | "localhost" | "[::1]");
+                match parsed.scheme() {
+                    "https" => {}
+                    "http" if is_loopback => {}
+                    _ => {
+                        return Err(ApiError::Network(
+                            "Custom endpoint URL must use https:// (or http:// on loopback for testing)".to_string(),
+                        ));
+                    }
+                }
+                Some(trimmed)
+            }
+            _ => None,
+        };
+
         let client = create_http_client(if opts.proxy.is_empty() { None } else { Some(&opts.proxy) })
             .map_err(ApiError::Network)?;
 
@@ -117,7 +146,7 @@ impl Api {
             client,
             rate_limiter: GlobalRateLimiter::new((opts.speed_limit_kbps as u64) * 1024),
             token_manager: None,
-            custom_endpoint_base: opts.custom_endpoint_base,
+            custom_endpoint_base,
         };
 
         api.apply_device_profile();
@@ -126,6 +155,10 @@ impl Api {
 
     pub fn set_token_manager(&mut self, tm: TokenManager) {
         self.token_manager = Some(tm);
+    }
+
+    pub fn set_rate_limiter(&mut self, limiter: GlobalRateLimiter) {
+        self.rate_limiter = limiter;
     }
 
     fn apply_device_profile(&mut self) {
@@ -173,11 +206,20 @@ impl Api {
         form_params.push(("app".to_string(), GOOGLE_PHOTOS_PACKAGE.to_string()));
         form_params.push(("callerPkg".to_string(), GOOGLE_PHOTOS_PACKAGE.to_string()));
 
-        let device_id = form_params
+        let raw_device_id = form_params
             .iter()
             .find(|(k, _)| k == "androidId")
             .map(|(_, v)| v.clone())
             .unwrap_or_else(|| "1234567890abcdef".to_string());
+        let device_id: String = raw_device_id
+            .chars()
+            .filter(|c| c.is_ascii_hexdigit())
+            .collect();
+        let device_id = if device_id.is_empty() {
+            "1234567890abcdef".to_string()
+        } else {
+            device_id
+        };
 
         let resp = self
             .client
@@ -194,7 +236,10 @@ impl Api {
             .map_err(|e| ApiError::Network(e.to_string()))?;
 
         let status = resp.status();
-        let body = resp.text().await.map_err(|e| ApiError::Network(e.to_string()))?;
+        let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
+            .await
+            .map_err(ApiError::Network)?;
+        let body = String::from_utf8_lossy(&body_bytes).to_string();
 
         if !status.is_success() {
             return Err(ApiError::HttpStatus {
@@ -255,7 +300,9 @@ impl Api {
             .map_err(|e| ApiError::Network(e.to_string()))?;
 
         let status = resp.status();
-        let body_bytes = resp.bytes().await.map_err(|e| ApiError::Network(e.to_string()))?;
+        let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
+            .await
+            .map_err(ApiError::Network)?;
 
         if !status.is_success() {
             return Err(ApiError::HttpStatus {
@@ -315,7 +362,10 @@ impl Api {
 
         let status = resp.status();
         if !status.is_success() {
-            let body = resp.text().await.unwrap_or_default();
+            let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
+                .await
+                .unwrap_or_default();
+            let body = String::from_utf8_lossy(&body_bytes).to_string();
             return Err(ApiError::HttpStatus {
                 status: status.as_u16(),
                 body,
@@ -345,12 +395,16 @@ impl Api {
     where
         F: FnMut(i64, i64, usize) + Send + 'static,
     {
-        let metadata = std::fs::metadata(file_path).map_err(|e| ApiError::Io(e.to_string()))?;
+        let metadata = std::fs::symlink_metadata(file_path).map_err(|e| ApiError::Io(e.to_string()))?;
+        if !metadata.is_file() || metadata.file_type().is_symlink() {
+            return Err(ApiError::Io("Path is not a regular file".to_string()));
+        }
         let file_size = metadata.len() as i64;
 
+        let encoded_token = url::form_urlencoded::byte_serialize(upload_token.as_bytes()).collect::<String>();
         let upload_url = match &self.custom_endpoint_base {
-            Some(base) => format!("{}/data/upload/uploadmedia/interactive?upload_id={}", base.trim_end_matches('/'), upload_token),
-            None => format!("{}/data/upload/uploadmedia/interactive?upload_id={}", DEFAULT_PHOTOS_UPLOAD_BASE, upload_token),
+            Some(base) => format!("{}/data/upload/uploadmedia/interactive?upload_id={}", base.trim_end_matches('/'), encoded_token),
+            None => format!("{}/data/upload/uploadmedia/interactive?upload_id={}", DEFAULT_PHOTOS_UPLOAD_BASE, encoded_token),
         };
 
         let bearer = self.bearer_token().await?;
@@ -404,7 +458,9 @@ impl Api {
         let _ = progress_handle.await;
 
         let status = resp.status();
-        let body_bytes = resp.bytes().await.map_err(|e| ApiError::Network(e.to_string()))?;
+        let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
+            .await
+            .map_err(ApiError::Network)?;
 
         if !status.is_success() {
             return Err(ApiError::HttpStatus {
@@ -477,7 +533,9 @@ impl Api {
             .map_err(|e| ApiError::Network(e.to_string()))?;
 
         let status = resp.status();
-        let body_bytes = resp.bytes().await.map_err(|e| ApiError::Network(e.to_string()))?;
+        let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
+            .await
+            .map_err(ApiError::Network)?;
 
         if !status.is_success() {
             return Err(ApiError::HttpStatus {
@@ -587,7 +645,9 @@ impl Api {
             .map_err(|e| ApiError::Network(e.to_string()))?;
 
         let status = resp.status();
-        let body_bytes = resp.bytes().await.map_err(|e| ApiError::Network(e.to_string()))?;
+        let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
+            .await
+            .map_err(ApiError::Network)?;
 
         if !status.is_success() {
             return Err(ApiError::HttpStatus {
@@ -621,7 +681,7 @@ impl AlbumApi for Api {
             None => format!("{}/8386163679468898444", DEFAULT_PHOTOS_DATA_BASE),
         };
 
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
 
         let proto_media_keys = media_keys
             .iter()
@@ -667,7 +727,9 @@ impl AlbumApi for Api {
             .map_err(|e| AlbumError::Api(e.to_string()))?;
 
         let status = resp.status();
-        let body_bytes = resp.bytes().await.map_err(|e| AlbumError::Api(e.to_string()))?;
+        let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
+            .await
+            .map_err(AlbumError::Api)?;
 
         if !status.is_success() {
             let body = String::from_utf8_lossy(&body_bytes).to_string();
@@ -698,7 +760,7 @@ impl AlbumApi for Api {
             None => format!("{}/484917746253879292", DEFAULT_PHOTOS_DATA_BASE),
         };
 
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
 
         let req_proto = AddMediaToAlbum {
             media_keys: media_keys.to_vec(),
@@ -734,7 +796,10 @@ impl AlbumApi for Api {
 
         let status = resp.status();
         if !status.is_success() {
-            let body = resp.text().await.unwrap_or_default();
+            let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
+                .await
+                .unwrap_or_default();
+            let body = String::from_utf8_lossy(&body_bytes).to_string();
             if status == reqwest::StatusCode::NOT_FOUND || body.to_lowercase().contains("not found") {
                 return Err(AlbumError::NotFound(album_media_key.to_string()));
             }

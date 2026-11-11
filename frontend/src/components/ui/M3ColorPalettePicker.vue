@@ -108,7 +108,6 @@ function selectVariant(variant: M3PaletteVariant) {
           >
             <!-- 4-Quadrant Split Background rotated 45deg like Android (dynamically computed per variant) -->
             <div
-              v-memo="[preset.id, currentPaletteVariant]"
               class="absolute inset-0 grid grid-cols-2 grid-rows-2 -rotate-45 scale-125 pointer-events-none"
             >
               <div :style="{ backgroundColor: getPresetPreviewColors(preset, currentPaletteVariant).primary }" />

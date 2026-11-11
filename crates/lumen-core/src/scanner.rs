@@ -63,6 +63,18 @@ pub fn is_ignored_temp_file(path: &Path) -> bool {
     )
 }
 
+pub fn validate_exclude_pattern(pattern: &str) -> Result<(), String> {
+    let trimmed = pattern.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+    if trimmed.len() > 1024 {
+        return Err("Exclude pattern must not exceed 1024 characters".to_string());
+    }
+    regex::Regex::new(trimmed).map_err(|e| format!("Invalid regular expression: {}", e))?;
+    Ok(())
+}
+
 pub fn is_path_excluded(path: &Path, pattern: &str) -> bool {
     let pattern = pattern.trim();
     if pattern.is_empty() {
@@ -129,19 +141,25 @@ where
             return Err("scan cancelled".to_string());
         }
 
-        if !root_path.exists() {
+        let root_meta = match fs::symlink_metadata(root_path) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        if root_meta.file_type().is_symlink() {
             continue;
         }
 
-        if !root_path.is_dir() {
+        if !root_meta.is_dir() {
+            if !root_meta.is_file() {
+                continue;
+            }
             if is_path_excluded(root_path, &opts.exclude_pattern) {
                 continue;
             }
             if !opts.filter_unsupported_files || is_supported_by_google_photos(root_path) {
-                if let Ok(canon) = root_path.canonicalize() {
-                    if seen_files.insert(canon) {
-                        supported_files.push(root_path.clone());
-                    }
+                let canon = root_path.canonicalize().unwrap_or_else(|_| root_path.clone());
+                if seen_files.insert(canon) {
+                    supported_files.push(root_path.clone());
                 }
             }
             continue;
@@ -190,7 +208,16 @@ where
                 let path = entry.path();
                 let file_name = entry.file_name().to_string_lossy().to_string();
 
-                if path.is_dir() {
+                let file_type = match entry.file_type() {
+                    Ok(ft) => ft,
+                    Err(_) => continue,
+                };
+
+                if file_type.is_symlink() {
+                    continue;
+                }
+
+                if file_type.is_dir() {
                     if !opts.recursive {
                         continue;
                     }
@@ -201,7 +228,14 @@ where
                         continue;
                     }
                     stack.push_back((path, depth + 1));
-                } else {
+                } else if file_type.is_file() {
+                    let meta = match fs::symlink_metadata(&path) {
+                        Ok(m) => m,
+                        Err(_) => continue,
+                    };
+                    if !meta.is_file() || meta.file_type().is_symlink() {
+                        continue;
+                    }
                     if is_ignored_temp_file(&path) {
                         continue;
                     }
@@ -211,10 +245,9 @@ where
                     if opts.filter_unsupported_files && !is_supported_by_google_photos(&path) {
                         continue;
                     }
-                    if let Ok(canon) = path.canonicalize() {
-                        if seen_files.insert(canon) {
-                            supported_files.push(path);
-                        }
+                    let canon = path.canonicalize().unwrap_or_else(|_| path.clone());
+                    if seen_files.insert(canon) {
+                        supported_files.push(path);
                     }
                 }
             }

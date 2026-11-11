@@ -28,6 +28,7 @@ chrono = "0.4"
 anyhow = "1.0"
 url = "2.5"
 tauri-plugin-single-instance = "2"
+notify = "8.0"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.56.0"

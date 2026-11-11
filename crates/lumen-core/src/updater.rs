@@ -60,6 +60,27 @@ impl UpdateChecker {
             .unwrap_or_default()
             .as_secs() as i64;
 
+        if let Ok(parsed) = url::Url::parse(redirect_url) {
+            let is_https = parsed.scheme() == "https";
+            let is_trusted_host = parsed.host_str() == Some("github.com");
+            let is_trusted_path = parsed.path().to_lowercase().starts_with("/reiux/");
+            if !is_https || !is_trusted_host || !is_trusted_path {
+                return UpdateInfo {
+                    current_version: current_version.to_string(),
+                    has_update: false,
+                    error: Some("Untrusted update redirect URL origin".to_string()),
+                    ..Default::default()
+                };
+            }
+        } else {
+            return UpdateInfo {
+                current_version: current_version.to_string(),
+                has_update: false,
+                error: Some("Invalid update URL format".to_string()),
+                ..Default::default()
+            };
+        }
+
         if !manual && last_check > 0 && (now_sec - last_check) < (12 * 3600) {
             return UpdateInfo {
                 current_version: current_version.to_string(),
@@ -75,8 +96,24 @@ impl UpdateChecker {
             .ok()
             .and_then(|c| c.get(redirect_url).map(|e| e.etag.clone()));
 
-        let mut req = self
-            .client
+        let configured_proxy = crate::config::ConfigManager::global().get_preferences().proxy;
+        let active_client = if !configured_proxy.trim().is_empty() {
+            match crate::net::create_http_client(Some(&configured_proxy)) {
+                Ok(c) => c,
+                Err(e) => {
+                    return UpdateInfo {
+                        current_version: current_version.to_string(),
+                        error: Some(format!("Invalid proxy configuration: {}", e)),
+                        checked_at: now_sec.to_string(),
+                        ..Default::default()
+                    };
+                }
+            }
+        } else {
+            self.client.clone()
+        };
+
+        let mut req = active_client
             .get(redirect_url)
             .header("User-Agent", format!("Lumen-Desktop/{}", current_version));
 
@@ -139,6 +176,23 @@ impl UpdateChecker {
                         format!("https://github.com{}", loc)
                     };
 
+                    let is_safe_redirect = if let Ok(u) = url::Url::parse(&full_url) {
+                        u.scheme() == "https"
+                            && (u.host_str() == Some("github.com") || u.host_str() == Some("api.github.com"))
+                            && u.path().to_lowercase().starts_with("/reiux/")
+                    } else {
+                        false
+                    };
+
+                    if !is_safe_redirect {
+                        return UpdateInfo {
+                            current_version: current_version.to_string(),
+                            error: Some("Untrusted redirect location origin in update response".to_string()),
+                            checked_at: now_sec.to_string(),
+                            ..Default::default()
+                        };
+                    }
+
                     if let Some(tag) = extract_tag_from_location(loc) {
                         let has_update = is_version_newer(&tag, current_version);
                         return UpdateInfo {
@@ -161,16 +215,30 @@ impl UpdateChecker {
                 tag_name: String,
                 html_url: Option<String>,
             }
-            if let Ok(rel) = resp.json::<DirectRelease>().await {
-                let has_update = is_version_newer(&rel.tag_name, current_version);
-                return UpdateInfo {
-                    current_version: current_version.to_string(),
-                    latest_version: rel.tag_name,
-                    has_update,
-                    release_url: rel.html_url.unwrap_or_default(),
-                    checked_at: now_sec.to_string(),
-                    ..Default::default()
-                };
+            if let Ok(body_bytes) = crate::net::read_response_bytes_bounded(resp, 512 * 1024).await {
+                if let Ok(rel) = serde_json::from_slice::<DirectRelease>(&body_bytes) {
+                    let has_update = is_version_newer(&rel.tag_name, current_version);
+                    let safe_release_url = rel
+                        .html_url
+                        .filter(|url_str| {
+                            if let Ok(u) = url::Url::parse(url_str) {
+                                u.scheme() == "https"
+                                    && u.host_str() == Some("github.com")
+                                    && u.path().to_lowercase().starts_with("/reiux/")
+                            } else {
+                                false
+                            }
+                        })
+                        .unwrap_or_else(|| redirect_url.to_string());
+                    return UpdateInfo {
+                        current_version: current_version.to_string(),
+                        latest_version: rel.tag_name,
+                        has_update,
+                        release_url: safe_release_url,
+                        checked_at: now_sec.to_string(),
+                        ..Default::default()
+                    };
+                }
             }
         }
 
@@ -212,7 +280,7 @@ pub fn is_version_newer(latest: &str, current: &str) -> bool {
 fn parse_rate_limit_message(resp: &reqwest::Response) -> String {
     if let Some(reset) = resp.headers().get("X-RateLimit-Reset").and_then(|v| v.to_str().ok()) {
         if let Ok(epoch) = reset.parse::<i64>() {
-            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64;
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
             let diff = epoch - now;
             let mins = std::cmp::max(1, (diff + 59) / 60);
             return format!("GitHub is limiting requests right now. Try again in {} minutes.", mins);

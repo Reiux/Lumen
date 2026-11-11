@@ -111,6 +111,17 @@ pub enum UploadEvent {
     ThreadProgress(ThreadStatus),
     FileCompleted(FileUploadResult),
     AccountBlocked { email: String, reason: String, message: String },
+    AlbumProgress {
+        album_name: String,
+        items_added: usize,
+        total_items: usize,
+        album_keys: Vec<String>,
+        is_complete: bool,
+    },
+    AlbumError {
+        album_name: String,
+        error: String,
+    },
     BatchComplete { uploaded: usize, skipped: usize, failed: usize },
 }
 
@@ -158,8 +169,10 @@ impl UploadEngine {
         let mut total_bytes: i64 = 0;
         for item in &work_items {
             for p in item.all_paths() {
-                if let Ok(m) = fs::metadata(p) {
-                    total_bytes += m.len() as i64;
+                if let Ok(m) = fs::symlink_metadata(p) {
+                    if m.is_file() && !m.file_type().is_symlink() {
+                        total_bytes += m.len() as i64;
+                    }
                 }
             }
         }
@@ -178,7 +191,12 @@ impl UploadEngine {
             return Ok(Vec::new());
         }
 
-        let num_threads = std::cmp::max(1, std::cmp::min(opts.threads, work_items.len()));
+        const MAX_UPLOAD_THREADS: usize = 32;
+        let num_threads = opts
+            .threads
+            .clamp(1, MAX_UPLOAD_THREADS)
+            .min(work_items.len());
+        let shared_rate_limiter = crate::net::GlobalRateLimiter::new((opts.upload_speed_limit_kbps as u64) * 1024);
 
         // Circuit breakers per account
         let breakers: Arc<tokio::sync::Mutex<HashMap<String, Arc<CircuitBreaker>>>> =
@@ -203,6 +221,7 @@ impl UploadEngine {
             let cancelled = self.cancelled.clone();
             let breakers = breakers.clone();
             let token_managers = token_managers.clone();
+            let worker_limiter = shared_rate_limiter.clone();
 
             tasks.push(tokio::spawn(async move {
                 let _ = event_tx.send(UploadEvent::ThreadProgress(ThreadStatus {
@@ -303,9 +322,10 @@ impl UploadEngine {
                         }
                     };
 
+                    let proxy = config_mgr.get_preferences().proxy;
                     let api_opts = ApiOptions {
                         account: account_email.clone(),
-                        proxy: String::new(),
+                        proxy,
                         saver: opts.saver,
                         use_quota: opts.use_quota,
                         speed_limit_kbps: opts.upload_speed_limit_kbps,
@@ -340,6 +360,7 @@ impl UploadEngine {
                         tm_map.entry(account_email.clone()).or_insert_with(|| TokenManager::new(&account_email)).clone()
                     };
                     api.set_token_manager(tm);
+                    api.set_rate_limiter(worker_limiter.clone());
 
                     let start_t = Instant::now();
                     let res = Self::process_work_item(
@@ -421,11 +442,12 @@ impl UploadEngine {
         }
 
         // Attach to albums if requested
+        let configured_proxy = self.config_manager.get_preferences().proxy;
         for (account, albums) in album_batches {
             let cred = self.config_manager.get_credential_for_account(Some(&account)).unwrap_or_default();
             let api_opts = ApiOptions {
                 account: account.clone(),
-                proxy: String::new(),
+                proxy: configured_proxy.clone(),
                 saver: opts.saver,
                 use_quota: opts.use_quota,
                 speed_limit_kbps: opts.upload_speed_limit_kbps,
@@ -434,16 +456,37 @@ impl UploadEngine {
             if let Ok(api) = Api::new(api_opts, &cred) {
                 let mgr = AlbumManager::new(Arc::new(api), &account, self.album_registry.clone());
                 for (name, keys) in albums {
+                    let total_items = keys.len();
+                    let _ = event_tx.send(UploadEvent::AlbumProgress {
+                        album_name: name.clone(),
+                        items_added: 0,
+                        total_items,
+                        album_keys: Vec::new(),
+                        is_complete: false,
+                    }).await;
+
                     match mgr.add_to_album(&keys, &name).await {
                         Ok(created_keys) => {
                             tracing::info!("Successfully added {} items to album '{}' (keys: {:?})", keys.len(), name, created_keys);
+                            let _ = event_tx.send(UploadEvent::AlbumProgress {
+                                album_name: name.clone(),
+                                items_added: total_items,
+                                total_items,
+                                album_keys: created_keys,
+                                is_complete: true,
+                            }).await;
                         }
                         Err(e) => {
-                            tracing::error!("Failed to add items to album '{}': {}", name, e);
+                            let err_msg = e.to_string();
+                            tracing::error!("Failed to add items to album '{}': {}", name, err_msg);
+                            let _ = event_tx.send(UploadEvent::AlbumError {
+                                album_name: name.clone(),
+                                error: err_msg.clone(),
+                            }).await;
                             for res in &mut finished_results {
                                 if keys.contains(&res.media_key) {
                                     res.is_error = true;
-                                    res.error_message = format!("Album error for '{}': {}", name, e);
+                                    res.error_message = format!("Album error for '{}': {}", name, err_msg);
                                     count_failed += 1;
                                     count_uploaded = count_uploaded.saturating_sub(1);
                                 }
@@ -494,7 +537,7 @@ impl UploadEngine {
         breaker: &CircuitBreaker,
     ) -> FileUploadResult {
         let file_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
-        let metadata = match fs::metadata(path) {
+        let metadata = match fs::symlink_metadata(path) {
             Ok(m) => m,
             Err(e) => {
                 return FileUploadResult {
@@ -515,6 +558,22 @@ impl UploadEngine {
         };
 
         let file_size = metadata.len() as i64;
+        if !metadata.is_file() || metadata.file_type().is_symlink() {
+            return FileUploadResult {
+                media_key: String::new(),
+                is_error: true,
+                is_live_photo: false,
+                skipped: false,
+                skip_code: "not-a-regular-file".to_string(),
+                skip_reason: String::new(),
+                error_message: "Path is not a regular file".to_string(),
+                path: path.to_path_buf(),
+                paths: vec![path.to_path_buf()],
+                size_bytes: 0,
+                duration_ms: 0,
+                account_email: account_email.to_string(),
+            };
+        }
 
         // Stage 1: Hashing
         let _ = event_tx.send(UploadEvent::ThreadProgress(ThreadStatus {
@@ -564,7 +623,7 @@ impl UploadEngine {
                     })).await;
 
                     if opts.delete_from_host {
-                        let _ = fs::remove_file(path);
+                        remove_regular_file_if_not_symlink(path);
                     }
 
                     return FileUploadResult {
@@ -618,7 +677,7 @@ impl UploadEngine {
                     })).await;
 
                     if opts.delete_from_host {
-                        let _ = fs::remove_file(path);
+                        remove_regular_file_if_not_symlink(path);
                     }
 
                     return FileUploadResult {
@@ -776,7 +835,7 @@ impl UploadEngine {
         }
 
         if opts.delete_from_host {
-            let _ = fs::remove_file(path);
+            remove_regular_file_if_not_symlink(path);
         }
 
         let _ = event_tx.send(UploadEvent::ThreadProgress(ThreadStatus {
@@ -821,7 +880,7 @@ impl UploadEngine {
         let v_name = pair.video_path.file_name().unwrap_or_default().to_string_lossy().to_string();
         let display_name = format!("{} + {}", p_name, v_name);
 
-        let p_meta = match fs::metadata(&pair.photo_path) {
+        let p_meta = match fs::symlink_metadata(&pair.photo_path) {
             Ok(m) => m,
             Err(e) => {
                 return FileUploadResult {
@@ -841,7 +900,7 @@ impl UploadEngine {
             }
         };
 
-        let v_meta = match fs::metadata(&pair.video_path) {
+        let v_meta = match fs::symlink_metadata(&pair.video_path) {
             Ok(m) => m,
             Err(e) => {
                 return FileUploadResult {
@@ -862,6 +921,22 @@ impl UploadEngine {
         };
 
         let total_size = (p_meta.len() + v_meta.len()) as i64;
+        if !p_meta.is_file() || p_meta.file_type().is_symlink() || !v_meta.is_file() || v_meta.file_type().is_symlink() {
+            return FileUploadResult {
+                media_key: String::new(),
+                is_error: true,
+                is_live_photo: true,
+                skipped: false,
+                skip_code: "not-a-regular-file".to_string(),
+                skip_reason: String::new(),
+                error_message: "One or more components of the Live Photo pair is not a regular file".to_string(),
+                path: pair.photo_path.clone(),
+                paths: vec![pair.photo_path.clone(), pair.video_path.clone()],
+                size_bytes: 0,
+                duration_ms: 0,
+                account_email: account_email.to_string(),
+            };
+        }
 
         let _ = event_tx.send(UploadEvent::ThreadProgress(ThreadStatus {
             worker_id,
@@ -988,9 +1063,28 @@ impl UploadEngine {
             }
         };
 
-        let photo_finalize_tok = match api.upload_file_stream(&photo_upload_token, &pair.photo_path, |_, _, _| {}).await {
+        let tx = event_tx.clone();
+        let p_str = pair.photo_path.to_string_lossy().to_string();
+        let disp_name = display_name.clone();
+        let photo_finalize_tok = match api.upload_file_stream(&photo_upload_token, &pair.photo_path, move |bytes_up, _, att| {
+            let _ = tx.try_send(UploadEvent::ThreadProgress(ThreadStatus {
+                worker_id,
+                status: "uploading".to_string(),
+                file_path: p_str.clone(),
+                file_name: disp_name.clone(),
+                message: if att > 1 { format!("Uploading photo (attempt {})...", att) } else { "Uploading photo...".to_string() },
+                bytes_uploaded: bytes_up,
+                bytes_total: total_size,
+                attempt: att,
+            }));
+        }).await {
             Ok(tok) => tok,
             Err(e) => {
+                let err_str = e.to_string();
+                let kind = classify_error(&err_str);
+                if matches!(kind, ErrorKind::SignInRequired | ErrorKind::AccountRestricted) {
+                    breaker.trip(kind, account_email, &err_str);
+                }
                 return FileUploadResult {
                     media_key: String::new(),
                     is_error: true,
@@ -998,7 +1092,7 @@ impl UploadEngine {
                     skipped: false,
                     skip_code: "upload-stream-failed".to_string(),
                     skip_reason: String::new(),
-                    error_message: e.to_string(),
+                    error_message: err_str,
                     path: pair.photo_path.clone(),
                     paths: vec![pair.photo_path.clone(), pair.video_path.clone()],
                     size_bytes: total_size,
@@ -1012,6 +1106,11 @@ impl UploadEngine {
         let video_upload_token = match api.get_upload_token(&video_b64, v_meta.len() as i64).await {
             Ok(tok) => tok,
             Err(e) => {
+                let err_str = e.to_string();
+                let kind = classify_error(&err_str);
+                if matches!(kind, ErrorKind::SignInRequired | ErrorKind::AccountRestricted) {
+                    breaker.trip(kind, account_email, &err_str);
+                }
                 return FileUploadResult {
                     media_key: String::new(),
                     is_error: true,
@@ -1019,7 +1118,7 @@ impl UploadEngine {
                     skipped: false,
                     skip_code: "upload-token-failed".to_string(),
                     skip_reason: String::new(),
-                    error_message: e.to_string(),
+                    error_message: err_str,
                     path: pair.photo_path.clone(),
                     paths: vec![pair.photo_path.clone(), pair.video_path.clone()],
                     size_bytes: total_size,
@@ -1029,9 +1128,29 @@ impl UploadEngine {
             }
         };
 
-        let video_finalize_tok = match api.upload_file_stream(&video_upload_token, &pair.video_path, |_, _, _| {}).await {
+        let tx = event_tx.clone();
+        let v_str = pair.video_path.to_string_lossy().to_string();
+        let disp_name = display_name.clone();
+        let p_size = p_meta.len() as i64;
+        let video_finalize_tok = match api.upload_file_stream(&video_upload_token, &pair.video_path, move |bytes_up, _, att| {
+            let _ = tx.try_send(UploadEvent::ThreadProgress(ThreadStatus {
+                worker_id,
+                status: "uploading".to_string(),
+                file_path: v_str.clone(),
+                file_name: disp_name.clone(),
+                message: if att > 1 { format!("Uploading video (attempt {})...", att) } else { "Uploading video...".to_string() },
+                bytes_uploaded: p_size + bytes_up,
+                bytes_total: total_size,
+                attempt: att,
+            }));
+        }).await {
             Ok(tok) => tok,
             Err(e) => {
+                let err_str = e.to_string();
+                let kind = classify_error(&err_str);
+                if matches!(kind, ErrorKind::SignInRequired | ErrorKind::AccountRestricted) {
+                    breaker.trip(kind, account_email, &err_str);
+                }
                 return FileUploadResult {
                     media_key: String::new(),
                     is_error: true,
@@ -1039,7 +1158,7 @@ impl UploadEngine {
                     skipped: false,
                     skip_code: "upload-stream-failed".to_string(),
                     skip_reason: String::new(),
-                    error_message: e.to_string(),
+                    error_message: err_str,
                     path: pair.photo_path.clone(),
                     paths: vec![pair.photo_path.clone(), pair.video_path.clone()],
                     size_bytes: total_size,
@@ -1048,6 +1167,17 @@ impl UploadEngine {
                 };
             }
         };
+
+        let _ = event_tx.send(UploadEvent::ThreadProgress(ThreadStatus {
+            worker_id,
+            status: "finalizing".to_string(),
+            file_path: pair.photo_path.to_string_lossy().to_string(),
+            file_name: display_name.clone(),
+            message: "Committing Live Photo...".to_string(),
+            bytes_uploaded: total_size,
+            bytes_total: total_size,
+            attempt: 1,
+        })).await;
 
         let timestamp = p_meta.modified().unwrap_or(SystemTime::UNIX_EPOCH)
             .duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
@@ -1062,6 +1192,11 @@ impl UploadEngine {
         ).await {
             Ok(k) => k,
             Err(e) => {
+                let err_str = e.to_string();
+                let kind = classify_error(&err_str);
+                if matches!(kind, ErrorKind::SignInRequired | ErrorKind::AccountRestricted) {
+                    breaker.trip(kind, account_email, &err_str);
+                }
                 return FileUploadResult {
                     media_key: String::new(),
                     is_error: true,
@@ -1069,7 +1204,7 @@ impl UploadEngine {
                     skipped: false,
                     skip_code: "commit-failed".to_string(),
                     skip_reason: String::new(),
-                    error_message: e.to_string(),
+                    error_message: err_str,
                     path: pair.photo_path.clone(),
                     paths: vec![pair.photo_path.clone(), pair.video_path.clone()],
                     size_bytes: total_size,
@@ -1079,6 +1214,17 @@ impl UploadEngine {
             }
         };
 
+        let _ = event_tx.send(UploadEvent::ThreadProgress(ThreadStatus {
+            worker_id,
+            status: "completed".to_string(),
+            file_path: pair.photo_path.to_string_lossy().to_string(),
+            file_name: display_name.clone(),
+            message: "Upload completed".to_string(),
+            bytes_uploaded: total_size,
+            bytes_total: total_size,
+            attempt: 1,
+        })).await;
+
         if opts.use_local_hash_cache {
             if let Some(cache) = hash_cache {
                 let _ = cache.put(account_email, &photo_b64, &media_key, p_meta.len() as i64, timestamp);
@@ -1087,8 +1233,8 @@ impl UploadEngine {
         }
 
         if opts.delete_from_host {
-            let _ = fs::remove_file(&pair.photo_path);
-            let _ = fs::remove_file(&pair.video_path);
+            remove_regular_file_if_not_symlink(&pair.photo_path);
+            remove_regular_file_if_not_symlink(&pair.video_path);
         }
 
         FileUploadResult {
@@ -1104,6 +1250,14 @@ impl UploadEngine {
             size_bytes: total_size,
             duration_ms: 0,
             account_email: account_email.to_string(),
+        }
+    }
+}
+
+fn remove_regular_file_if_not_symlink(path: &Path) {
+    if let Ok(meta) = fs::symlink_metadata(path) {
+        if meta.is_file() && !meta.file_type().is_symlink() {
+            let _ = fs::remove_file(path);
         }
     }
 }

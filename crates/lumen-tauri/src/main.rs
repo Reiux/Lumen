@@ -17,6 +17,7 @@ use lumen_core::keyring::KeyringStorage;
 
 mod cdp;
 mod commands;
+mod matugen;
 mod models;
 mod tray;
 
@@ -170,6 +171,9 @@ fn main() {
             commands::credential_needs_token_binding,
             commands::add_token_binding_alias_from_adb,
             commands::log_frontend,
+            commands::get_matugen_status,
+            commands::get_matugen_colors,
+            commands::reload_matugen_colors,
         ])
         .setup(|app| {
             if let Ok(tray) = tray::setup_tray(app.handle()) {
@@ -275,13 +279,6 @@ fn main() {
                         return;
                     }
 
-                    let is_uploading = state.is_uploading.load(std::sync::atomic::Ordering::SeqCst);
-                    if is_uploading {
-                        let mut pending = state.pending_watch_files.lock().unwrap();
-                        pending.extend(string_paths);
-                        return;
-                    }
-
                     let _ = ah_event.emit(
                         "folder-watch:detected",
                         serde_json::json!({
@@ -297,6 +294,11 @@ fn main() {
                 let mut lock = watcher_arc.lock().await;
                 *lock = Some(fw);
             });
+
+            #[cfg(target_os = "linux")]
+            {
+                crate::matugen::linux::init_watcher(app_handle.clone());
+            }
 
             Ok(())
         })

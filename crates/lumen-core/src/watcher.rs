@@ -108,7 +108,7 @@ impl FolderWatcher {
                         let mut to_remove = Vec::new();
 
                         for path in candidates {
-                            let metadata = match fs::metadata(&path) {
+                            let metadata = match fs::symlink_metadata(&path) {
                                 Ok(m) => m,
                                 Err(_) => {
                                     to_remove.push(path);
@@ -116,7 +116,12 @@ impl FolderWatcher {
                                 }
                             };
 
-                            if metadata.is_dir() || metadata.len() == 0 {
+                            if !metadata.is_file() || metadata.file_type().is_symlink() {
+                                to_remove.push(path);
+                                continue;
+                            }
+
+                            if metadata.len() == 0 {
                                 continue;
                             }
 

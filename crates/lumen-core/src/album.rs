@@ -141,6 +141,13 @@ impl AlbumRegistry {
         if self.file_path.as_os_str().is_empty() || !self.file_path.exists() {
             return Ok(());
         }
+        let meta = fs::symlink_metadata(&self.file_path).map_err(|e| AlbumError::Io(e.to_string()))?;
+        if !meta.is_file() || meta.file_type().is_symlink() {
+            return Err(AlbumError::Io("Album registry file is a symlink or not a regular file".to_string()));
+        }
+        if meta.len() > 10 * 1024 * 1024 {
+            return Err(AlbumError::Io("Album registry file exceeds maximum allowed size (10 MB)".to_string()));
+        }
         let data = fs::read_to_string(&self.file_path)
             .map_err(|e| AlbumError::Io(e.to_string()))?;
         if data.trim().is_empty() {
@@ -169,11 +176,25 @@ impl AlbumRegistry {
         let json = serde_json::to_string_pretty(&*entries)
             .map_err(|e| AlbumError::Io(e.to_string()))?;
         let tmp = self.file_path.with_extension("tmp");
-        fs::write(&tmp, json).map_err(|e| AlbumError::Io(e.to_string()))?;
-        #[cfg(unix)]
+        let _ = fs::remove_file(&tmp);
         {
-            use std::os::unix::fs::PermissionsExt;
-            let _ = fs::set_permissions(&tmp, fs::Permissions::from_mode(0o600));
+            use std::io::Write;
+            let mut opts = fs::OpenOptions::new();
+            opts.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt;
+                opts.mode(0o600);
+                opts.custom_flags(libc::O_NOFOLLOW);
+            }
+            let mut f = opts.open(&tmp).map_err(|e| AlbumError::Io(e.to_string()))?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = f.set_permissions(fs::Permissions::from_mode(0o600));
+            }
+            f.write_all(json.as_bytes()).map_err(|e| AlbumError::Io(e.to_string()))?;
+            f.sync_all().map_err(|e| AlbumError::Io(e.to_string()))?;
         }
         fs::rename(&tmp, &self.file_path).map_err(|e| AlbumError::Io(e.to_string()))?;
         #[cfg(unix)]
@@ -194,7 +215,7 @@ impl AlbumRegistry {
     pub fn set(&self, account: &str, name: &str, album_key: &str) -> Result<(), AlbumError> {
         let acct_key = normalize_album_account(account);
         let name_key = normalize_album_name(name);
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
 
         {
             let mut entries = self.entries.write().unwrap();

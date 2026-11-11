@@ -71,7 +71,7 @@ export const ConfigManager = {
 
   async CheckForUpdatesWithRedirectURL(redirectURL: string, manual: boolean): Promise<$models.UpdateInfo> {
     if (hasTauri()) {
-      const res = await tauriInvoke('check_for_updates_with_redirect_url', { redirectURL, manual });
+      const res = await tauriInvoke('check_for_updates_with_redirect_url', { redirectUrl: redirectURL, manual });
       return $models.UpdateInfo.createFrom(res);
     }
     return this.CheckForUpdates(manual);

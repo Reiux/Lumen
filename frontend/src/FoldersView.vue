@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { onMounted, ref } from 'vue'
 import { toast } from 'vue-sonner'
 import { ConfigManager } from '../bindings/app/core'
 import { WatchedFolderConfig } from '../bindings/app/core/models'

@@ -15,10 +15,14 @@ import {
   setThemeSeed,
   setPaletteVariant,
   getPresetPreviewColors,
+  isMatugenSupported,
+  isMatugenActive,
+  matugenColors,
+  setMatugenEnabled,
 } from './utils/theme'
 import { preferencesState, setUseQuota, setSaver } from './utils/configStore'
 
-const emit = defineEmits<{
+const _emit = defineEmits<{
   (e: 'uploadFolder', path: string): void
   (e: 'navigateTab', tab: 'folders'): void
 }>()
@@ -432,12 +436,44 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                 </span>
               </div>
               <div class="flex items-center gap-2 shrink-0 flex-wrap">
+                <!-- Matugen Dynamic Swatch (Linux exclusive) -->
+                <button
+                  v-if="isMatugenSupported"
+                  type="button"
+                  role="radio"
+                  :aria-checked="isMatugenActive"
+                  aria-label="System wallpaper dynamic theme"
+                  title="System Matugen Dynamic Theme"
+                  class="no-state-layer relative flex size-9 items-center justify-center rounded-full p-0.5 focus:outline-none cursor-pointer transition-transform duration-150 hover:scale-105"
+                  @click="setMatugenEnabled(true)"
+                >
+                  <div
+                    class="relative flex size-8 items-center justify-center rounded-full overflow-hidden transition-all duration-200"
+                    :class="isMatugenActive
+                      ? 'ring-2 ring-offset-2 ring-offset-[var(--md-sys-color-surface-container)] ring-[var(--md-sys-color-primary)] shadow-sm'
+                      : 'border border-[var(--md-sys-color-outline-variant)]/40 opacity-85 hover:opacity-100'"
+                  >
+                    <div class="absolute inset-0 grid grid-cols-2 grid-rows-2 -rotate-45 scale-125 pointer-events-none">
+                      <div :style="{ backgroundColor: matugenColors?.primary || 'var(--md-sys-color-primary)' }" />
+                      <div :style="{ backgroundColor: matugenColors?.primary_container || 'var(--md-sys-color-primary-container)' }" />
+                      <div :style="{ backgroundColor: matugenColors?.tertiary || 'var(--md-sys-color-tertiary)' }" />
+                      <div :style="{ backgroundColor: matugenColors?.surface || 'var(--md-sys-color-surface)' }" />
+                    </div>
+                    <div
+                      v-if="isMatugenActive"
+                      class="relative z-10 flex size-4 items-center justify-center rounded-full bg-[var(--md-sys-color-surface)] text-[var(--md-sys-color-primary)] shadow-xs"
+                    >
+                      <M3Icon name="auto_awesome" :size="12" />
+                    </div>
+                  </div>
+                </button>
+
                 <button
                   v-for="preset in THEME_PRESETS"
                   :key="preset.id"
                   type="button"
                   role="radio"
-                  :aria-checked="currentThemeSeed.toLowerCase() === preset.seed.toLowerCase()"
+                  :aria-checked="!isMatugenActive && currentThemeSeed.toLowerCase() === preset.seed.toLowerCase()"
                   :aria-label="`${preset.name} theme color`"
                   :title="preset.name"
                   class="no-state-layer relative flex size-9 items-center justify-center rounded-full p-0.5 focus:outline-none cursor-pointer transition-transform duration-150 hover:scale-105"
@@ -445,7 +481,7 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                 >
                   <div
                     class="relative flex size-8 items-center justify-center rounded-full overflow-hidden transition-all duration-200"
-                    :class="currentThemeSeed.toLowerCase() === preset.seed.toLowerCase()
+                    :class="!isMatugenActive && currentThemeSeed.toLowerCase() === preset.seed.toLowerCase()
                       ? 'ring-2 ring-offset-2 ring-offset-[var(--md-sys-color-surface-container)] ring-[var(--md-sys-color-primary)] shadow-sm'
                       : 'border border-[var(--md-sys-color-outline-variant)]/40 opacity-85 hover:opacity-100'"
                   >
@@ -456,7 +492,7 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                       <div :style="{ backgroundColor: getPresetPreviewColors(preset, currentPaletteVariant).primary }" />
                     </div>
                     <div
-                      v-if="currentThemeSeed.toLowerCase() === preset.seed.toLowerCase()"
+                      v-if="!isMatugenActive && currentThemeSeed.toLowerCase() === preset.seed.toLowerCase()"
                       class="relative z-10 flex size-4 items-center justify-center rounded-full bg-[var(--md-sys-color-surface)] text-[var(--md-sys-color-primary)] shadow-xs"
                     >
                       <M3Icon name="check" :size="12" />
