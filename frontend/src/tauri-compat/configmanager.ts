@@ -59,8 +59,8 @@ export const ConfigManager = {
       return $models.UpdateInfo.createFrom(res);
     }
     return new $models.UpdateInfo({
-      currentVersion: '1.1.1',
-      latestVersion: '1.1.1',
+      currentVersion: '2.0.0',
+      latestVersion: '2.0.0',
       hasUpdate: false,
       releaseUrl: 'https://github.com/Reiux/Lumen/releases/latest',
       releaseNotes: '',
@@ -156,9 +156,9 @@ export const ConfigManager = {
 
   async GetAppVersion(): Promise<string> {
     if (hasTauri()) {
-      return (await tauriInvoke<string>('get_app_version')) || '1.1.1';
+      return (await tauriInvoke<string>('get_app_version')) || '2.0.0';
     }
-    return '1.1.1';
+    return '2.0.0';
   },
 
   async GetAutoCheckUpdates(): Promise<boolean> {
