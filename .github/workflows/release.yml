@@ -1,15 +1,15 @@
-name: Release & CI
+name: Release
 
 on:
   push:
-    branches: [ rust, master, main ]
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
-      force_release:
-        description: "Force release even if tag already exists"
+      tag_name:
+        description: "Tag name to release (e.g. v2.0.0)"
         required: false
-        default: false
-        type: boolean
+        default: ""
 
 permissions:
   contents: write
@@ -19,37 +19,31 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  check-version:
-    name: Check Version & Tag
+  get-version:
+    name: Resolve Release Version
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.ver.outputs.version }}
-      is_new: ${{ steps.ver.outputs.is_new }}
+      tag: ${{ steps.ver.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - id: ver
         shell: bash
         run: |
-          VERSION=$(grep -m1 '^version =' crates/lumen-tauri/Cargo.toml | cut -d '"' -f2)
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          elif [ -n "${{ github.event.inputs.tag_name }}" ]; then
+            TAG="${{ github.event.inputs.tag_name }}"
+          else
+            CARGO_VER=$(grep -m1 '^version =' crates/lumen-tauri/Cargo.toml | cut -d '"' -f2)
+            TAG="v$CARGO_VER"
+          fi
+          VERSION="${TAG#v}"
+          echo "Release tag: $TAG"
           echo "Detected version: $VERSION"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "version=$VERSION" >> $GITHUB_OUTPUT
-
-          TAG_EXISTS=false
-          if git ls-remote --tags origin "refs/tags/v$VERSION" | grep -q "v$VERSION"; then
-            TAG_EXISTS=true
-            echo "Tag v$VERSION already exists on remote."
-          else
-            echo "Tag v$VERSION does not exist yet."
-          fi
-
-          if [ "${{ github.event.inputs.force_release }}" = "true" ] || [ "$TAG_EXISTS" = "false" ]; then
-            echo "is_new=true" >> $GITHUB_OUTPUT
-          else
-            echo "is_new=false" >> $GITHUB_OUTPUT
-          fi
 
   test:
     name: Test Suite (Linux x64)
@@ -88,8 +82,7 @@ jobs:
 
   build-macos:
     name: Build macOS (Universal)
-    needs: [check-version, test]
-    if: needs.check-version.outputs.is_new == 'true'
+    needs: [get-version, test]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -129,7 +122,7 @@ jobs:
       - name: Stage Release Artifacts
         shell: bash
         run: |
-          V="${{ needs.check-version.outputs.version }}"
+          V="${{ needs.get-version.outputs.version }}"
           mkdir -p dist
 
           # 1. Universal DMG installer (styled using dmgbuild to write .DS_Store directly on headless CI)
@@ -175,8 +168,7 @@ jobs:
 
   build-linux:
     name: Build Linux (x64)
-    needs: [check-version, test]
-    if: needs.check-version.outputs.is_new == 'true'
+    needs: [get-version, test]
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -219,7 +211,7 @@ jobs:
       - name: Stage Release Artifacts
         shell: bash
         run: |
-          V="${{ needs.check-version.outputs.version }}"
+          V="${{ needs.get-version.outputs.version }}"
           mkdir -p dist
 
           # 1. AppImage
@@ -257,8 +249,7 @@ jobs:
 
   build-windows-x64:
     name: Build Windows (x64)
-    needs: [check-version, test]
-    if: needs.check-version.outputs.is_new == 'true'
+    needs: [get-version, test]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -303,7 +294,7 @@ jobs:
       - name: Stage Release Artifacts
         shell: pwsh
         run: |
-          $V = "${{ needs.check-version.outputs.version }}"
+          $V = "${{ needs.get-version.outputs.version }}"
           New-Item -ItemType Directory -Force -Path dist
 
           # 1. Custom Setup Installer
@@ -331,8 +322,7 @@ jobs:
 
   build-windows-arm64:
     name: Build Windows (ARM64)
-    needs: [check-version, test]
-    if: needs.check-version.outputs.is_new == 'true'
+    needs: [get-version, test]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -377,7 +367,7 @@ jobs:
       - name: Stage Release Artifacts
         shell: pwsh
         run: |
-          $V = "${{ needs.check-version.outputs.version }}"
+          $V = "${{ needs.get-version.outputs.version }}"
           New-Item -ItemType Directory -Force -Path dist
 
           # 1. Custom Setup Installer (ARM64)
@@ -405,7 +395,7 @@ jobs:
 
   publish:
     name: Publish GitHub Release
-    needs: [check-version, build-macos, build-linux, build-windows-x64, build-windows-arm64]
+    needs: [get-version, build-macos, build-linux, build-windows-x64, build-windows-arm64]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -428,8 +418,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: "v${{ needs.check-version.outputs.version }}"
-          name: "Lumen v${{ needs.check-version.outputs.version }}"
+          tag_name: "${{ needs.get-version.outputs.tag }}"
+          name: "Lumen ${{ needs.get-version.outputs.tag }}"
           files: release-assets/*
           generate_release_notes: true
           draft: false
