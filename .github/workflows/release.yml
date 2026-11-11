@@ -2,7 +2,7 @@ name: Release & CI
 
 on:
   push:
-    branches: [ master ]
+    branches: [ rust, master, main ]
   workflow_dispatch:
     inputs:
       force_release:
