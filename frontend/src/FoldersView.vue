@@ -73,7 +73,11 @@ async function loadData() {
 
     const accounts = await ConfigManager.GetAccounts()
     selectedAccount.value = accounts?.selected || ''
-    accountsList.value = (accounts?.accounts || []).map((a) => a.email)
+    const accList = (accounts?.accounts || []).map((a) => a.email)
+    if (selectedAccount.value && !accList.includes(selectedAccount.value)) {
+      accList.push(selectedAccount.value)
+    }
+    accountsList.value = accList
 
     watchedConfigs.value = (await ConfigManager.GetWatchedFolderConfigs()) || []
     inotifyError.value = (await ConfigManager.GetInotifyError()) || ''

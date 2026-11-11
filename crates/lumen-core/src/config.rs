@@ -450,6 +450,15 @@ impl ConfigManager {
             });
             if should_backup_in_file {
                 cfg.account.credentials.push(credential.to_string());
+            } else {
+                let sanitized: String = url::form_urlencoded::parse(credential.as_bytes())
+                    .filter(|(k, _)| k != "Token")
+                    .fold(url::form_urlencoded::Serializer::new(String::new()), |mut ser, (k, v)| {
+                        ser.append_pair(&k, &v);
+                        ser
+                    })
+                    .finish();
+                cfg.account.credentials.push(sanitized);
             }
         })?;
 

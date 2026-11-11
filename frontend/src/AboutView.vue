@@ -19,7 +19,7 @@ const reiuxAvatarError = ref(false)
 const xob0tAvatarError = ref(false)
 
 const repoUrl = 'https://github.com/Reiux/Lumen'
-const appVersion = ref('2.0.0')
+const appVersion = ref('2.0.1')
 const isCheckingUpdates = ref(false)
 const updateResult = ref<UpdateInfo | null>(null)
 const showUpdateModal = ref(false)

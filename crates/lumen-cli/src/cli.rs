@@ -469,8 +469,17 @@ pub async fn handle_creds(args: CredsArgs, config_manager: Arc<ConfigManager>) -
             let mut emails = Vec::new();
             for cred in &cfg.account.credentials {
                 if let Some((_, email)) = url::form_urlencoded::parse(cred.as_bytes()).find(|(k, _)| k == "Email") {
-                    emails.push(email.into_owned());
+                    let email_str = email.into_owned();
+                    if !emails.iter().any(|e: &String| e.eq_ignore_ascii_case(&email_str)) {
+                        emails.push(email_str);
+                    }
                 }
+            }
+
+            if !cfg.account.selected.trim().is_empty()
+                && !emails.iter().any(|e| e.eq_ignore_ascii_case(&cfg.account.selected))
+            {
+                emails.push(cfg.account.selected.clone());
             }
 
             if emails.is_empty() {

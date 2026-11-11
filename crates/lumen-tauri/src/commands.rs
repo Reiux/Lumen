@@ -122,6 +122,17 @@ pub fn get_accounts(state: tauri::State<AppState>) -> AccountsState {
             }
         }
     }
+
+    // Safety net: If selected account is configured and not yet in accounts list, include it
+    if !cfg.account.selected.trim().is_empty()
+        && !accounts.iter().any(|a| a.email.eq_ignore_ascii_case(&cfg.account.selected))
+    {
+        accounts.push(AccountSummary {
+            email: cfg.account.selected.clone(),
+            needs_token_binding: false,
+        });
+    }
+
     AccountsState {
         accounts,
         selected: cfg.account.selected,

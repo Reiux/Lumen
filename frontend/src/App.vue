@@ -379,10 +379,13 @@ const displaySelectedOption = computed({
 })
 
 const displayOptions = computed(() => {
-  const list: string[] = (isDevMode() && mockState.enabled)
+  let list: string[] = (isDevMode() && mockState.enabled)
     ? (mockState.currentView === 'empty' ? [] : [...mockState.accounts])
     : [...options.value]
   const active = displaySelectedOption.value
+  if (active && !list.includes(active)) {
+    list = [active, ...list]
+  }
   if (active && list.includes(active)) {
     return [active, ...list.filter((email) => email !== active)]
   }
@@ -459,6 +462,10 @@ async function refreshCredentials() {
       nextNeedsTokenBinding[account.email] = account.needsTokenBinding
       return account.email
     })
+
+    if (state.selected && !nextOptions.includes(state.selected)) {
+      nextOptions.push(state.selected)
+    }
 
     accountNeedsTokenBinding.value = nextNeedsTokenBinding
     options.value = nextOptions
@@ -1712,7 +1719,10 @@ onUnmounted(() => {
           class="m3-tab-pane flex h-full w-full flex-1 flex-col overflow-y-auto overflow-x-hidden p-6"
           style="contain: layout style; --wails-draggable: none"
         >
-          <FoldersView @upload-folder="onUploadFolderFromSettings" />
+          <FoldersView
+            :key="selectedOption + '-' + options.join(',')"
+            @upload-folder="onUploadFolderFromSettings"
+          />
         </div>
 
         <!-- View: Activity Tab (Task 2: 2-column grid on >=1100px; Task 8: no live logs for normal users) -->
