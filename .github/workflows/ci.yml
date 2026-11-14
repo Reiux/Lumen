@@ -103,30 +103,51 @@ jobs:
           SHORT_SHA=$(git rev-parse --short HEAD)
           V="${CARGO_VER}-dev.${SHORT_SHA}"
           mkdir -p dist
+          shopt -s nullglob
 
           # 1. AppImage
-          APPIMAGE=$(find target/debug/bundle/appimage target/release/bundle/appimage -name "*.AppImage" 2>/dev/null | head -n 1)
+          APPIMAGE=""
+          for f in target/debug/bundle/appimage/*.AppImage target/release/bundle/appimage/*.AppImage; do
+            APPIMAGE="$f"
+            break
+          done
           if [ -n "$APPIMAGE" ] && [ -f "$APPIMAGE" ]; then
             cp "$APPIMAGE" "dist/lumen_${V}_linux_x64.AppImage"
             chmod +x "dist/lumen_${V}_linux_x64.AppImage"
           fi
 
           # 2. Debian / Ubuntu .deb
-          DEB_FILE=$(find target/debug/bundle/deb target/release/bundle/deb -name "*.deb" 2>/dev/null | head -n 1)
+          DEB_FILE=""
+          for f in target/debug/bundle/deb/*.deb target/release/bundle/deb/*.deb; do
+            DEB_FILE="$f"
+            break
+          done
           if [ -n "$DEB_FILE" ] && [ -f "$DEB_FILE" ]; then
             cp "$DEB_FILE" "dist/lumen_${V}_linux_x64.deb"
           fi
 
           # 3. Standalone GUI binary
-          GUI_BIN=$(find target/debug target/release -maxdepth 1 -name "lumen" -type f 2>/dev/null | head -n 1)
-          if [ -n "$GUI_BIN" ] && [ -f "$GUI_BIN" ]; then
+          GUI_BIN=""
+          for f in target/debug/lumen target/release/lumen; do
+            if [ -f "$f" ]; then
+              GUI_BIN="$f"
+              break
+            fi
+          done
+          if [ -n "$GUI_BIN" ]; then
             cp "$GUI_BIN" "dist/lumen_${V}_linux_x64"
             chmod +x "dist/lumen_${V}_linux_x64"
           fi
 
           # 4. Standalone CLI binary
-          CLI_BIN=$(find target/debug target/release -maxdepth 1 -name "lumen-cli" -type f 2>/dev/null | head -n 1)
-          if [ -n "$CLI_BIN" ] && [ -f "$CLI_BIN" ]; then
+          CLI_BIN=""
+          for f in target/debug/lumen-cli target/release/lumen-cli; do
+            if [ -f "$f" ]; then
+              CLI_BIN="$f"
+              break
+            fi
+          done
+          if [ -n "$CLI_BIN" ]; then
             cp "$CLI_BIN" "dist/lumen-cli_${V}_linux_x64"
             chmod +x "dist/lumen-cli_${V}_linux_x64"
           fi
@@ -186,10 +207,17 @@ jobs:
           SHORT_SHA=$(git rev-parse --short HEAD)
           V="${CARGO_VER}-dev.${SHORT_SHA}"
           mkdir -p dist
+          shopt -s nullglob
 
           # 1. Universal DMG installer
           python3 -m pip install --break-system-packages dmgbuild biplist ds_store mac_alias || python3 -m pip install dmgbuild biplist ds_store mac_alias
-          APP_PATH=$(find target/universal-apple-darwin/debug/bundle/macos target/universal-apple-darwin/release/bundle/macos -name "Lumen.app" -type d 2>/dev/null | head -n 1)
+          APP_PATH=""
+          for p in target/universal-apple-darwin/debug/bundle/macos/Lumen.app target/universal-apple-darwin/release/bundle/macos/Lumen.app; do
+            if [ -d "$p" ]; then
+              APP_PATH="$p"
+              break
+            fi
+          done
           OUT_DMG="dist/lumen_${V}_macos_universal.dmg"
 
           if [ -d "$APP_PATH" ]; then
@@ -199,7 +227,11 @@ jobs:
 
           if [ ! -f "$OUT_DMG" ]; then
             echo "Warning: dmgbuild failed, falling back to Tauri DMG..."
-            DMG_FILE=$(find target/universal-apple-darwin -name "*.dmg" 2>/dev/null | head -n 1)
+            DMG_FILE=""
+            for f in target/universal-apple-darwin/debug/bundle/dmg/*.dmg target/universal-apple-darwin/release/bundle/dmg/*.dmg target/universal-apple-darwin/*.dmg; do
+              DMG_FILE="$f"
+              break
+            done
             if [ -n "$DMG_FILE" ] && [ -f "$DMG_FILE" ]; then
               cp "$DMG_FILE" "$OUT_DMG"
             fi
@@ -212,10 +244,24 @@ jobs:
           fi
 
           # 3. Universal CLI binary
-          CLI_X86=$(find target/x86_64-apple-darwin -maxdepth 2 -name "lumen-cli" -type f 2>/dev/null | head -n 1)
-          CLI_ARM=$(find target/aarch64-apple-darwin -maxdepth 2 -name "lumen-cli" -type f 2>/dev/null | head -n 1)
-          lipo -create -output "dist/lumen-cli_${V}_macos_universal" "$CLI_X86" "$CLI_ARM"
-          chmod +x "dist/lumen-cli_${V}_macos_universal"
+          CLI_X86=""
+          for f in target/x86_64-apple-darwin/debug/lumen-cli target/x86_64-apple-darwin/release/lumen-cli; do
+            if [ -f "$f" ]; then
+              CLI_X86="$f"
+              break
+            fi
+          done
+          CLI_ARM=""
+          for f in target/aarch64-apple-darwin/debug/lumen-cli target/aarch64-apple-darwin/release/lumen-cli; do
+            if [ -f "$f" ]; then
+              CLI_ARM="$f"
+              break
+            fi
+          done
+          if [ -f "$CLI_X86" ] && [ -f "$CLI_ARM" ]; then
+            lipo -create -output "dist/lumen-cli_${V}_macos_universal" "$CLI_X86" "$CLI_ARM"
+            chmod +x "dist/lumen-cli_${V}_macos_universal"
+          fi
 
           ls -la dist/
 
