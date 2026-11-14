@@ -58,6 +58,14 @@ function toggleFlag(flag: FlickerFlag) {
   setFlickerFlag(flag, next)
 }
 
+async function openDevTools() {
+  try {
+    await ConfigManager.ToggleDevTools()
+  } catch (err) {
+    console.error('Failed to toggle devtools:', err)
+  }
+}
+
 // Logs section state
 const logLevel = ref<'ALL' | 'INFO' | 'WARN' | 'ERROR'>('ALL')
 const searchQuery = ref('')
@@ -204,6 +212,16 @@ onMounted(async () => {
 
       <!-- Header Action Buttons -->
       <div class="flex items-center gap-3">
+        <M3Button
+          v-if="isDevMode()"
+          variant="tonal"
+          size="s"
+          icon="terminal"
+          title="Toggle Webview Developer Tools (F12)"
+          @click="openDevTools"
+        >
+          DevTools
+        </M3Button>
         <M3Button
           v-if="isDevMode()"
           :variant="mockState.enabled ? 'filled' : 'outlined'"

@@ -420,6 +420,14 @@ export function WasBrowserCloseFailed(): $CancellablePromise<boolean> {
     return $Call.ByID(1455959379);
 }
 
+export function OpenDevTools(): $CancellablePromise<void> {
+    return $Call.ByID(9999999901);
+}
+
+export function ToggleDevTools(): $CancellablePromise<void> {
+    return $Call.ByID(9999999902);
+}
+
 // Private type creation functions
 const $$createType0 = $models.UpdateInfo.createFrom;
 const $$createType1 = $models.AccountsState.createFrom;

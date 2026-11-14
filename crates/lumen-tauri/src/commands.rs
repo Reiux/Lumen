@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use tauri::{AppHandle, Emitter, Window};
+use tauri::{AppHandle, Emitter, Manager, Window};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
@@ -1550,6 +1550,24 @@ pub fn clipboard_set_text(_text: String) -> Result<(), String> {
 #[tauri::command]
 pub fn clipboard_get_text() -> String {
     String::new()
+}
+
+#[tauri::command]
+pub fn open_devtools(app: AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        w.open_devtools();
+    }
+}
+
+#[tauri::command]
+pub fn toggle_devtools(app: AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        if w.is_devtools_open() {
+            w.close_devtools();
+        } else {
+            w.open_devtools();
+        }
+    }
 }
 
 #[tauri::command]

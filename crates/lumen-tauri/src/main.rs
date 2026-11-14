@@ -174,6 +174,8 @@ fn main() {
             commands::get_matugen_status,
             commands::get_matugen_colors,
             commands::reload_matugen_colors,
+            commands::open_devtools,
+            commands::toggle_devtools,
         ])
         .setup(|app| {
             if let Ok(tray) = tray::setup_tray(app.handle()) {

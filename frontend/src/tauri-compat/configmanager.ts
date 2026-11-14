@@ -285,6 +285,18 @@ export const ConfigManager = {
     return false;
   },
 
+  async OpenDevTools(): Promise<void> {
+    if (hasTauri()) {
+      return tauriInvoke('open_devtools');
+    }
+  },
+
+  async ToggleDevTools(): Promise<void> {
+    if (hasTauri()) {
+      return tauriInvoke('toggle_devtools');
+    }
+  },
+
   async IsTrayAvailable(): Promise<boolean> {
     if (hasTauri()) {
       return (await tauriInvoke<boolean>('is_tray_available')) || false;

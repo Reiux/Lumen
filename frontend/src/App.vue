@@ -1018,6 +1018,11 @@ onMounted(async () => {
   })
 
   onGlobalKeydown = (e: KeyboardEvent) => {
+    if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i'))) {
+      e.preventDefault()
+      ConfigManager.ToggleDevTools()
+      return
+    }
     if (e.key === 'Escape') {
       if (isAccountMenuOpen.value) {
         e.stopPropagation()
