@@ -15,6 +15,8 @@
 >
 > *Looking for the Android app? Check out **[Lumen for Android](https://github.com/Reiux/lumen-android)**.*  
 > *Looking for the archived Go version? Check out the **[legacy-go branch](https://github.com/Reiux/Lumen/tree/legacy-go)**.*
+>
+> *Product website & screenshots: **[reiux.github.io/lumen-site](https://reiux.github.io/lumen-site/)**.*
 
 Lumen 2.0 is an unofficial desktop client for Google Photos, rewritten from scratch in **Rust** using **Tauri 2** and **Vue 3**. It replaces the old Go codebase with a much lighter core engine (`lumen-core`), cutting binary sizes in half, dropping idle RAM usage, and bringing native Material 3 theming to Linux, Windows, and macOS.
 
