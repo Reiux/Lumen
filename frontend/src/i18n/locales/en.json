@@ -695,7 +695,19 @@
     "accountRestricted": "Google has restricted this account (AccountDisabled)",
     "accountSlowDown": "Google asked Lumen to slow down (HTTP 429)",
     "accountSignInRequired": "Google is asking you to sign in again (HTTP 401)",
-    "retryItemAria": "Retry backup for {path}"
+    "retryItemAria": "Retry backup for {path}",
+    "uploading": "Uploading...",
+    "uploadingPhoto": "Uploading photo...",
+    "uploadingVideo": "Uploading video...",
+    "retrying": "Retrying (attempt {attempt})...",
+    "waitingForFiles": "Waiting for files...",
+    "committing": "Committing backup...",
+    "backupPaused": "Backup paused",
+    "backupPausedQuietHours": "Backup paused (quiet hours schedule)",
+    "backupPausedBattery": "Backup paused on battery power",
+    "uploadCancelled": "Upload cancelled",
+    "pathNotRegularFile": "Path is not a regular file",
+    "accountBlocked": "Account blocked by circuit breaker"
   },
   "notification": {
     "backupCompleteTitle": "Backup Complete",

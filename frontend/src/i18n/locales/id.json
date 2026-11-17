@@ -695,7 +695,19 @@
     "accountRestricted": "Google telah membatasi akun ini (AccountDisabled)",
     "accountSlowDown": "Google meminta Lumen memperlambat (HTTP 429)",
     "accountSignInRequired": "Google meminta Anda masuk kembali (HTTP 401)",
-    "retryItemAria": "Ulangi pencadangan untuk {path}"
+    "retryItemAria": "Ulangi pencadangan untuk {path}",
+    "uploading": "Mengunggah...",
+    "uploadingPhoto": "Mengunggah foto...",
+    "uploadingVideo": "Mengunggah video...",
+    "retrying": "Mencoba lagi (percobaan {attempt})...",
+    "waitingForFiles": "Menunggu file...",
+    "committing": "Menyelesaikan pencadangan...",
+    "backupPaused": "Pencadangan dijeda",
+    "backupPausedQuietHours": "Pencadangan dijeda (jadwal jam tenang)",
+    "backupPausedBattery": "Pencadangan dijeda pada daya baterai",
+    "uploadCancelled": "Pencadangan dibatalkan",
+    "pathNotRegularFile": "Jalur bukan file biasa",
+    "accountBlocked": "Akun diblokir oleh pemutus sirkuit"
   },
   "notification": {
     "backupCompleteTitle": "Pencadangan Selesai",

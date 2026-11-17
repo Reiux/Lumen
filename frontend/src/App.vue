@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useColorMode, useWindowSize } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { setLocale } from './i18n'
+import { formatErrorMessage } from './utils/statusTranslation'
 import { toast } from 'vue-sonner'
 import { Events } from '@wailsio/runtime'
 import { ConfigManager } from '../bindings/app/core'
@@ -401,7 +402,10 @@ function formatProblemMessage(prob: LogEntry): string {
   if (prob.reasonCode === 'NETWORK_TIMEOUT' || prob.userMessage?.includes('locked by') || prob.userMessage?.includes('os error 11')) {
     return t('activity.mock.problem3Message')
   }
-  return prob.userMessage || t('activity.issueRecorded')
+  if (prob.userMessage) {
+    return formatErrorMessage(prob.userMessage, t)
+  }
+  return t('activity.issueRecorded')
 }
 
 function formatProblemAction(prob: LogEntry): string {

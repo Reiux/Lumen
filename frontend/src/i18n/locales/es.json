@@ -695,7 +695,19 @@
     "accountRestricted": "Google ha restringido esta cuenta (AccountDisabled)",
     "accountSlowDown": "Google ha solicitado ralentizar las peticiones (HTTP 429)",
     "accountSignInRequired": "Google solicita iniciar sesión de nuevo (HTTP 401)",
-    "retryItemAria": "Reintentar copia de seguridad de {path}"
+    "retryItemAria": "Reintentar copia de seguridad de {path}",
+    "uploading": "Subiendo...",
+    "uploadingPhoto": "Subiendo foto...",
+    "uploadingVideo": "Subiendo vídeo...",
+    "retrying": "Reintentando (intento {attempt})...",
+    "waitingForFiles": "Esperando archivos...",
+    "committing": "Confirmando copia...",
+    "backupPaused": "Copia pausada",
+    "backupPausedQuietHours": "Copia pausada (horario de descanso)",
+    "backupPausedBattery": "Copia pausada con batería",
+    "uploadCancelled": "Copia cancelada",
+    "pathNotRegularFile": "La ruta no es un archivo normal",
+    "accountBlocked": "Cuenta bloqueada por disyuntor"
   },
   "notification": {
     "backupCompleteTitle": "Copia de seguridad completada",

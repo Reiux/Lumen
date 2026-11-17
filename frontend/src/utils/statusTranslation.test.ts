@@ -43,6 +43,9 @@ describe('statusTranslation', () => {
     expect(formatErrorMessage('Resource temporarily unavailable (os error 11)')).toBe(
       'リソースが一時的に利用できません（ファイルロック / os error 11）'
     )
+    expect(formatErrorMessage('IO error: Upload cancelled')).toBe(
+      'バックアップがキャンセルされました'
+    )
 
     setLocale('id')
     expect(formatErrorMessage('Unrecognized codec header or invalid EXIF stream')).toBe(
@@ -54,6 +57,9 @@ describe('statusTranslation', () => {
     expect(formatErrorMessage('Resource temporarily unavailable (os error 11)')).toBe(
       'Sumber daya sementara tidak tersedia (os error 11)'
     )
+    expect(formatErrorMessage('IO error: Upload cancelled')).toBe(
+      'Pencadangan dibatalkan'
+    )
   })
 
   it('translates thread messages across locales', () => {
@@ -62,12 +68,14 @@ describe('statusTranslation', () => {
     expect(formatThreadMessage('Streaming video track...')).toBe('動画トラックを送信中...')
     expect(formatThreadMessage('Checking cloud duplicate fingerprint...')).toBe('クラウド上の重複フィンガープリントを確認中...')
     expect(formatThreadMessage('Backed up successfully')).toBe('正常にバックアップされました')
+    expect(formatThreadMessage('Uploading...')).toBe('アップロード中...')
 
     setLocale('id')
     expect(formatThreadMessage('Backing up full resolution...')).toBe('Mencadangkan resolusi penuh...')
     expect(formatThreadMessage('Streaming video track...')).toBe('Mengalirkan trek video...')
     expect(formatThreadMessage('Checking cloud duplicate fingerprint...')).toBe('Memeriksa sidik jari duplikat cloud...')
     expect(formatThreadMessage('Backed up successfully')).toBe('Berhasil dicadangkan')
+    expect(formatThreadMessage('Uploading...')).toBe('Mengunggah...')
 
     // Reset to en
     setLocale('en')

@@ -67,6 +67,10 @@ export function formatErrorMessage(error?: string, customT?: TranslateFn): strin
   const t = getT(customT)
   const err = (error || '').trim()
 
+  if (err.includes('Upload cancelled') || err.includes('cancelled') || err.includes('canceled') || err.includes('Operation aborted')) {
+    return t('status.uploadCancelled')
+  }
+
   if (err.includes('codec header') || err.includes('invalid EXIF stream')) {
     return t('status.codecHeaderError')
   }
@@ -91,6 +95,14 @@ export function formatErrorMessage(error?: string, customT?: TranslateFn): strin
     return t('status.http401Error')
   }
 
+  if (err.includes('not a regular file')) {
+    return t('status.pathNotRegularFile')
+  }
+
+  if (err.includes('Account blocked')) {
+    return t('status.accountBlocked')
+  }
+
   return err || t('status.backupFailed')
 }
 
@@ -110,11 +122,11 @@ export function formatThreadMessage(message?: string, customT?: TranslateFn): st
     return t('status.checkingDuplicate')
   }
 
-  if (msg.includes('Backed up successfully')) {
+  if (msg.includes('Backed up successfully') || msg === 'Completed' || msg === 'Backup completed') {
     return t('status.backedUpSuccess')
   }
 
-  if (msg === 'Hashing...' || msg === 'Hashing') {
+  if (msg.includes('Hashing Live Photo') || msg === 'Hashing...' || msg === 'Hashing') {
     return t('status.hashing')
   }
 
@@ -132,6 +144,47 @@ export function formatThreadMessage(message?: string, customT?: TranslateFn): st
 
   if (msg.includes('Already in Google Photos')) {
     return t('status.alreadyInPhotos')
+  }
+
+  if (msg.startsWith('Uploading photo')) {
+    return t('status.uploadingPhoto')
+  }
+
+  if (msg.startsWith('Uploading video')) {
+    return t('status.uploadingVideo')
+  }
+
+  const retryMatch = msg.match(/Retrying\.\.\. \(attempt (\d+)\)/)
+  if (retryMatch) {
+    return t('status.retrying', { attempt: retryMatch[1] })
+  }
+
+  if (msg === 'Uploading...' || msg === 'Uploading') {
+    return t('status.uploading')
+  }
+
+  if (msg.includes('Committing backup') || msg.includes('Committing Live Photo') || msg.includes('Committing')) {
+    return t('status.committing')
+  }
+
+  if (msg.includes('quiet hours schedule')) {
+    return t('status.backupPausedQuietHours')
+  }
+
+  if (msg.includes('battery power')) {
+    return t('status.backupPausedBattery')
+  }
+
+  if (msg.includes('Backup paused')) {
+    return t('status.backupPaused')
+  }
+
+  if (msg.includes('Waiting for files')) {
+    return t('status.waitingForFiles')
+  }
+
+  if (msg.includes('Account blocked')) {
+    return t('status.accountBlocked')
   }
 
   return msg

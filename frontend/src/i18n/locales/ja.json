@@ -695,7 +695,19 @@
     "accountRestricted": "Googleによりこのアカウントが制限されました (AccountDisabled)",
     "accountSlowDown": "Googleから一時的な待機を求められました (HTTP 429)",
     "accountSignInRequired": "Googleアカウントへの再ログインが必要です (HTTP 401)",
-    "retryItemAria": "{path} のバックアップを再試行"
+    "retryItemAria": "{path} のバックアップを再試行",
+    "uploading": "アップロード中...",
+    "uploadingPhoto": "写真をアップロード中...",
+    "uploadingVideo": "動画をアップロード中...",
+    "retrying": "再試行中 (試行 {attempt})...",
+    "waitingForFiles": "ファイルを待機中...",
+    "committing": "バックアップを確定中...",
+    "backupPaused": "バックアップ一時停止中",
+    "backupPausedQuietHours": "バックアップ一時停止中 (おやすみ時間)",
+    "backupPausedBattery": "バックアップ一時停止中 (バッテリー駆動)",
+    "uploadCancelled": "バックアップがキャンセルされました",
+    "pathNotRegularFile": "指定されたパスは通常のファイルではありません",
+    "accountBlocked": "サーキットブレーカーによりアカウントが一時停止されました"
   },
   "notification": {
     "backupCompleteTitle": "バックアップ完了",
