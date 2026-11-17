@@ -5,8 +5,7 @@ import es from './locales/es.json'
 import id from './locales/id.json'
 import ja from './locales/ja.json'
 
-const rawSavedLocale = typeof localStorage !== 'undefined' ? localStorage.getItem('lumen_locale') || 'en' : 'en'
-const savedLocale = rawSavedLocale === 'es' ? 'en' : rawSavedLocale
+const savedLocale = typeof localStorage !== 'undefined' ? localStorage.getItem('lumen_locale') || 'en' : 'en'
 
 export const i18n = createI18n({
   legacy: false,

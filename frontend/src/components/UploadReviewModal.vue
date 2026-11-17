@@ -2,6 +2,8 @@
 import { useI18n } from 'vue-i18n'
 import M3Button from './ui/M3Button.vue'
 import M3Icon from './ui/M3Icon.vue'
+import M3Switch from './ui/M3Switch.vue'
+import M3LoadingIndicator from './ui/M3LoadingIndicator.vue'
 
 const { t } = useI18n()
 
@@ -15,15 +17,19 @@ export interface ReviewSummary {
   items: ReviewItem[]
   totalCount: number
   totalBytes: number
+  hasFolder?: boolean
 }
 
 defineProps<{
   summary: ReviewSummary
+  includeSubfolders?: boolean
+  isRescanning?: boolean
 }>()
 
 const emit = defineEmits<{
   (e: 'cancel'): void
   (e: 'confirm'): void
+  (e: 'update:includeSubfolders', value: boolean): void
 }>()
 
 function formatBytes(bytes: number, decimals = 1): string {
@@ -74,6 +80,34 @@ function formatBytes(bytes: number, decimals = 1): string {
           <p class="m3-body-medium">
             {{ t('dialogs.review.description') }}
           </p>
+
+          <!-- Include Subfolders Toggle (folder selections only, rescans on change) -->
+          <div
+            v-if="summary.hasFolder"
+            class="flex items-center justify-between gap-4 rounded-2xl border border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-lowest)] px-4 py-3"
+          >
+            <div class="flex flex-col pr-2">
+              <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
+                {{ t('dialogs.review.includeSubfolders') }}
+              </span>
+              <span class="m3-body-medium mt-0.5 text-[var(--md-sys-color-on-surface-variant)]">
+                {{ t('dialogs.review.includeSubfoldersSubtitle') }}
+              </span>
+            </div>
+            <div class="flex items-center gap-2 shrink-0">
+              <M3LoadingIndicator
+                v-if="isRescanning"
+                size="xs"
+                class="text-[var(--md-sys-color-primary)]"
+              />
+              <M3Switch
+                :model-value="includeSubfolders"
+                :disabled="isRescanning"
+                :aria-label="t('dialogs.review.includeSubfolders')"
+                @update:model-value="emit('update:includeSubfolders', $event)"
+              />
+            </div>
+          </div>
 
           <!-- Scrollable files list -->
           <div class="flex flex-col max-h-64 overflow-y-auto rounded-2xl bg-[var(--md-sys-color-surface-container)] border border-[var(--md-sys-color-outline-variant)]/30 divide-y divide-[var(--md-sys-color-outline-variant)]/20">

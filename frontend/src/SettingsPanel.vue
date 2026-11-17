@@ -387,11 +387,12 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
 })
 
 const savedLang = typeof localStorage !== 'undefined' ? localStorage.getItem('lumen_locale') || 'en' : 'en'
-const currentLanguage = ref(savedLang === 'es' ? 'en' : savedLang)
+const currentLanguage = ref(savedLang)
 const showLanguageDialog = ref(false)
 
 const availableLanguages = [
   { code: 'en', nativeName: 'English', englishName: 'English' },
+  { code: 'es', nativeName: 'Español', englishName: 'Spanish' },
   { code: 'id', nativeName: 'Bahasa Indonesia', englishName: 'Indonesian' },
   { code: 'ja', nativeName: '日本語', englishName: 'Japanese' },
 ]

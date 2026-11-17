@@ -160,6 +160,18 @@ where
                 let canon = root_path.canonicalize().unwrap_or_else(|_| root_path.clone());
                 if seen_files.insert(canon) {
                     supported_files.push(root_path.clone());
+
+                    // Emit throttled progress for direct file roots too, so
+                    // selecting/dropping individual files shows the indexing
+                    // screen instead of processing silently.
+                    if last_emit.elapsed() >= std::time::Duration::from_millis(150) {
+                        last_emit = Instant::now();
+                        progress(ScanProgressEvent {
+                            files_found: supported_files.len(),
+                            current_directory: root_path.to_string_lossy().to_string(),
+                            is_scanning: true,
+                        });
+                    }
                 }
             }
             continue;

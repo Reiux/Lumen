@@ -138,6 +138,7 @@ export const Events = {
         return tauriInvoke('start_upload', {
           files: data?.files || [],
           dryRun: data?.dryRun,
+          recursive: data?.recursive,
         });
       }
       if (eventName === 'uploadCancel') {

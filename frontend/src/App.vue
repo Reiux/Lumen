@@ -67,8 +67,37 @@ function handleResetToEmpty() {
 const isDryRunEnabled = ref(false)
 const showReviewModal = ref(false)
 const isScanningForReview = ref(false)
+const isRescanningReview = ref(false)
+const reviewIncludeSubfolders = ref(false)
 const pendingReviewSummary = ref<ReviewSummary | null>(null)
 const pendingReviewFiles = ref<string[]>([])
+
+async function runReviewScan(files: string[], isRescan = false): Promise<ReviewSummary | null> {
+  const summary = await tauriInvoke<ReviewSummary>('scan_for_review', {
+    files,
+    recursive: reviewIncludeSubfolders.value,
+  })
+  if (isRescan) {
+    // Preserve identity so the modal stays mounted and animates the update.
+    if (summary) {
+      pendingReviewSummary.value = summary
+    }
+  }
+  return summary
+}
+
+async function handleReviewToggleSubfolders(value: boolean) {
+  if (isRescanningReview.value) return
+  reviewIncludeSubfolders.value = value
+  isRescanningReview.value = true
+  try {
+    await runReviewScan(pendingReviewFiles.value, true)
+  } catch (err) {
+    console.error('Failed to rescan with subfolder toggle:', err)
+  } finally {
+    isRescanningReview.value = false
+  }
+}
 
 async function handleConfirmReview() {
   showReviewModal.value = false
@@ -79,6 +108,10 @@ async function handleConfirmReview() {
   if (!files || files.length === 0) return
 
   uploadManager.resetUploadResults()
+  uploadManager.beginPreparation()
+  if (uploadState.isUploading) {
+    toast.info(t('backup.toastAddedToQueue'))
+  }
   try {
     if (albumTargetMode.value === 'auto') {
       await ConfigManager.SetAlbumName('')
@@ -90,8 +123,9 @@ async function handleConfirmReview() {
       await ConfigManager.SetAlbumName('')
       await ConfigManager.SetAlbumAutoMode(false)
     }
-    await Events.Emit('startUpload', { files, dryRun: false })
+    await Events.Emit('startUpload', { files, dryRun: false, recursive: reviewIncludeSubfolders.value })
   } catch (error) {
+    uploadManager.endPreparation()
     console.error('Failed to start backup:', error)
     toast.error(t('backup.toastStartFailed'), {
       description: error instanceof Error ? error.message : String(error),
@@ -108,8 +142,9 @@ function handleCancelReview() {
 async function initiateUpload(files: string[]) {
   if (!files || files.length === 0) return
 
+  let cfg: Awaited<ReturnType<typeof ConfigManager.GetSettings>> | null = null
   try {
-    const cfg = await ConfigManager.GetSettings()
+    cfg = await ConfigManager.GetSettings()
     isDryRunEnabled.value = !!cfg.dryRun
   } catch {}
 
@@ -118,7 +153,9 @@ async function initiateUpload(files: string[]) {
     try {
       isScanningForReview.value = true
       toastId = toast.loading(t('backup.toastCheckingFiles'))
-      const summary = await tauriInvoke<ReviewSummary>('scan_for_review', { files })
+      // Seed the dialog toggle from the current global preference.
+      reviewIncludeSubfolders.value = !!cfg?.recursive
+      const summary = await runReviewScan(files)
       if (!summary || summary.totalCount === 0) {
         toast.info(t('backup.toastNoMediaFound'))
         return
@@ -140,6 +177,12 @@ async function initiateUpload(files: string[]) {
 
   // Direct upload when dry run is disabled
   uploadManager.resetUploadResults()
+  // Show the indexing/preparation screen immediately — the backend scan,
+  // classification and hashing can take several seconds for large batches.
+  uploadManager.beginPreparation()
+  if (uploadState.isUploading) {
+    toast.info(t('backup.toastAddedToQueue'))
+  }
   try {
     if (albumTargetMode.value === 'auto') {
       await ConfigManager.SetAlbumName('')
@@ -153,6 +196,7 @@ async function initiateUpload(files: string[]) {
     }
     await Events.Emit('startUpload', { files, dryRun: false })
   } catch (error) {
+    uploadManager.endPreparation()
     console.error('Failed to start backup:', error)
     toast.error(t('backup.toastStartFailed'), {
       description: error instanceof Error ? error.message : String(error),
@@ -172,9 +216,11 @@ async function handleStartRealUpload() {
   }
 
   uploadManager.resetUploadResults()
+  uploadManager.beginPreparation()
   try {
     await Events.Emit('startUpload', { files: candidatePaths, dryRun: false })
   } catch (error) {
+    uploadManager.endPreparation()
     console.error('Failed to start real backup:', error)
     toast.error(t('backup.toastStartFailed'), {
       description: error instanceof Error ? error.message : String(error),
@@ -1677,7 +1723,7 @@ onUnmounted(() => {
 
               <div class="flex flex-col items-center gap-1.5 mt-1">
                 <h2 class="m3-headline-small text-[var(--md-sys-color-on-surface)]">
-                  {{ t('backup.indexingTitle') }}
+                  {{ uploadState.scanProgress.phase === 'preparing' ? t('backup.preparingTitle') : t('backup.indexingTitle') }}
                 </h2>
                 <div class="flex items-center gap-2 mt-1">
                   <span class="rounded-full bg-[var(--md-sys-color-primary-container)] px-3 py-0.5 m3-label-large text-[var(--md-sys-color-on-primary-container)] tabular-nums">
@@ -1695,7 +1741,7 @@ onUnmounted(() => {
                   v-else
                   class="m3-body-medium mt-2"
                 >
-                  {{ t('backup.scanningFolders') }}
+                  {{ uploadState.scanProgress.phase === 'preparing' ? t('backup.preparingFiles') : t('backup.scanningFolders') }}
                 </p>
               </div>
 
@@ -2780,6 +2826,9 @@ onUnmounted(() => {
     <UploadReviewModal
       v-if="showReviewModal && pendingReviewSummary"
       :summary="pendingReviewSummary"
+      :include-subfolders="reviewIncludeSubfolders"
+      :is-rescanning="isRescanningReview"
+      @update:include-subfolders="handleReviewToggleSubfolders"
       @cancel="handleCancelReview"
       @confirm="handleConfirmReview"
     />

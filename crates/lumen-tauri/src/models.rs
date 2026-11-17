@@ -134,6 +134,11 @@ pub struct ReviewSummary {
     pub items: Vec<ReviewItem>,
     pub total_count: usize,
     pub total_bytes: u64,
+    /// True when the reviewed selection contains at least one folder path.
+    /// Used by the review dialog to decide whether to show the
+    /// "include subfolders" toggle.
+    #[serde(default)]
+    pub has_folder: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
