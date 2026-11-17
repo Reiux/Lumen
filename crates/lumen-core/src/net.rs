@@ -118,6 +118,17 @@ pub async fn read_response_bytes_bounded(
         }
         buf.extend_from_slice(&chunk);
     }
+
+    if buf.starts_with(&[0x1f, 0x8b]) {
+        use std::io::Read;
+        let mut decoder = flate2::read::GzDecoder::new(&buf[..]);
+        let mut decompressed = Vec::new();
+        decoder
+            .read_to_end(&mut decompressed)
+            .map_err(|e| format!("Failed to decompress gzip body: {}", e))?;
+        return Ok(decompressed);
+    }
+
     Ok(buf)
 }
 

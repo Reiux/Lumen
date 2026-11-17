@@ -52,7 +52,7 @@ jobs:
           mkdir -p dist
 
           # 1. Universal DMG installer (styled using dmgbuild to write .DS_Store directly on headless CI)
-          python3 -m pip install --break-system-packages dmgbuild biplist ds_store mac_alias || python3 -m pip install dmgbuild biplist ds_store mac_alias
+          python3 -m pip install --break-system-packages --require-hashes -r scripts/dmg-requirements.txt || python3 -m pip install --require-hashes -r scripts/dmg-requirements.txt
           APP_PATH="target/universal-apple-darwin/release/bundle/macos/Lumen.app"
           OUT_DMG="dist/lumen_${V}_macos_universal.dmg"
 

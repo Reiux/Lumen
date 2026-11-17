@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   clearMockCircuitBreaker,
   detectDebugBuild,
@@ -10,6 +11,8 @@ import {
   toggleMockMode,
   triggerMockCircuitBreaker,
 } from './utils/mockMode'
+
+const { t } = useI18n()
 import { replayLaunch } from './utils/launchState'
 import {
   FLICKER_FLAGS,
@@ -162,9 +165,9 @@ async function testNotification() {
   isTestingNotification.value = true
   try {
     Events.Emit('dev:test-notification')
-    toast.info('Test notification sent')
+    toast.info(t('developer.toastSent'))
   } catch {
-    toast.error('Failed to trigger notification')
+    toast.error(t('developer.toastFailed'))
   } finally {
     setTimeout(() => {
       isTestingNotification.value = false
@@ -196,7 +199,7 @@ onMounted(async () => {
             class="text-[var(--md-sys-color-primary)]"
           />
           <h1 class="m3-headline-large text-[var(--md-sys-color-on-surface)]">
-            Developer tools
+            {{ t('developer.title') }}
           </h1>
           <span
             v-if="isDevMode()"
@@ -206,7 +209,7 @@ onMounted(async () => {
           </span>
         </div>
         <p class="m3-body-medium leading-relaxed">
-          {{ isDevMode() ? 'View logs, preview app screens, and test error handling.' : 'View application logs and system events.' }}
+          {{ isDevMode() ? t('developer.subtitleDev') : t('developer.subtitleProd') }}
         </p>
       </div>
 
@@ -217,10 +220,10 @@ onMounted(async () => {
           variant="tonal"
           size="s"
           icon="terminal"
-          title="Toggle Webview Developer Tools (F12)"
+          :title="t('developer.toggleDevToolsTitle')"
           @click="openDevTools"
         >
-          DevTools
+          {{ t('developer.devTools') }}
         </M3Button>
         <M3Button
           v-if="isDevMode()"
@@ -229,16 +232,16 @@ onMounted(async () => {
           icon="science"
           @click="toggleMockMode"
         >
-          {{ mockState.enabled ? 'Mock mode: active' : 'Enable mock mode' }}
+          {{ mockState.enabled ? t('developer.mockModeActive') : t('developer.enableMockMode') }}
         </M3Button>
         <M3Button
           variant="tonal"
           size="s"
           icon="replay"
-          title="Replay launch splash animation"
+          :title="t('developer.replaySplashTitle')"
           @click="replayLaunch"
         >
-          Replay launch
+          {{ t('developer.replayLaunch') }}
         </M3Button>
       </div>
     </div>
@@ -256,7 +259,7 @@ onMounted(async () => {
         icon="visibility"
         @click="activeSection = 'previews'"
       >
-        Previews
+        {{ t('developer.previews') }}
       </M3Button>
 
       <M3Button
@@ -267,7 +270,7 @@ onMounted(async () => {
         icon="gpp_maybe"
         @click="activeSection = 'circuit'"
       >
-        Circuit breakers
+        {{ t('developer.circuit') }}
       </M3Button>
 
       <M3Button
@@ -278,7 +281,7 @@ onMounted(async () => {
         icon="list_alt"
         @click="activeSection = 'logs'"
       >
-        Logs
+        {{ t('developer.logs') }}
       </M3Button>
 
       <M3Button
@@ -289,7 +292,7 @@ onMounted(async () => {
         icon="tune"
         @click="activeSection = 'flicker'"
       >
-        Graphics toggles
+        {{ t('developer.flicker') }}
       </M3Button>
     </div>
 
@@ -302,10 +305,10 @@ onMounted(async () => {
         <div class="flex flex-col gap-1">
           <h2 class="m3-headline-small text-[var(--md-sys-color-on-surface)] flex items-center gap-2">
             <M3Icon name="preview" :size="20" class="text-[var(--md-sys-color-primary)]" />
-            Screen Previews
+            {{ t('developer.previewsTitle') }}
           </h2>
           <p class="m3-body-medium">
-            Preview app screens with test data without uploading any files.
+            {{ t('developer.previewsSubtitle') }}
           </p>
         </div>
 
@@ -318,7 +321,7 @@ onMounted(async () => {
             icon="crop_square"
             @click="setMockView('empty')"
           >
-            Empty state
+            {{ t('developer.previewEmpty') }}
           </M3Button>
 
           <M3Button
@@ -329,7 +332,7 @@ onMounted(async () => {
             icon="cloud_upload"
             @click="setMockView('drop')"
           >
-            Drop screen
+            {{ t('developer.previewDrop') }}
           </M3Button>
 
           <M3Button
@@ -340,7 +343,7 @@ onMounted(async () => {
             icon="manage_search"
             @click="setMockView('indexing')"
           >
-            Indexing screen
+            {{ t('developer.previewIndexing') }}
           </M3Button>
 
           <M3Button
@@ -351,7 +354,7 @@ onMounted(async () => {
             icon="folder_special"
             @click="setMockView('album')"
           >
-            Album prompt
+            {{ t('developer.previewAlbum') }}
           </M3Button>
 
           <M3Button
@@ -362,7 +365,7 @@ onMounted(async () => {
             icon="sync"
             @click="setMockView('uploading')"
           >
-            Uploading view
+            {{ t('developer.previewUploading') }}
           </M3Button>
 
           <M3Button
@@ -373,7 +376,7 @@ onMounted(async () => {
             icon="check_circle"
             @click="setMockView('results')"
           >
-            Results screen
+            {{ t('developer.previewResults') }}
           </M3Button>
         </div>
       </div>
@@ -384,22 +387,22 @@ onMounted(async () => {
           <div class="flex flex-col gap-1">
             <h2 class="m3-headline-small text-[var(--md-sys-color-on-surface)] flex items-center gap-2">
               <M3Icon name="notifications" :size="20" class="text-[var(--md-sys-color-primary)]" />
-              Desktop Notifications
+              {{ t('developer.notificationsTitle') }}
             </h2>
             <p class="m3-body-medium">
-              Toggle desktop notifications and test the system notification daemon.
+              {{ t('developer.notificationsSubtitle') }}
             </p>
           </div>
 
           <div class="flex flex-wrap items-center gap-4">
             <div class="flex items-center gap-3 bg-[var(--md-sys-color-surface-container-high)] px-3.5 py-1.5 rounded-full border border-[var(--md-sys-color-outline-variant)]/30">
               <span class="m3-label-large text-[var(--md-sys-color-on-surface)]">
-                Notify on complete
+                {{ t('developer.notifyOnComplete') }}
               </span>
               <M3Switch
                 id="dev-notifications-switch"
                 :model-value="preferencesState.notifyOnComplete"
-                aria-label="Toggle notifications in settings"
+                :aria-label="t('developer.notificationsToggleAria')"
                 @update:model-value="setNotifyOnComplete"
               />
             </div>
@@ -411,7 +414,7 @@ onMounted(async () => {
               :disabled="isTestingNotification"
               @click="testNotification"
             >
-              Test notification
+              {{ t('developer.testNotification') }}
             </M3Button>
           </div>
         </div>
@@ -427,19 +430,19 @@ onMounted(async () => {
         <div class="flex flex-col gap-1">
           <h2 class="m3-headline-small text-[var(--md-sys-color-on-surface)] flex items-center gap-2">
             <M3Icon name="gpp_maybe" :size="20" class="text-amber-500" />
-            Circuit Breakers
+            {{ t('developer.circuitsTitle') }}
           </h2>
           <p class="m3-body-medium">
-            Test error banners, rate limiting pauses, and account restriction handling.
+            {{ t('developer.circuitsSubtitle') }}
           </p>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-2">
           <div class="rounded-[20px] bg-[var(--md-sys-color-surface-container-low)] p-4 flex flex-col justify-between gap-3 border border-[var(--md-sys-color-outline-variant)]/20">
             <div>
-              <span class="m3-title-medium text-amber-400">401 Sign In Required</span>
+              <span class="m3-title-medium text-amber-400">{{ t('developer.c401Title') }}</span>
               <p class="m3-body-medium mt-1">
-                Session expired or revoked. Shows reconnect prompt.
+                {{ t('developer.c401Desc') }}
               </p>
             </div>
             <M3Button
@@ -448,15 +451,15 @@ onMounted(async () => {
               icon="login"
               @click="triggerMockCircuitBreaker('SIGN_IN_REQUIRED')"
             >
-              Trigger 401
+              {{ t('developer.c401Trigger') }}
             </M3Button>
           </div>
 
           <div class="rounded-[20px] bg-[var(--md-sys-color-surface-container-low)] p-4 flex flex-col justify-between gap-3 border border-[var(--md-sys-color-outline-variant)]/20">
             <div>
-              <span class="m3-title-medium text-red-400">403 Account Restricted</span>
+              <span class="m3-title-medium text-red-400">{{ t('developer.c403Title') }}</span>
               <p class="m3-body-medium mt-1">
-                Account restricted or Google storage quota full.
+                {{ t('developer.c403Desc') }}
               </p>
             </div>
             <M3Button
@@ -466,15 +469,15 @@ onMounted(async () => {
               icon="block"
               @click="triggerMockCircuitBreaker('ACCOUNT_RESTRICTED')"
             >
-              Trigger 403
+              {{ t('developer.c403Trigger') }}
             </M3Button>
           </div>
 
           <div class="rounded-[20px] bg-[var(--md-sys-color-surface-container-low)] p-4 flex flex-col justify-between gap-3 border border-[var(--md-sys-color-outline-variant)]/20">
             <div>
-              <span class="m3-title-medium text-blue-400">429 Rate Limited</span>
+              <span class="m3-title-medium text-blue-400">{{ t('developer.c429Title') }}</span>
               <p class="m3-body-medium mt-1">
-                Upload rate limit reached. Pauses and backs off automatically.
+                {{ t('developer.c429Desc') }}
               </p>
             </div>
             <M3Button
@@ -483,15 +486,15 @@ onMounted(async () => {
               icon="speed"
               @click="triggerMockCircuitBreaker('RATE_LIMITED')"
             >
-              Trigger 429
+              {{ t('developer.c429Trigger') }}
             </M3Button>
           </div>
 
           <div class="rounded-[20px] bg-[var(--md-sys-color-surface-container-low)] p-4 flex flex-col justify-between gap-3 border border-[var(--md-sys-color-outline-variant)]/20">
             <div>
-              <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">Reset State</span>
+              <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">{{ t('developer.resetStateTitle') }}</span>
               <p class="m3-body-medium mt-1">
-                Reset error banners and circuit breakers back to normal.
+                {{ t('developer.resetStateDesc') }}
               </p>
             </div>
             <M3Button
@@ -500,7 +503,7 @@ onMounted(async () => {
               icon="check_circle"
               @click="clearMockCircuitBreaker"
             >
-              Clear state
+              {{ t('developer.clearState') }}
             </M3Button>
           </div>
         </div>
@@ -534,7 +537,7 @@ onMounted(async () => {
             <M3TextField
               id="dev-log-search"
               v-model="searchQuery"
-              placeholder="Search logs..."
+              :placeholder="t('developer.searchPlaceholder')"
               variant="outlined"
               leading-icon="search"
               class="w-full sm:w-48 md:w-56"
@@ -548,7 +551,7 @@ onMounted(async () => {
                 :disabled="isFetchingLogs"
                 @click="loadBackendLogs"
               >
-                Refresh
+                {{ t('developer.refresh') }}
               </M3Button>
 
               <M3Button
@@ -557,7 +560,7 @@ onMounted(async () => {
                 icon="content_copy"
                 @click="copyLogs"
               >
-                {{ copied ? 'Copied' : 'Copy' }}
+                {{ copied ? t('developer.copied') : t('developer.copy') }}
               </M3Button>
 
               <M3Button
@@ -568,7 +571,7 @@ onMounted(async () => {
                 :icon="maskFilenames ? 'visibility_off' : 'visibility'"
                 @click="maskFilenames = !maskFilenames"
               >
-                {{ maskFilenames ? 'Anonymized' : 'Anonymize' }}
+                {{ maskFilenames ? t('developer.anonymized') : t('developer.anonymize') }}
               </M3Button>
 
               <M3Button
@@ -578,7 +581,7 @@ onMounted(async () => {
                 icon="clear_all"
                 @click="clearLogsView"
               >
-                Clear
+                {{ t('developer.clearLogs') }}
               </M3Button>
             </div>
           </div>
@@ -624,7 +627,7 @@ onMounted(async () => {
             v-if="filteredLogs.length === 0"
             class="p-8 text-center m3-body-medium"
           >
-            No log entries match the current filter.
+            {{ t('developer.noLogsMatch') }}
           </div>
         </div>
       </div>
@@ -639,10 +642,10 @@ onMounted(async () => {
         <div class="flex flex-col gap-1">
           <h2 class="m3-headline-small text-[var(--md-sys-color-on-surface)] flex items-center gap-2">
             <M3Icon name="tune" :size="20" class="text-[var(--md-sys-color-primary)]" />
-            Graphics & Animation Toggles
+            {{ t('developer.graphicsTitle') }}
           </h2>
           <p class="m3-body-medium">
-            Turn off specific animations or visual effects to troubleshoot rendering issues on Linux and Windows.
+            {{ t('developer.graphicsSubtitle') }}
           </p>
         </div>
 
@@ -658,12 +661,12 @@ onMounted(async () => {
               </span>
               <span class="m3-body-medium mt-0.5">
                 {{
-                  flag === 'noanim' ? 'Disable CSS and spring animations' :
-                  flag === 'nobackdrop' ? 'Disable backdrop blur filters' :
-                  flag === 'noripple' ? 'Disable touch ripple effects' :
-                  flag === 'nostate' ? 'Disable hover state layers' :
-                  flag === 'nolaunch' ? 'Skip startup splash animation' :
-                  'Disable wavy progress bar rendering'
+                  flag === 'noanim' ? t('developer.flagNoanim') :
+                  flag === 'nobackdrop' ? t('developer.flagNobackdrop') :
+                  flag === 'noripple' ? t('developer.flagNoripple') :
+                  flag === 'nostate' ? t('developer.flagNostate') :
+                  flag === 'nolaunch' ? t('developer.flagNolaunch') :
+                  t('developer.flagNowave')
                 }}
               </span>
             </div>

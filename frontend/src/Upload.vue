@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { uploadManager } from './utils/UploadManager'
+import { formatErrorMessage, formatSkipReason, formatThreadMessage } from './utils/statusTranslation'
 import M3WavyProgress from './components/ui/M3WavyProgress.vue'
 import M3Icon from './components/ui/M3Icon.vue'
 import M3LoadingIndicator from './components/ui/M3LoadingIndicator.vue'
 import M3Button from './components/ui/M3Button.vue'
 import CircuitBreakerAlert from './components/CircuitBreakerAlert.vue'
+
+const { t } = useI18n()
 
 const emit = defineEmits<{
   (event: 'open-sign-in'): void
@@ -163,10 +167,10 @@ function getFileExtension(filename: string): string {
 
 function getFileType(filename: string): string {
   const ext = getFileExtension(filename)
-  if (['JPG', 'JPEG', 'PNG', 'WEBP', 'HEIC', 'AVIF'].includes(ext)) return `${ext} Photo`
-  if (['RAW', 'CR2', 'NEF', 'ARW', 'DNG'].includes(ext)) return `${ext} RAW Image`
-  if (['MP4', 'MOV', 'M4V', 'AVI', 'MKV'].includes(ext)) return `${ext} Video`
-  return `${ext} Media`
+  if (['JPG', 'JPEG', 'PNG', 'WEBP', 'HEIC', 'AVIF'].includes(ext)) return t('upload.photoType', { ext })
+  if (['RAW', 'CR2', 'NEF', 'ARW', 'DNG'].includes(ext)) return t('upload.rawType', { ext })
+  if (['MP4', 'MOV', 'M4V', 'AVI', 'MKV'].includes(ext)) return t('upload.videoType', { ext })
+  return t('upload.mediaType', { ext })
 }
 
 const queueList = computed<QueueRowItem[]>(() => {
@@ -197,10 +201,11 @@ const queueList = computed<QueueRowItem[]>(() => {
       }
     }
 
-    const name = thread.FileName || thread.FilePath.split(/[/\\]/).pop() || `Worker #${thread.WorkerID}`
+    const name = thread.FileName || thread.FilePath.split(/[/\\]/).pop() || `${t('thread.worker')} #${thread.WorkerID}`
     const sizeStr = thread.BytesTotal > 0 ? formatBytes(thread.BytesTotal) : ''
     const typeStr = getFileType(name)
-    const detail = thread.Message || (sizeStr ? `${sizeStr} • ${typeStr}` : typeStr)
+    const msg = formatThreadMessage(thread.Message, t)
+    const detail = msg || (sizeStr ? `${sizeStr} • ${typeStr}` : typeStr)
 
     list.push({
       id: `thread-${thread.WorkerID}`,
@@ -215,11 +220,12 @@ const queueList = computed<QueueRowItem[]>(() => {
   for (let i = 0; i < state.results.fail.length; i++) {
     const item = state.results.fail[i]
     const path = typeof item === 'string' ? item : item.path
-    const name = path.split(/[/\\]/).pop() || `Failed Item #${i + 1}`
+    const name = path.split(/[/\\]/).pop() || t('upload.failedItem', { number: i + 1 })
+    const errText = typeof item !== 'string' && item.error ? formatErrorMessage(item.error, t) : t('upload.failed')
     list.push({
       id: `fail-${i}-${name}`,
       name,
-      detail: `Upload failed • ${getFileType(name)}`,
+      detail: `${errText} • ${getFileType(name)}`,
       status: 'failed',
     })
   }
@@ -227,9 +233,9 @@ const queueList = computed<QueueRowItem[]>(() => {
   // 3. Skipped items (already in Google Photos / duplicates)
   for (let i = 0; i < state.results.skipped.length; i++) {
     const item = state.results.skipped[i]
-    const path = item.paths?.[0] || 'Unknown file'
-    const name = path.split(/[/\\]/).pop() || `Skipped Item #${i + 1}`
-    const reason = item.reason || 'Already in Google Photos'
+    const path = item.paths?.[0] || t('upload.unknownFile')
+    const name = path.split(/[/\\]/).pop() || t('upload.skippedItem', { number: i + 1 })
+    const reason = formatSkipReason(item.reason, item.code, t)
     list.push({
       id: `skipped-${i}-${name}`,
       name,
@@ -242,11 +248,11 @@ const queueList = computed<QueueRowItem[]>(() => {
   for (let i = 0; i < state.results.success.length; i++) {
     const item = state.results.success[i]
     const path = typeof item === 'string' ? item : item.path
-    const name = path.split(/[/\\]/).pop() || `Uploaded Item #${i + 1}`
+    const name = path.split(/[/\\]/).pop() || t('upload.backedUpItem', { number: i + 1 })
     list.push({
       id: `success-${i}-${name}`,
       name,
-      detail: `Uploaded • ${getFileType(name)}`,
+      detail: `${t('upload.completed')} • ${getFileType(name)}`,
       status: 'done',
     })
   }
@@ -263,8 +269,8 @@ const queueList = computed<QueueRowItem[]>(() => {
     const idx = completedCount + activeCount + i + 1
     list.push({
       id: `queued-${idx}`,
-      name: `Queue Item #${idx}`,
-      detail: 'Waiting in queue',
+      name: `${t('upload.queued')} #${idx}`,
+      detail: t('upload.waitingInQueue'),
       status: 'queued',
       isQueued: true,
     })
@@ -296,10 +302,10 @@ const totalQueueCount = computed(() => {
         <div class="flex flex-col min-w-0">
           <div class="flex items-center gap-2">
             <span class="m3-title-medium text-[var(--md-sys-color-on-primary-container)]">
-              Indexing Media Folders...
+              {{ t('backup.indexingTitle') }}
             </span>
             <span class="m3-label-small px-2 py-0.5 rounded-full bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] tabular-nums">
-              {{ state.scanProgress.filesFound }} items found
+              {{ t('backup.filesFound', { count: state.scanProgress.filesFound }) }}
             </span>
           </div>
           <span
@@ -313,7 +319,7 @@ const totalQueueCount = computed(() => {
             v-else
             class="m3-body-medium text-[var(--md-sys-color-on-primary-container)]/85"
           >
-            Scanning enabled folders for photos & videos...
+            {{ t('backup.scanningFolders') }}
           </span>
         </div>
       </div>
@@ -324,7 +330,7 @@ const totalQueueCount = computed(() => {
         icon="close"
         @click="uploadManager.cancelScan()"
       >
-        Cancel Indexing
+        {{ t('backup.cancelIndexing') }}
       </M3Button>
     </div>
 
@@ -347,7 +353,7 @@ const totalQueueCount = computed(() => {
             :size="16"
           />
           <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
-            {{ state.isCreatingAlbum ? 'Adding to Google Photos Album...' : 'Album Complete' }}
+            {{ state.isCreatingAlbum ? t('upload.addingToAlbum') : t('upload.albumComplete') }}
           </span>
         </div>
         <span class="m3-label-large text-[var(--md-sys-color-primary)] tabular-nums">
@@ -355,8 +361,7 @@ const totalQueueCount = computed(() => {
         </span>
       </div>
       <p class="m3-body-medium">
-        Album: <span class="m3-body-large text-[var(--md-sys-color-on-surface)]">{{ state.albumStatus.AlbumName }}</span>
-        ({{ state.albumStatus.ItemsAdded }} of {{ state.albumStatus.TotalItems }} items added)
+        {{ t('upload.albumSummary', { name: state.albumStatus.AlbumName, added: state.albumStatus.ItemsAdded, total: state.albumStatus.TotalItems }) }}
       </p>
       <div class="relative h-2 w-full overflow-hidden rounded-full bg-[var(--md-sys-color-surface-container-highest)] mt-1">
         <div
@@ -417,7 +422,7 @@ const totalQueueCount = computed(() => {
               d="M12 4v16m8-8H4"
             />
           </svg>
-          <span class="truncate px-2">Drop more files or folders here to add to the queue</span>
+          <span class="truncate px-2">{{ t('upload.dropMore') }}</span>
         </div>
 
         <!-- Summary Header Card (28px rounded, surface-container) -->
@@ -425,40 +430,55 @@ const totalQueueCount = computed(() => {
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
               <span class="m3-label-small text-[var(--md-sys-color-primary)] block">
-                Uploading batch
+                {{ state.isPaused ? t('upload.backupPaused') : t('upload.backingUpMedia') }}
               </span>
               <h2 class="text-2xl sm:text-3xl font-bold text-[var(--md-sys-color-on-surface)] mt-0.5 tabular-nums">
-                {{ displayUploadedFiles }} of {{ effectiveTotalFiles }} items
+                {{ t('upload.itemsCount', { uploaded: displayUploadedFiles, total: effectiveTotalFiles }) }}
               </h2>
               <div
                 v-if="state.results.skipped.length > 0 || state.results.fail.length > 0"
                 class="flex items-center gap-1.5 mt-1 m3-body-medium"
               >
                 <span v-if="state.results.success.length > 0">
-                  {{ state.results.success.length }} uploaded
+                  {{ t('upload.completedCount', { count: state.results.success.length }) }}
                 </span>
                 <span v-if="state.results.success.length > 0 && state.results.skipped.length > 0">&bull;</span>
                 <span v-if="state.results.skipped.length > 0" class="text-[var(--md-sys-color-secondary)]">
-                  {{ state.results.skipped.length }} already in Google Photos
+                  {{ t('upload.skippedCount', { count: state.results.skipped.length }) }}
                 </span>
                 <span v-if="state.results.fail.length > 0" class="text-[var(--md-sys-color-error)]">
-                  &bull; {{ state.results.fail.length }} failed
+                  &bull; {{ t('upload.failedCount', { count: state.results.fail.length }) }}
                 </span>
               </div>
             </div>
 
-            <!-- Cancel Button -->
-            <M3Button
-              variant="tonal"
-              size="s"
-              destructive
-              :disabled="isCancelling"
-              aria-label="Cancel upload batch"
-              class="shrink-0"
-              @click="handleCancel"
-            >
-              {{ isCancelling ? 'Cancelling...' : 'Cancel upload' }}
-            </M3Button>
+            <!-- Action Buttons: Pause/Resume and Cancel -->
+            <div class="flex items-center gap-2 shrink-0">
+              <M3Button
+                variant="tonal"
+                size="s"
+                :aria-label="state.isPaused ? t('upload.resume') : t('upload.pause')"
+                class="shrink-0"
+                @click="uploadManager.togglePause()"
+              >
+                <div class="flex items-center space-x-1.5">
+                  <M3Icon :name="state.isPaused ? 'play_arrow' : 'pause'" :size="16" />
+                  <span>{{ state.isPaused ? t('upload.resume') : t('upload.pause') }}</span>
+                </div>
+              </M3Button>
+
+              <M3Button
+                variant="tonal"
+                size="s"
+                destructive
+                :disabled="isCancelling"
+                :aria-label="t('upload.cancelBatchAria')"
+                class="shrink-0"
+                @click="handleCancel"
+              >
+                {{ isCancelling ? t('upload.cancelling') : t('upload.cancelBackup') }}
+              </M3Button>
+            </div>
           </div>
 
           <!-- Metrics Row (speed on left, ETA on right - stable line that never wraps) -->
@@ -474,7 +494,7 @@ const totalQueueCount = computed(() => {
               <span
                 v-if="threadsList.length"
                 class="m3-label-small text-[var(--md-sys-color-on-surface-variant)] normal-case truncate"
-              >({{ threadsList.length }} workers)</span>
+              >{{ t('upload.workersCount', { count: threadsList.length }) }}</span>
             </div>
 
             <div class="flex items-center space-x-1.5 shrink-0">
@@ -484,7 +504,7 @@ const totalQueueCount = computed(() => {
                 :size="15"
                 class="text-[var(--md-sys-color-primary)] shrink-0"
               />
-              <span>ETA: <strong class="text-[var(--md-sys-color-on-surface)] tabular-nums">{{ etaDisplay }}</strong></span>
+              <span>{{ t('upload.eta', { time: etaDisplay }) }}</span>
             </div>
           </div>
 
@@ -506,8 +526,8 @@ const totalQueueCount = computed(() => {
       <!-- Right Column: File Queue List (fills the height and scrolls) -->
       <div class="flex flex-col min-h-0 flex-1 min-[860px]:h-full max-h-[calc(100vh-320px)] min-[860px]:max-h-[calc(100vh-130px)] bg-[var(--md-sys-color-surface-container)] rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 overflow-hidden shadow-sm w-full">
         <div class="px-5 py-3 border-b border-[var(--md-sys-color-outline-variant)]/30 flex items-center justify-between m3-label-small text-[var(--md-sys-color-on-surface-variant)] shrink-0">
-          <span>File Queue</span>
-          <span>Status &bull; Progress</span>
+          <span>{{ t('upload.fileQueue') }}</span>
+          <span>{{ t('upload.statusProgress') }}</span>
         </div>
 
         <div class="divide-y divide-[var(--md-sys-color-outline-variant)]/20 overflow-y-auto flex-1">
@@ -583,49 +603,49 @@ const totalQueueCount = computed(() => {
                 v-if="item.status === 'uploading'"
                 class="px-2.5 py-0.5 rounded-full bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)] m3-label-small tabular-nums normal-case"
               >
-                {{ item.progressPercent !== undefined ? `${item.progressPercent}%` : 'Uploading' }}
+                {{ item.progressPercent !== undefined ? `${item.progressPercent}%` : t('upload.backingUp') }}
               </span>
               <span
                 v-else-if="item.status === 'committing'"
                 class="px-2.5 py-0.5 rounded-full bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-primary)] m3-label-small normal-case animate-pulse"
               >
-                Committing...
+                {{ t('upload.committing') }}
               </span>
               <span
                 v-else-if="item.status === 'hashing'"
                 class="px-2.5 py-0.5 rounded-full bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-primary)] m3-label-small normal-case animate-pulse"
               >
-                Hashing...
+                {{ t('upload.hashing') }}
               </span>
               <span
                 v-else-if="item.status === 'checking'"
                 class="px-2.5 py-0.5 rounded-full bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-primary)] m3-label-small normal-case animate-pulse"
               >
-                Checking...
+                {{ t('upload.checking') }}
               </span>
               <span
                 v-else-if="item.status === 'done'"
                 class="px-2.5 py-0.5 rounded-full bg-[var(--md-sys-color-success-container)] text-[var(--md-sys-color-on-success-container)] m3-label-small normal-case"
               >
-                Uploaded
+                {{ t('upload.completed') }}
               </span>
               <span
                 v-else-if="item.status === 'skipped'"
                 class="px-2.5 py-0.5 rounded-full bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)] m3-label-small normal-case"
               >
-                Already in Google Photos
+                {{ t('upload.alreadyInPhotos') }}
               </span>
               <span
                 v-else-if="item.status === 'failed'"
                 class="px-2.5 py-0.5 rounded-full bg-[var(--md-sys-color-error-container)] text-[var(--md-sys-color-on-error-container)] m3-label-small normal-case"
               >
-                Failed
+                {{ t('upload.failed') }}
               </span>
               <span
                 v-else-if="item.status === 'queued'"
                 class="px-2.5 py-0.5 rounded-full bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-on-surface-variant)] m3-label-small normal-case"
               >
-                Queued
+                {{ t('upload.queued') }}
               </span>
             </div>
           </div>
@@ -634,7 +654,7 @@ const totalQueueCount = computed(() => {
             v-if="totalQueueCount > 200"
             class="px-5 py-3 text-center m3-body-medium bg-[var(--md-sys-color-surface-container-high)]/40"
           >
-            + {{ totalQueueCount - 200 }} more items in batch queue
+            {{ t('upload.moreInQueue', { count: totalQueueCount - 200 }) }}
           </div>
         </div>
       </div>

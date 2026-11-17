@@ -81,6 +81,10 @@ export function ClearLogEntries(): $CancellablePromise<void> {
     return $Call.ByID(612353192);
 }
 
+export function ClearProblemLogs(): $CancellablePromise<void> {
+    return $Call.ByID(612353193);
+}
+
 export function CountFolderBacklog(folder: string): $CancellablePromise<number> {
     return $Call.ByID(3394065051, folder);
 }
@@ -381,6 +385,22 @@ export function SetUseQuota(useQuota: boolean): $CancellablePromise<void> {
 
 export function SetWatchFoldersEnabled(v: boolean): $CancellablePromise<void> {
     return $Call.ByID(1568031248, v);
+}
+
+export function SetScheduleEnabled(v: boolean): $CancellablePromise<void> {
+    return $Call.ByID(99990001, v);
+}
+
+export function SetScheduleHours(start: number, end: number): $CancellablePromise<void> {
+    return $Call.ByID(99990002, start, end);
+}
+
+export function SetPauseOnBattery(v: boolean): $CancellablePromise<void> {
+    return $Call.ByID(99990003, v);
+}
+
+export function SetDryRun(v: boolean): $CancellablePromise<void> {
+    return $Call.ByID(99990004, v);
 }
 
 /**

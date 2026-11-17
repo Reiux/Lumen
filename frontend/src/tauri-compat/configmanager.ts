@@ -90,6 +90,12 @@ export const ConfigManager = {
     }
   },
 
+  async ClearProblemLogs(): Promise<void> {
+    if (hasTauri()) {
+      return tauriInvoke('clear_problem_logs');
+    }
+  },
+
   async CountFolderBacklog(folder: string): Promise<number> {
     if (hasTauri()) {
       return (await tauriInvoke<number>('count_folder_backlog', { folder })) || 0;
@@ -461,6 +467,30 @@ export const ConfigManager = {
   async SetSetDateFromFilename(v: boolean): Promise<void> {
     if (hasTauri()) {
       return tauriInvoke('set_set_date_from_filename', { v });
+    }
+  },
+
+  async SetScheduleEnabled(v: boolean): Promise<void> {
+    if (hasTauri()) {
+      return tauriInvoke('set_schedule_enabled', { v });
+    }
+  },
+
+  async SetScheduleHours(start: number, end: number): Promise<void> {
+    if (hasTauri()) {
+      return tauriInvoke('set_schedule_hours', { start, end });
+    }
+  },
+
+  async SetPauseOnBattery(v: boolean): Promise<void> {
+    if (hasTauri()) {
+      return tauriInvoke('set_pause_on_battery', { v });
+    }
+  },
+
+  async SetDryRun(v: boolean): Promise<void> {
+    if (hasTauri()) {
+      return tauriInvoke('set_dry_run', { v });
     }
   },
 

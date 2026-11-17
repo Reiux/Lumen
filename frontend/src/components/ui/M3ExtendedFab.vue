@@ -1,4 +1,8 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
 interface Props {
   disabled?: boolean
   loading?: boolean
@@ -19,7 +23,7 @@ const emit = defineEmits<{
   <div class="m3e-fab-container select-none">
     <md-button-group
       variant="connected"
-      aria-label="Upload picker actions"
+      :aria-label="t('backup.chooseFilesAria')"
       class="m3e-fab-group"
     >
       <!-- Primary: Choose Files -->
@@ -28,10 +32,10 @@ const emit = defineEmits<{
         size="m"
         icon="add_photo_alternate"
         :disabled="disabled || loading || undefined"
-        aria-label="Choose files to upload"
+        :aria-label="t('backup.chooseFilesAria')"
         @click="emit('pick-files')"
       >
-        Choose Files
+        {{ t('backup.chooseFiles') }}
       </md-button>
 
       <!-- Secondary: Choose Folder -->
@@ -40,10 +44,10 @@ const emit = defineEmits<{
         size="m"
         icon="folder"
         :disabled="disabled || loading || undefined"
-        aria-label="Choose folder to upload"
+        :aria-label="t('backup.chooseFolderAria')"
         @click="emit('pick-folder')"
       >
-        Folder
+        {{ t('backup.folder') }}
       </md-button>
     </md-button-group>
   </div>

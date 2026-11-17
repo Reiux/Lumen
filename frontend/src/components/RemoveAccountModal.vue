@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import M3Button from './ui/M3Button.vue'
 import M3Icon from './ui/M3Icon.vue'
 import { displayNameFromEmail, getCustomDisplayName } from '../utils/avatar'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   modelValue: boolean
@@ -58,13 +61,13 @@ function handleConfirm() {
               id="remove-account-title"
               class="m3-headline-small text-[var(--md-sys-color-on-surface)] select-none"
             >
-              Remove Account
+              {{ t('dialogs.removeAccount.title') }}
             </h2>
             <p class="m3-body-medium select-none">
-              Are you sure you want to remove <strong class="text-[var(--md-sys-color-on-surface)]">{{ resolvedDisplayName || accountEmail }}</strong> from Lumen?
+              {{ t('dialogs.removeAccount.confirmPrompt', { name: resolvedDisplayName || accountEmail }) }}
             </p>
             <p class="m3-body-medium text-[var(--md-sys-color-error)] select-none mt-1 leading-relaxed bg-[var(--md-sys-color-error-container)]/30 rounded-xl p-3 border border-[var(--md-sys-color-error)]/20 text-left">
-              Removing and re-adding an account signs in again, which registers another device on your Google account. Only do this if needed.
+              {{ t('dialogs.removeAccount.warning') }}
             </p>
           </div>
 
@@ -75,7 +78,7 @@ function handleConfirm() {
               :disabled="loading"
               @click="close"
             >
-              <span>Cancel</span>
+              <span>{{ t('dialogs.removeAccount.cancel') }}</span>
             </M3Button>
             <M3Button
               variant="filled"
@@ -85,7 +88,7 @@ function handleConfirm() {
               :loading="loading"
               @click="handleConfirm"
             >
-              <span>Remove</span>
+              <span>{{ t('dialogs.removeAccount.remove') }}</span>
             </M3Button>
           </div>
         </div>

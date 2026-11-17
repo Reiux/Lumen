@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import M3Icon from './ui/M3Icon.vue'
 import {
   displayNameFromEmail,
   getAvatarColor,
   getEmailInitial,
 } from '../utils/avatar'
+
+const { t } = useI18n()
 
 interface Props {
   open: boolean
@@ -185,7 +188,7 @@ onUnmounted(() => {
           bottom: `${menuPosition.bottom}px`,
         }"
         role="menu"
-        aria-label="Account menu"
+        :aria-label="t('accountMenu.accountMenuAria')"
         tabindex="-1"
         @keydown="handleKeydown"
       >
@@ -200,7 +203,7 @@ onUnmounted(() => {
               backgroundColor: customAvatar ? 'transparent' : getAvatarColor(activeAccount).bg,
               color: getAvatarColor(activeAccount).text,
             }"
-            title="Click to change profile photo"
+            :title="t('accountMenu.changePhotoTitle')"
             role="button"
             tabindex="0"
             @click="emit('upload-avatar')"
@@ -209,7 +212,7 @@ onUnmounted(() => {
             <img
               v-if="customAvatar"
               :src="customAvatar"
-              alt="Profile avatar"
+              :alt="t('accountMenu.profileAvatarAlt')"
               class="size-full object-cover"
             >
             <span
@@ -241,8 +244,8 @@ onUnmounted(() => {
           v-else
           class="flex flex-col items-center gap-1.5 p-3 text-center"
         >
-          <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">No account connected</span>
-          <span class="m3-body-medium">Sign in to begin uploading photos</span>
+          <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">{{ t('accountMenu.noAccount') }}</span>
+          <span class="m3-body-medium">{{ t('accountMenu.signInToBegin') }}</span>
         </div>
 
         <!-- Switch Account List (if accounts exist) -->
@@ -251,7 +254,7 @@ onUnmounted(() => {
           class="mt-2 flex flex-col gap-0.5"
         >
           <div class="px-2 py-1 m3-label-small text-[var(--md-sys-color-on-surface-variant)]">
-            Switch account
+            {{ t('accountMenu.switchAccount') }}
           </div>
           <div class="max-h-40 overflow-y-auto flex flex-col gap-0.5">
             <button
@@ -297,14 +300,14 @@ onUnmounted(() => {
             :size="16"
             class="text-[var(--md-sys-color-on-surface-variant)]"
           />
-          <span>Manage accounts</span>
+          <span>{{ t('accountMenu.manageAccounts') }}</span>
         </button>
 
         <!-- Quick Action: Cycle Theme Palette -->
         <button
           type="button"
           class="flex w-full items-center justify-between rounded-xl px-2.5 py-2 m3-label-large text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container-high)] transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)]"
-          title="Cycle theme palette"
+          :title="t('accountMenu.cycleTheme')"
           @click="emit('cycle-theme')"
         >
           <div class="flex items-center gap-2.5">
@@ -313,9 +316,9 @@ onUnmounted(() => {
               :size="16"
               class="text-[var(--md-sys-color-primary)]"
             />
-            <span>Cycle theme palette</span>
+            <span>{{ t('accountMenu.cycleTheme') }}</span>
           </div>
-          <span class="m3-label-small text-[var(--md-sys-color-on-surface-variant)]">Next</span>
+          <span class="m3-label-small text-[var(--md-sys-color-on-surface-variant)]">{{ t('accountMenu.next') }}</span>
         </button>
       </div>
     </Transition>

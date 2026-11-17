@@ -32,9 +32,22 @@ pub struct Preferences {
     pub recent_albums: Vec<String>,
     pub auto_check_updates: bool,
     pub last_update_check: i64,
+    #[serde(default)]
+    pub schedule_enabled: bool,
+    #[serde(default = "default_sched_start")]
+    pub schedule_start_hour: u8,
+    #[serde(default = "default_sched_end")]
+    pub schedule_end_hour: u8,
+    #[serde(default)]
+    pub pause_on_battery: bool,
+    #[serde(default)]
+    pub dry_run: bool,
     pub album_name: String,
     pub album_auto_mode: bool,
 }
+
+fn default_sched_start() -> u8 { 1 }
+fn default_sched_end() -> u8 { 7 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -105,10 +118,28 @@ pub struct LogEntry {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewItem {
+    pub name: String,
+    pub path: String,
+    pub size_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewSummary {
+    pub items: Vec<ReviewItem>,
+    pub total_count: usize,
+    pub total_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub struct UploadBatchStart {
     pub total: usize,
     pub total_bytes: u64,
+    #[serde(default)]
+    pub is_dry_run: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

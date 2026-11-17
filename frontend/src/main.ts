@@ -1,4 +1,3 @@
-import '@fontsource-variable/roboto-flex'
 import { createApp } from 'vue'
 import App from './App.vue'
 import { vRipple } from './directives/ripple'
@@ -18,7 +17,10 @@ if (import.meta.env.DEV) {
   })
 }
 
+import { i18n } from './i18n'
+
 const app = createApp(App)
+app.use(i18n)
 app.directive('ripple', vRipple)
 app.mount('#app')
 

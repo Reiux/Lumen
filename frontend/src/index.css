@@ -1,8 +1,16 @@
 @import "@materialwebunofficial/md3e-web/tokens.css";
-@import "@fontsource-variable/roboto-flex";
 @import "material-symbols/rounded.css";
 @import "tailwindcss";
 @import "tw-animate-css";
+
+/* Google Sans Flex System Font with ROND axis */
+@font-face {
+  font-family: 'Google Sans Flex';
+  src: url('/fonts/google_sans_flex.ttf') format('truetype');
+  font-weight: 100 1000;
+  font-style: normal;
+  font-display: swap;
+}
 
 /* Force Material Symbols Rounded to use the full 5.2MB font across the app and shadow DOM */
 @font-face {
@@ -20,7 +28,7 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --font-sans: 'Roboto Flex Variable', system-ui, "Segoe UI", sans-serif;
+  --font-sans: 'Google Sans Flex', system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -54,10 +62,13 @@
 }
 
 :root {
+  font-family: 'Google Sans Flex', system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-variation-settings: 'ROND' 100;
+
   /* ==========================================================================
      Material 3 Expressive Typography Scale Tokens (TASK 2)
      ========================================================================== */
-  --m3-font-sans: 'Roboto Flex Variable', system-ui, "Segoe UI", sans-serif;
+  --m3-font-sans: 'Google Sans Flex', system-ui, -apple-system, "Segoe UI", sans-serif;
   --m3-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 
   /* Display (page hero numbers like "13 of 48 items"): 36px/44px, weight 700, letter-spacing -0.02em */
@@ -393,6 +404,7 @@ input[type=range]::-webkit-slider-thumb:hover {
     background-color: var(--md-sys-color-surface);
     color: var(--md-sys-color-on-surface);
     font-family: var(--m3-font-sans);
+    font-variation-settings: 'ROND' 100;
     font-optical-sizing: auto;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -411,7 +423,7 @@ input[type=range]::-webkit-slider-thumb:hover {
     line-height: var(--m3-type-display-line-height);
     font-weight: var(--m3-type-display-weight);
     letter-spacing: var(--m3-type-display-letter-spacing);
-    font-variation-settings: 'opsz' 36, 'wght' 700;
+    font-variation-settings: 'ROND' 100, 'opsz' 36, 'wght' 700;
     font-optical-sizing: auto;
   }
 
@@ -421,7 +433,7 @@ input[type=range]::-webkit-slider-thumb:hover {
     line-height: var(--m3-type-headline-large-line-height);
     font-weight: var(--m3-type-headline-large-weight);
     letter-spacing: var(--m3-type-headline-large-letter-spacing);
-    font-variation-settings: 'opsz' 32, 'wght' 700;
+    font-variation-settings: 'ROND' 100, 'opsz' 32, 'wght' 700;
     font-optical-sizing: auto;
   }
 
@@ -431,7 +443,7 @@ input[type=range]::-webkit-slider-thumb:hover {
     line-height: var(--m3-type-headline-small-line-height);
     font-weight: var(--m3-type-headline-small-weight);
     letter-spacing: var(--m3-type-headline-small-letter-spacing);
-    font-variation-settings: 'opsz' 22, 'wght' 650;
+    font-variation-settings: 'ROND' 100, 'opsz' 22, 'wght' 650;
     font-optical-sizing: auto;
   }
 
@@ -441,7 +453,7 @@ input[type=range]::-webkit-slider-thumb:hover {
     line-height: var(--m3-type-title-medium-line-height);
     font-weight: var(--m3-type-title-medium-weight);
     letter-spacing: var(--m3-type-title-medium-letter-spacing);
-    font-variation-settings: 'opsz' 16, 'wght' 600;
+    font-variation-settings: 'ROND' 100, 'opsz' 16, 'wght' 600;
     font-optical-sizing: auto;
   }
 
@@ -451,7 +463,7 @@ input[type=range]::-webkit-slider-thumb:hover {
     line-height: var(--m3-type-body-large-line-height);
     font-weight: var(--m3-type-body-large-weight);
     letter-spacing: var(--m3-type-body-large-letter-spacing);
-    font-variation-settings: 'opsz' 16, 'wght' 400;
+    font-variation-settings: 'ROND' 100, 'opsz' 16, 'wght' 400;
     font-optical-sizing: auto;
   }
 
@@ -462,7 +474,7 @@ input[type=range]::-webkit-slider-thumb:hover {
     font-weight: var(--m3-type-body-medium-weight);
     letter-spacing: var(--m3-type-body-medium-letter-spacing);
     color: var(--m3-type-body-medium-color);
-    font-variation-settings: 'opsz' 14, 'wght' 350;
+    font-variation-settings: 'ROND' 100, 'opsz' 14, 'wght' 350;
     font-optical-sizing: auto;
   }
 
@@ -472,7 +484,7 @@ input[type=range]::-webkit-slider-thumb:hover {
     line-height: var(--m3-type-label-large-line-height);
     font-weight: var(--m3-type-label-large-weight);
     letter-spacing: var(--m3-type-label-large-letter-spacing);
-    font-variation-settings: 'opsz' 14, 'wght' 600;
+    font-variation-settings: 'ROND' 100, 'opsz' 14, 'wght' 600;
     font-optical-sizing: auto;
   }
 
@@ -483,7 +495,7 @@ input[type=range]::-webkit-slider-thumb:hover {
     font-weight: var(--m3-type-label-small-weight);
     letter-spacing: var(--m3-type-label-small-letter-spacing);
     text-transform: uppercase;
-    font-variation-settings: 'opsz' 11, 'wght' 600;
+    font-variation-settings: 'ROND' 100, 'opsz' 11, 'wght' 600;
     font-optical-sizing: auto;
   }
 
@@ -493,7 +505,7 @@ input[type=range]::-webkit-slider-thumb:hover {
     line-height: var(--m3-type-label-small-line-height);
     font-weight: var(--m3-type-label-small-weight);
     letter-spacing: 0.01em;
-    font-variation-settings: 'opsz' 11, 'wght' 600;
+    font-variation-settings: 'ROND' 100, 'opsz' 11, 'wght' 600;
     font-optical-sizing: auto;
   }
 
@@ -503,7 +515,7 @@ input[type=range]::-webkit-slider-thumb:hover {
     line-height: 12px;
     font-weight: 700;
     letter-spacing: 0.02em;
-    font-variation-settings: 'opsz' 9, 'wght' 700;
+    font-variation-settings: 'ROND' 100, 'opsz' 9, 'wght' 700;
     font-optical-sizing: auto;
   }
 

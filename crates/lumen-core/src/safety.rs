@@ -178,6 +178,51 @@ pub fn is_retryable(err_msg: &str) -> bool {
     classify_error(err_msg) == ErrorKind::Transient
 }
 
+pub fn is_within_schedule_at_hour(current: u8, start_hour: u8, end_hour: u8) -> bool {
+    if start_hour == end_hour {
+        return true;
+    }
+    if start_hour < end_hour {
+        current >= start_hour && current < end_hour
+    } else {
+        // Wraps over midnight (e.g. 23:00 to 07:00)
+        current >= start_hour || current < end_hour
+    }
+}
+
+pub fn is_within_schedule(start_hour: u8, end_hour: u8) -> bool {
+    use chrono::Timelike;
+    let now = chrono::Local::now();
+    is_within_schedule_at_hour(now.hour() as u8, start_hour, end_hour)
+}
+
+pub fn is_running_on_battery() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(entries) = std::fs::read_dir("/sys/class/power_supply") {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let type_path = path.join("type");
+                let status_path = path.join("status");
+                if let Ok(t) = std::fs::read_to_string(&type_path) {
+                    if t.trim().eq_ignore_ascii_case("Battery") {
+                        if let Ok(s) = std::fs::read_to_string(&status_path) {
+                            if s.trim().eq_ignore_ascii_case("Discharging") {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,5 +243,27 @@ mod tests {
         assert_eq!(classify_error("upload failed: broken pipe"), ErrorKind::Transient);
         assert!(is_retryable("upload failed: connection reset by peer"));
         assert!(!is_retryable("request failed with status 401: Unauthorized"));
+    }
+
+    #[test]
+    fn test_schedule_hours_matching_and_wrapping() {
+        // Normal window (1am to 7am)
+        assert!(!is_within_schedule_at_hour(0, 1, 7));
+        assert!(is_within_schedule_at_hour(1, 1, 7));
+        assert!(is_within_schedule_at_hour(6, 1, 7));
+        assert!(!is_within_schedule_at_hour(7, 1, 7));
+        assert!(!is_within_schedule_at_hour(12, 1, 7));
+
+        // Midnight wrapping window (22:00 to 06:00)
+        assert!(!is_within_schedule_at_hour(21, 22, 6));
+        assert!(is_within_schedule_at_hour(22, 22, 6));
+        assert!(is_within_schedule_at_hour(23, 22, 6));
+        assert!(is_within_schedule_at_hour(0, 22, 6));
+        assert!(is_within_schedule_at_hour(5, 22, 6));
+        assert!(!is_within_schedule_at_hour(6, 22, 6));
+
+        // Equal start and end means anytime
+        assert!(is_within_schedule_at_hour(0, 5, 5));
+        assert!(is_within_schedule_at_hour(12, 5, 5));
     }
 }

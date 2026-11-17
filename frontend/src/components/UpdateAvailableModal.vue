@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Browser } from '@wailsio/runtime'
 import { ConfigManager } from '../../bindings/app/core'
 import type { UpdateInfo } from '../../bindings/app/core/models'
 import M3Button from './ui/M3Button.vue'
 import M3Icon from './ui/M3Icon.vue'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   modelValue: boolean
@@ -86,10 +89,10 @@ function openDownload() {
                   id="update-modal-title"
                   class="m3-headline-small text-[var(--md-sys-color-on-surface)]"
                 >
-                  New Version Available
+                  {{ t('updater.newVersion') }}
                 </h2>
                 <div class="flex items-center gap-2 mt-0.5 m3-body-medium">
-                  <span>Current: v{{ updateInfo.currentVersion }}</span>
+                  <span>{{ t('updater.currentVersion', { version: updateInfo.currentVersion }) }}</span>
                   <span>&rarr;</span>
                   <span class="m3-title-medium text-[var(--md-sys-color-primary)]">v{{ updateInfo.latestVersion }}</span>
                 </div>
@@ -100,7 +103,7 @@ function openDownload() {
               variant="text"
               size="xs"
               icon="close"
-              aria-label="Close dialog"
+              :aria-label="t('updater.close')"
               class="!size-9 !min-w-0 !p-0"
               @click="close"
             />
@@ -109,7 +112,7 @@ function openDownload() {
           <!-- Body with Release Notes -->
           <div class="max-h-80 overflow-y-auto px-6 py-5 flex flex-col gap-3">
             <div class="flex items-center justify-between m3-label-small text-[var(--md-sys-color-on-surface-variant)]">
-              <span>Release Notes</span>
+              <span>{{ t('updater.releaseNotes') }}</span>
               <span
                 v-if="updateInfo.publishedAt"
                 class="opacity-75"
@@ -123,10 +126,10 @@ function openDownload() {
                 v-if="isLoadingNotes"
                 class="text-[var(--md-sys-color-on-surface-variant)] italic"
               >
-                Loading release notes...
+                {{ t('updater.loadingNotes') }}
               </div>
               <div v-else>
-                {{ notes || updateInfo.releaseNotes || 'No release notes provided.' }}
+                {{ notes || updateInfo.releaseNotes || t('updater.noNotes') }}
               </div>
             </div>
           </div>
@@ -138,7 +141,7 @@ function openDownload() {
               size="s"
               @click="close"
             >
-              Later
+              {{ t('updater.later') }}
             </M3Button>
             <M3Button
               variant="filled"
@@ -146,7 +149,7 @@ function openDownload() {
               icon="open_in_new"
               @click="openDownload"
             >
-              Download on GitHub
+              {{ t('updater.downloadGitHub') }}
             </M3Button>
           </div>
         </div>

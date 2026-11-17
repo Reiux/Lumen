@@ -2,6 +2,7 @@ import { reactive, ref } from 'vue'
 import { uploadManager } from './UploadManager'
 import { LogEntry } from '../../bindings/app/core/models'
 import { ConfigManager } from '../../bindings/app/core'
+import { formatErrorMessage, formatSkipReason, formatThreadMessage } from './statusTranslation'
 
 export interface MockState {
   enabled: boolean
@@ -123,7 +124,7 @@ export const mockLogEntries: LogEntry[] = [
     outcome: 'UPLOADED',
     sizeBytes: 4200000,
     durationMs: 320,
-    userMessage: 'Uploaded successfully',
+    userMessage: 'Backed up successfully',
   }),
   new LogEntry({
     id: 'log_5',
@@ -135,7 +136,7 @@ export const mockLogEntries: LogEntry[] = [
     outcome: 'UPLOADED',
     sizeBytes: 3800000,
     durationMs: 290,
-    userMessage: 'Uploaded successfully',
+    userMessage: 'Backed up successfully',
   }),
   new LogEntry({
     id: 'log_6',
@@ -153,7 +154,7 @@ export const mockLogEntries: LogEntry[] = [
     timestamp: new Date(Date.now() - 1000 * 60 * 15).toISOString(),
     level: 'INFO',
     category: 'System',
-    userMessage: 'Upload worker pool initialized (threads: 4)',
+    userMessage: 'Backup worker pool initialized (threads: 4)',
   }),
   new LogEntry({
     id: 'log_8',
@@ -161,7 +162,7 @@ export const mockLogEntries: LogEntry[] = [
     level: 'INFO',
     category: 'Upload',
     runId: 'Run 1',
-    userMessage: 'Batch Run 1 completed: 128 uploaded, 12 skipped, 0 failed in 45s',
+    userMessage: 'Batch Run 1 completed: 128 completed, 12 skipped, 0 failed in 45s',
   }),
 ]
 
@@ -272,7 +273,7 @@ function simulateUploadProgress() {
     Status: 'uploading',
     FilePath: '/Photos/2026/DSC_0891.JPG',
     FileName: 'DSC_0891.JPG',
-    Message: 'Uploading full resolution...',
+    Message: formatThreadMessage('Backing up full resolution...'),
     BytesUploaded: 14 * 1024 * 1024,
     BytesTotal: 22 * 1024 * 1024,
     Attempt: 1,
@@ -282,7 +283,7 @@ function simulateUploadProgress() {
     Status: 'uploading',
     FilePath: '/Photos/2026/IMG_4412.MOV',
     FileName: 'IMG_4412.MOV',
-    Message: 'Streaming video track...',
+    Message: formatThreadMessage('Streaming video track...'),
     BytesUploaded: 42 * 1024 * 1024,
     BytesTotal: 65 * 1024 * 1024,
     Attempt: 1,
@@ -292,7 +293,7 @@ function simulateUploadProgress() {
     Status: 'checking',
     FilePath: '/Photos/2026/PANO_002.HEIC',
     FileName: 'PANO_002.HEIC',
-    Message: 'Checking cloud duplicate fingerprint...',
+    Message: formatThreadMessage('Checking cloud duplicate fingerprint...'),
     BytesUploaded: 0,
     BytesTotal: 8 * 1024 * 1024,
     Attempt: 1,
@@ -302,7 +303,7 @@ function simulateUploadProgress() {
     Status: 'completed',
     FilePath: '/Photos/2026/IMG_4411.JPG',
     FileName: 'IMG_4411.JPG',
-    Message: 'Uploaded successfully',
+    Message: formatThreadMessage('Backed up successfully'),
     BytesUploaded: 12 * 1024 * 1024,
     BytesTotal: 12 * 1024 * 1024,
     Attempt: 1,
@@ -340,15 +341,15 @@ function simulateResults() {
   state.results.fail = [
     {
       path: '/Photos/2026/Corrupt_Archive.raw',
-      error: 'Unrecognized codec header or invalid EXIF stream',
+      error: formatErrorMessage('Unrecognized codec header or invalid EXIF stream'),
     },
     {
       path: '/Photos/2026/Video_Exceeds_Quota.mp4',
-      error: 'Google Photos quota exceeded for non-saver mode',
+      error: formatErrorMessage('Google Photos quota exceeded for non-saver mode'),
     },
     {
       path: '/Photos/2026/Locked_File.png',
-      error: 'Resource temporarily unavailable (os error 11)',
+      error: formatErrorMessage('Resource temporarily unavailable (os error 11)'),
     },
   ]
 
@@ -356,17 +357,17 @@ function simulateResults() {
     {
       paths: ['/Photos/2026/IMG_9910.JPG'],
       code: 'already-present',
-      reason: 'File checksum matches existing item in Google Photos',
+      reason: formatSkipReason('File checksum matches existing item in Google Photos', 'already-present'),
     },
     {
       paths: ['/Photos/2026/IMG_9911.JPG'],
       code: 'already-present',
-      reason: 'File checksum matches existing item in Google Photos',
+      reason: formatSkipReason('File checksum matches existing item in Google Photos', 'already-present'),
     },
     {
       paths: ['/Photos/2026/Unsupported.xyz'],
       code: 'unsupported-extension',
-      reason: 'File extension .xyz is filtered by unsupported files filter',
+      reason: formatSkipReason('File extension .xyz is filtered by unsupported files filter', 'unsupported-extension'),
     },
   ]
 
@@ -374,7 +375,7 @@ function simulateResults() {
     {
       paths: ['/Photos/2026/LivePhoto_MissingMOV.HEIC'],
       code: 'incomplete-live-photo',
-      reason: 'Live photo image found without matching MOV component',
+      reason: formatSkipReason('Live photo image found without matching MOV component', 'incomplete-live-photo'),
     },
   ]
 }

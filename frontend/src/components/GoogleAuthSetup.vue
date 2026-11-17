@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Browser, Clipboard, Events } from '@wailsio/runtime'
 import { toast } from 'vue-sonner'
 import { ConfigManager } from '../../bindings/app/core'
@@ -8,6 +9,8 @@ import M3Icon from './ui/M3Icon.vue'
 import M3TextField from './ui/M3TextField.vue'
 import AccountRiskCard from './AccountRiskCard.vue'
 import { displayNameFromEmail, getAvatarColor, getEmailInitial } from '../utils/avatar'
+
+const { t } = useI18n()
 
 const embeddedSetupURL = 'https://accounts.google.com/EmbeddedSetup'
 
@@ -61,7 +64,7 @@ watch(hasAcknowledgedRisk, (ack) => {
 
 async function handleBrowserSignIn() {
   if (!hasAcknowledgedRisk.value) {
-    validationError.value = 'Please check the account safety notice above before signing in.'
+    validationError.value = t('googleAuth.validationSafetyNotice')
     return
   }
 
@@ -74,7 +77,7 @@ async function handleBrowserSignIn() {
     await ConfigManager.SetAccountRiskAcknowledged(true)
     const connectedEmail = await ConfigManager.StartBrowserSignIn()
     if (!connectedEmail) {
-      throw new Error("Couldn't verify your account: Google didn't return an email.")
+      throw new Error(t('googleAuth.couldNotVerifyNoEmail'))
     }
 
     browserState.value = 'idle'
@@ -83,7 +86,7 @@ async function handleBrowserSignIn() {
     successDismissTimer = setTimeout(() => {
       isOpen.value = false
       emit('account-added')
-      toast.success('Google account connected', {
+      toast.success(t('googleAuth.toastConnected'), {
         description: connectedEmail,
       })
     }, 1500)
@@ -94,7 +97,7 @@ async function handleBrowserSignIn() {
       return
     }
     browserState.value = 'error'
-    browserErrorMessage.value = errMsg || "Couldn't complete Google sign-in."
+    browserErrorMessage.value = errMsg || t('googleAuth.couldNotSignIn')
   }
 }
 
@@ -163,7 +166,7 @@ function handleKeydown(e: KeyboardEvent) {
 onMounted(() => {
   window.addEventListener('keydown', handleKeydown)
   unlistenCloseFailed = Events.On('browser-signin:close-failed', () => {
-    browserCloseFallbackMessage.value = 'Signed in, you can close the browser'
+    browserCloseFallbackMessage.value = t('googleAuth.signedInCanClose')
   })
 })
 
@@ -186,7 +189,7 @@ async function openEmbeddedSetup() {
   try {
     await Browser.OpenURL(embeddedSetupURL)
   } catch (error) {
-    toast.error('Could not open system browser', {
+    toast.error(t('googleAuth.couldNotOpenBrowser'), {
       description: error instanceof Error ? error.message : String(error),
     })
   }
@@ -203,7 +206,7 @@ async function pasteFromClipboard() {
     }
     text = (text || '').trim()
     if (!text) {
-      toast.info('Clipboard is empty')
+      toast.info(t('googleAuth.toastClipboardEmpty'))
       return
     }
 
@@ -211,7 +214,7 @@ async function pasteFromClipboard() {
     if (text.includes('Email=') && text.includes('Token=')) {
       authMode.value = 'direct'
       rawCredential.value = text
-      toast.success('Detected credential string from clipboard')
+      toast.success(t('googleAuth.toastDetectedCredential'))
       return
     }
 
@@ -220,21 +223,21 @@ async function pasteFromClipboard() {
       authMode.value = 'oauth'
       const match = text.match(/oauth_token=([^;]+)/)
       oauthToken.value = (match ? match[1] : text).trim().replace(/^["']|["']$/g, '')
-      toast.success('Detected oauth_token from clipboard')
+      toast.success(t('googleAuth.toastDetectedToken'))
       return
     }
 
     // If active in direct tab and looks like key=value
     if (authMode.value === 'direct') {
       rawCredential.value = text
-      toast.success('Pasted into credential field')
+      toast.success(t('googleAuth.toastPastedCredential'))
     } else {
       oauthToken.value = text
-      toast.success('Pasted into token field')
+      toast.success(t('googleAuth.toastPastedToken'))
     }
   } catch (err) {
     console.warn('Clipboard read failed:', err)
-    toast.error('Could not read clipboard')
+    toast.error(t('googleAuth.toastClipboardError'))
   }
 }
 
@@ -248,13 +251,13 @@ const isFormValid = computed(() => {
 
 async function handleConnect() {
   if (!hasAcknowledgedRisk.value) {
-    validationError.value = 'Please check the account safety notice above before signing in.'
+    validationError.value = t('googleAuth.validationSafetyNotice')
     return
   }
 
   const payload = authMode.value === 'oauth' ? oauthToken.value.trim() : rawCredential.value.trim()
   if (!payload) {
-    validationError.value = 'Please enter or paste your token to continue.'
+    validationError.value = t('googleAuth.validationEnterToken')
     return
   }
 
@@ -265,7 +268,7 @@ async function handleConnect() {
     // Perform immediate live validation probe & storage via backend
     const connectedEmail = await ConfigManager.ValidateAndAddCredentials(payload)
     if (!connectedEmail) {
-      throw new Error('Verification failed: Google did not return an authenticated email.')
+      throw new Error(t('googleAuth.couldNotVerifyNoEmail'))
     }
 
     // Visual confirmation state
@@ -276,14 +279,14 @@ async function handleConnect() {
     successDismissTimer = setTimeout(() => {
       isOpen.value = false
       emit('account-added')
-      toast.success('Google account connected', {
+      toast.success(t('googleAuth.toastConnected'), {
         description: connectedEmail,
       })
     }, 1500)
   } catch (error) {
     isValidating.value = false
     const errMsg = error instanceof Error ? error.message : String(error)
-    validationError.value = errMsg || 'Could not connect Google account. Please verify credentials.'
+    validationError.value = errMsg || t('googleAuth.validationErrorGeneric')
   }
 }
 
@@ -292,7 +295,7 @@ function handleDoneSuccess() {
   isOpen.value = false
   emit('account-added')
   if (verifiedUser.value?.email) {
-    toast.success('Google account connected', {
+    toast.success(t('googleAuth.toastConnected'), {
       description: verifiedUser.value.email,
     })
   }
@@ -331,10 +334,10 @@ function handleDoneSuccess() {
                   id="google-auth-title"
                   class="m3-headline-small text-[var(--md-sys-color-on-surface)]"
                 >
-                  Connect Google Photos
+                  {{ t('googleAuth.title') }}
                 </h2>
                 <p class="m3-body-medium">
-                  Sign in with your browser to connect your Google Photos account.
+                  {{ t('googleAuth.automatedSignInDesc') }}
                 </p>
               </div>
             </div>
@@ -343,7 +346,7 @@ function handleDoneSuccess() {
               variant="text"
               size="xs"
               icon="close"
-              aria-label="Close dialog"
+              :aria-label="t('googleAuth.closeAria')"
               class="!size-9 !min-w-0 !p-0"
               @click="isOpen = false"
             />
@@ -358,7 +361,7 @@ function handleDoneSuccess() {
             <div class="flex flex-col gap-2">
               <div class="flex items-center justify-between px-1">
                 <span class="m3-label-small text-[var(--md-sys-color-primary)]">
-                  Step 1: Account Safety Gate
+                  {{ t('googleAuth.step1Title') }}
                 </span>
                 <span
                   v-if="hasAcknowledgedRisk"
@@ -368,7 +371,7 @@ function handleDoneSuccess() {
                     name="check_circle"
                     :size="14"
                   />
-                  Confirmed
+                  {{ t('googleAuth.confirmed') }}
                 </span>
               </div>
               <AccountRiskCard v-model="hasAcknowledgedRisk" />
@@ -409,7 +412,7 @@ function handleDoneSuccess() {
                     name="verified"
                     :size="14"
                   />
-                  <span>Google Photos access verified</span>
+                  <span>{{ t('googleAuth.verified') }}</span>
                 </div>
                 <p
                   v-if="browserCloseFallbackMessage"
@@ -428,7 +431,7 @@ function handleDoneSuccess() {
             >
               <div class="flex items-center justify-between px-1">
                 <span class="m3-label-small text-[var(--md-sys-color-primary)]">
-                  Step 2: Sign In
+                  {{ t('googleAuth.step2Title') }}
                 </span>
               </div>
 
@@ -444,10 +447,10 @@ function handleDoneSuccess() {
                 >
                   <div class="flex flex-col gap-1">
                     <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
-                      Automated Sign-in
+                      {{ t('googleAuth.automatedSignIn') }}
                     </span>
                     <span class="m3-body-medium leading-relaxed">
-                      Opens your Chromium browser to sign in with Google. Lumen detects your sign-in token automatically and closes the window when done.
+                      {{ t('googleAuth.automatedSignInDesc') }}
                     </span>
                   </div>
 
@@ -459,7 +462,7 @@ function handleDoneSuccess() {
                     :disabled="!hasAcknowledgedRisk || isValidating"
                     @click="handleBrowserSignIn"
                   >
-                    <span>Sign in with Google</span>
+                    <span>{{ t('googleAuth.signInWithBrowser') }}</span>
                   </M3Button>
                 </div>
 
@@ -478,10 +481,10 @@ function handleDoneSuccess() {
 
                   <div class="flex flex-col gap-1">
                     <h4 class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
-                      Finish signing in in the browser
+                      {{ t('googleAuth.finishInBrowser') }}
                     </h4>
                     <p class="m3-body-medium max-w-sm">
-                      Sign in to your Google account in the window that opened. Lumen will connect your account as soon as you finish.
+                      {{ t('googleAuth.finishInBrowserDesc') }}
                     </p>
                   </div>
 
@@ -492,7 +495,7 @@ function handleDoneSuccess() {
                     class="mt-1"
                     @click="handleCancelBrowserSignIn"
                   >
-                    <span>Cancel Sign-in</span>
+                    <span>{{ t('googleAuth.cancelSignIn') }}</span>
                   </M3Button>
                 </div>
 
@@ -510,7 +513,7 @@ function handleDoneSuccess() {
                     />
                     <div class="flex flex-col gap-0.5 min-w-0">
                       <span class="m3-title-medium text-[var(--md-sys-color-error)]">
-                        Couldn't sign in
+                        {{ t('googleAuth.couldNotSignIn') }}
                       </span>
                       <span class="m3-body-medium text-[var(--md-sys-color-on-surface)] leading-relaxed">
                         {{ browserErrorMessage }}
@@ -525,7 +528,7 @@ function handleDoneSuccess() {
                       icon="refresh"
                       @click="handleBrowserSignIn"
                     >
-                      <span>Try again</span>
+                      <span>{{ t('googleAuth.tryAgain') }}</span>
                     </M3Button>
                     <M3Button
                       variant="tonal"
@@ -533,7 +536,7 @@ function handleDoneSuccess() {
                       icon="key"
                       @click="handleFallbackToManual"
                     >
-                      <span>Enter token manually</span>
+                      <span>{{ t('googleAuth.enterTokenManually') }}</span>
                     </M3Button>
                   </div>
                 </div>
@@ -550,7 +553,7 @@ function handleDoneSuccess() {
                   class="shrink-0 mt-0.5 text-[var(--md-sys-color-primary)]"
                 />
                 <span>
-                  No supported Chromium browser (Chrome, Edge, Brave, or Chromium) was found on your system. You can sign in using manual token entry below.
+                  {{ t('googleAuth.browserNotFound') }}
                 </span>
               </div>
 
@@ -565,7 +568,7 @@ function handleDoneSuccess() {
                   :icon="showManualFallback ? 'expand_less' : 'expand_more'"
                   @click="showManualFallback = !showManualFallback"
                 >
-                  {{ showManualFallback ? 'Hide manual token entry' : 'Or enter token manually' }}
+                  {{ showManualFallback ? t('googleAuth.hideManual') : t('googleAuth.showManual') }}
                 </M3Button>
 
                 <M3Button
@@ -576,7 +579,7 @@ function handleDoneSuccess() {
                   class="text-[var(--md-sys-color-primary)] shrink-0 whitespace-nowrap"
                   @click="pasteFromClipboard"
                 >
-                  <span>Paste from Clipboard</span>
+                  <span>{{ t('googleAuth.pasteClipboard') }}</span>
                 </M3Button>
               </div>
 
@@ -596,8 +599,7 @@ function handleDoneSuccess() {
                     class="flex-1 justify-center"
                     @click="authMode = 'oauth'"
                   >
-                    <span>Browser Sign-in</span>
-                    <span class="ml-2 inline-flex items-center rounded-full bg-[var(--md-sys-color-primary-container)] px-2 py-0.5 m3-label-small text-[var(--md-sys-color-on-primary-container)]">Manual</span>
+                    <span>{{ t('googleAuth.tabBrowser') }}</span>
                   </M3Button>
 
                   <M3Button
@@ -609,7 +611,7 @@ function handleDoneSuccess() {
                     class="flex-1 justify-center"
                     @click="authMode = 'direct'"
                   >
-                    <span>Direct Token / String</span>
+                    <span>{{ t('googleAuth.tabDirect') }}</span>
                   </M3Button>
                 </div>
 
@@ -621,10 +623,10 @@ function handleDoneSuccess() {
                   <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                     <div class="flex flex-col">
                       <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
-                        1. Open Google Sign-in Page
+                        {{ t('googleAuth.step1Browser') }}
                       </span>
                       <span class="m3-body-medium">
-                        Opens Google Embedded Setup in your browser
+                        {{ t('googleAuth.step1BrowserDesc') }}
                       </span>
                     </div>
                     <M3Button
@@ -634,15 +636,15 @@ function handleDoneSuccess() {
                       class="shrink-0 whitespace-nowrap"
                       @click="openEmbeddedSetup"
                     >
-                      <span>Open Sign-in</span>
+                      <span>{{ t('googleAuth.openSignIn') }}</span>
                     </M3Button>
                   </div>
 
                   <div class="rounded-xl border border-[var(--md-sys-color-outline-variant)]/20 bg-[var(--md-sys-color-surface-container-low)] p-3 m3-body-medium leading-relaxed">
                     <ol class="list-decimal space-y-1 pl-4">
-                      <li>Sign in and click <strong class="text-[var(--md-sys-color-on-surface)]">I agree</strong>.</li>
-                      <li>Open DevTools (<kbd class="rounded bg-[var(--md-sys-color-surface-container-highest)] px-1 m3-mono m3-label-small">F12</kbd>) &rarr; <strong class="text-[var(--md-sys-color-on-surface)]">Application/Storage</strong> &rarr; <strong class="text-[var(--md-sys-color-on-surface)]">Cookies</strong>.</li>
-                      <li>Copy and paste the <code class="rounded bg-[var(--md-sys-color-surface-container-highest)] px-1 m3-mono m3-title-medium text-[var(--md-sys-color-primary)]">oauth_token</code> cookie value below.</li>
+                      <li>{{ t('googleAuth.instr1') }} <strong class="text-[var(--md-sys-color-on-surface)]">{{ t('googleAuth.instr1Bold') }}</strong>.</li>
+                      <li>{{ t('googleAuth.instr2') }}</li>
+                      <li>{{ t('googleAuth.instr3') }}</li>
                     </ol>
                   </div>
 
@@ -652,8 +654,8 @@ function handleDoneSuccess() {
                       ref="tokenFieldRef"
                       v-model="oauthToken"
                       type="password"
-                      label="oauth_token Cookie Value"
-                      placeholder="Paste oauth_token here"
+                      :label="t('googleAuth.cookieLabel')"
+                      :placeholder="t('googleAuth.cookiePlaceholder')"
                       variant="outlined"
                       leading-icon="key"
                       :disabled="isValidating"
@@ -663,8 +665,8 @@ function handleDoneSuccess() {
                       variant="text"
                       size="xs"
                       icon="content_paste"
-                      aria-label="Paste from clipboard"
-                      title="Paste from clipboard"
+                      :aria-label="t('googleAuth.pasteClipboard')"
+                      :title="t('googleAuth.pasteClipboard')"
                       class="!absolute right-2 top-3.5 !size-9 !min-w-0 !p-0"
                       @click="pasteFromClipboard"
                     />
@@ -678,10 +680,10 @@ function handleDoneSuccess() {
                 >
                   <div class="flex flex-col">
                     <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
-                      Paste Captured Credential
+                      {{ t('googleAuth.directTitle') }}
                     </span>
                     <span class="m3-body-medium mt-0.5 leading-relaxed">
-                      Import credentials from ReVanced, Android logcat, or HTTP Toolkit. Both full query strings (<code class="m3-mono m3-body-medium">androidId=...&Email=...&Token=...</code>) and shorthand (<code class="m3-mono m3-body-medium">Email=...&Token=...</code>) are supported.
+                      {{ t('googleAuth.directDesc') }}
                     </span>
                   </div>
 
@@ -690,8 +692,8 @@ function handleDoneSuccess() {
                       id="google-raw-credential"
                       v-model="rawCredential"
                       type="password"
-                      label="Credential String or Token"
-                      placeholder="Email=user@gmail.com&Token=..."
+                      :label="t('googleAuth.directLabel')"
+                      :placeholder="t('googleAuth.directPlaceholder')"
                       variant="outlined"
                       leading-icon="terminal"
                       :disabled="isValidating"
@@ -701,8 +703,8 @@ function handleDoneSuccess() {
                       variant="text"
                       size="xs"
                       icon="content_paste"
-                      aria-label="Paste from clipboard"
-                      title="Paste from clipboard"
+                      :aria-label="t('googleAuth.pasteClipboard')"
+                      :title="t('googleAuth.pasteClipboard')"
                       class="!absolute right-2 top-2.5 !size-9 !min-w-0 !p-0"
                       @click="pasteFromClipboard"
                     />
@@ -723,7 +725,7 @@ function handleDoneSuccess() {
                   class="shrink-0 mt-0.5 text-[var(--md-sys-color-error)]"
                 />
                 <div class="flex flex-col min-w-0">
-                  <span class="m3-title-medium">Validation Failed</span>
+                  <span class="m3-title-medium">{{ t('googleAuth.validationFailed') }}</span>
                   <span class="m3-body-medium leading-relaxed opacity-95">{{ validationError }}</span>
                 </div>
               </div>
@@ -739,7 +741,7 @@ function handleDoneSuccess() {
                 class="w-full"
                 @click="handleDoneSuccess"
               >
-                <span>Done</span>
+                <span>{{ t('googleAuth.done') }}</span>
               </M3Button>
             </template>
             <template v-else>
@@ -749,7 +751,7 @@ function handleDoneSuccess() {
                 :disabled="isValidating"
                 @click="isOpen = false"
               >
-                <span>Cancel</span>
+                <span>{{ t('googleAuth.cancel') }}</span>
               </M3Button>
               <M3Button
                 variant="filled"
@@ -757,10 +759,10 @@ function handleDoneSuccess() {
                 class="min-w-36 shrink-0 whitespace-nowrap"
                 :disabled="!isFormValid || isValidating"
                 :loading="isValidating"
-                aria-label="Validate and connect Google account"
+                :aria-label="t('googleAuth.verifyConnect')"
                 @click="handleConnect"
               >
-                <span>{{ isValidating ? 'Verifying with Google...' : 'Verify & Connect' }}</span>
+                <span>{{ isValidating ? t('googleAuth.verifying') : t('googleAuth.verifyConnect') }}</span>
               </M3Button>
             </template>
           </div>

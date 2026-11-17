@@ -2,14 +2,17 @@ name: CI
 
 on:
   push:
-    branches: [ rust, master, main ]
+    branches: [ rust-dev ]
   pull_request:
-    branches: [ rust, master, main ]
+    branches: [ rust-dev, rust ]
   workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -56,6 +59,7 @@ jobs:
 
   build-dev-linux:
     name: Build Linux Dev Artifacts (x64)
+    if: github.event_name != 'pull_request'
     needs: [test]
     runs-on: ubuntu-22.04
     steps:
@@ -163,6 +167,7 @@ jobs:
 
   build-dev-macos:
     name: Build macOS Dev Artifacts (Universal)
+    if: github.event_name != 'pull_request'
     needs: [test]
     runs-on: macos-latest
     steps:
@@ -210,7 +215,7 @@ jobs:
           shopt -s nullglob
 
           # 1. Universal DMG installer
-          python3 -m pip install --break-system-packages dmgbuild biplist ds_store mac_alias || python3 -m pip install dmgbuild biplist ds_store mac_alias
+          python3 -m pip install --break-system-packages --require-hashes -r scripts/dmg-requirements.txt || python3 -m pip install --require-hashes -r scripts/dmg-requirements.txt
           APP_PATH=""
           for p in target/universal-apple-darwin/debug/bundle/macos/Lumen.app target/universal-apple-darwin/release/bundle/macos/Lumen.app; do
             if [ -d "$p" ]; then
@@ -274,6 +279,7 @@ jobs:
 
   build-dev-windows-x64:
     name: Build Windows Dev Artifacts (x64)
+    if: github.event_name != 'pull_request'
     needs: [test]
     runs-on: windows-latest
     steps:
@@ -353,6 +359,7 @@ jobs:
 
   build-dev-windows-arm64:
     name: Build Windows Dev Artifacts (ARM64)
+    if: github.event_name != 'pull_request'
     needs: [test]
     runs-on: windows-latest
     steps:

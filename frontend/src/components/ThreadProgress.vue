@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { ThreadStatus } from '../utils/UploadManager'
+import { formatThreadMessage } from '../utils/statusTranslation'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   thread: ThreadStatus
@@ -12,50 +16,50 @@ const statusConfig = computed(() => {
       return {
         color: 'text-[var(--md-sys-color-on-error-container)]',
         bg: 'bg-[var(--md-sys-color-error-container)]',
-        label: 'Error',
+        label: t('thread.error'),
       }
     case 'completed':
       return {
         color: 'text-[var(--md-sys-color-on-tertiary-container)]',
         bg: 'bg-[var(--md-sys-color-tertiary-container)]',
-        label: 'Done',
+        label: t('thread.done'),
       }
     case 'skipped':
       return {
         color: 'text-[var(--md-sys-color-on-surface-variant)]',
         bg: 'bg-[var(--md-sys-color-surface-container-highest)]',
-        label: 'Skipped',
+        label: t('thread.skipped'),
       }
     case 'uploading':
       if (props.thread.Attempt > 1) {
         return {
           color: 'text-[var(--md-sys-color-on-secondary-container)]',
           bg: 'bg-[var(--md-sys-color-secondary-container)]',
-          label: `Retry #${props.thread.Attempt - 1}`,
+          label: t('thread.retry', { attempt: props.thread.Attempt - 1 }),
         }
       }
       return {
         color: 'text-[var(--md-sys-color-on-primary-container)]',
         bg: 'bg-[var(--md-sys-color-primary-container)]',
-        label: 'Uploading',
+        label: t('thread.backingUp'),
       }
     case 'hashing':
       return {
         color: 'text-[var(--md-sys-color-on-secondary-container)]',
         bg: 'bg-[var(--md-sys-color-secondary-container)]',
-        label: 'Hashing',
+        label: t('thread.hashing'),
       }
     case 'checking':
       return {
         color: 'text-[var(--md-sys-color-on-surface-variant)]',
         bg: 'bg-[var(--md-sys-color-surface-container-high)]',
-        label: 'Checking',
+        label: t('thread.checking'),
       }
     case 'finalizing':
       return {
         color: 'text-[var(--md-sys-color-on-tertiary-container)]',
         bg: 'bg-[var(--md-sys-color-tertiary-container)]',
-        label: 'Finalizing',
+        label: t('thread.finalizing'),
       }
     default:
       return {
@@ -88,14 +92,14 @@ const fileSizeDisplay = computed(() => {
   return `${formatBytes(props.thread.BytesUploaded)} / ${formatBytes(props.thread.BytesTotal)}`
 })
 
-const statusMessage = computed(() => props.thread.Message.replace(/^Error:\s*/, ''))
+const statusMessage = computed(() => formatThreadMessage(props.thread.Message.replace(/^Error:\s*/, ''), t))
 </script>
 
 <template>
   <div class="flex flex-col gap-2 rounded-[20px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-3.5 shadow-xs transition-colors select-none">
     <div class="flex items-center justify-between gap-2">
       <span class="rounded-full bg-[var(--md-sys-color-surface-container-high)] px-2 py-0.5 m3-label-small text-[var(--md-sys-color-on-surface-variant)]">
-        Worker #{{ thread.WorkerID }}
+        {{ t('thread.worker', { id: thread.WorkerID }) }}
       </span>
       <span
         class="inline-flex items-center rounded-full px-2.5 py-0.5 m3-label-small"
@@ -110,7 +114,7 @@ const statusMessage = computed(() => props.thread.Message.replace(/^Error:\s*/, 
         class="truncate m3-title-medium text-[var(--md-sys-color-on-surface)]"
         :title="thread.FileName || thread.FilePath"
       >
-        {{ thread.FileName || 'Processing...' }}
+        {{ thread.FileName || t('thread.processing') }}
       </span>
       <span
         v-if="statusMessage"

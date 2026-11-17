@@ -72,6 +72,8 @@ export interface ScanProgressState {
 
 export interface UploadState {
   isUploading: boolean;
+  isPaused: boolean;
+  isDryRun: boolean;
   totalFiles: number;
   uploadedFiles: number;
   threads: Map<number, ThreadStatus>;
@@ -99,6 +101,8 @@ class UploadManager {
   // Reactive state that can be accessed by components
   public state = reactive<UploadState>({
     isUploading: false,
+    isPaused: false,
+    isDryRun: false,
     totalFiles: 0,
     uploadedFiles: 0,
     threads: new Map<number, ThreadStatus>(),
@@ -161,6 +165,7 @@ class UploadManager {
       const data = (event?.data || {}) as Record<string, any>;
       this.state.totalFiles = Number(data.Total ?? data.total ?? 0);
       this.state.totalBytes = Number(data.TotalBytes ?? data.totalBytes ?? 0); // May be 0 initially
+      this.state.isDryRun = Boolean(data.IsDryRun ?? data.isDryRun ?? false);
       this.state.uploadedFiles = 0;
       this.state.uploadedBytes = 0;
       this.state.isUploading = true;
@@ -364,6 +369,7 @@ class UploadManager {
     this.state.totalFiles = 0;
     this.state.uploadedBytes = 0;
     this.state.totalBytes = 0;
+    this.state.isDryRun = false;
     this.state.results.success = [];
     this.state.results.fail = [];
     this.state.results.skipped = [];
@@ -385,7 +391,26 @@ class UploadManager {
   }
 
   public cancelUpload() {
+    this.state.isPaused = false;
     Events.Emit("uploadCancel");
+  }
+
+  public pauseUpload() {
+    this.state.isPaused = true;
+    Events.Emit("uploadPause");
+  }
+
+  public resumeUpload() {
+    this.state.isPaused = false;
+    Events.Emit("uploadResume");
+  }
+
+  public togglePause() {
+    if (this.state.isPaused) {
+      this.resumeUpload();
+    } else {
+      this.pauseUpload();
+    }
   }
 
   public async copyResultsAsJson() {
