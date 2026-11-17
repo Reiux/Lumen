@@ -322,7 +322,7 @@ fn main() {
                         }),
                     );
 
-                    let _ = commands::execute_upload(string_paths, ah_event.clone(), (*state).clone(), true, None);
+                    let _ = commands::execute_upload(string_paths, ah_event.clone(), (*state).clone(), true, None, None);
                 });
 
                 let watcher_arc = state.watcher.clone();

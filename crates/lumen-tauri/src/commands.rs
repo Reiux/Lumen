@@ -1158,7 +1158,7 @@ fn spawn_drain_pending_watch_files(app: AppHandle, state: AppState) {
                     "count": next_batch.len(),
                 }),
             );
-            let _ = execute_upload(next_batch, app, state, true, None);
+            let _ = execute_upload(next_batch, app, state, true, None, None);
         }
     });
 }
@@ -1169,6 +1169,7 @@ pub fn execute_upload(
     state: AppState,
     is_watched: bool,
     dry_run_override: Option<bool>,
+    recursive_override: Option<bool>,
 ) -> Result<(), String> {
     if files.is_empty() {
         return Ok(());
@@ -1193,7 +1194,7 @@ pub fn execute_upload(
 
     let mut album_name = cfg.preferences.album_name.clone();
     let mut album_auto_mode = cfg.preferences.album_auto_mode;
-    let mut recursive = cfg.preferences.recursive;
+    let mut recursive = recursive_override.unwrap_or(cfg.preferences.recursive);
     let mut delete_from_host = cfg.preferences.delete_from_host;
 
     if is_watched {
@@ -1219,11 +1220,16 @@ pub fn execute_upload(
                 recursive = true;
             }
         } else if !is_watched {
-            for path in &files {
-                if let Ok(m) = std::fs::metadata(path) {
-                    if m.is_dir() {
-                        recursive = true;
-                        break;
+            // Auto-enable recursion when a folder is selected — but only when
+            // the caller did not pass an explicit override (review dialog
+            // toggle wins over this heuristic).
+            if recursive_override.is_none() {
+                for path in &files {
+                    if let Ok(m) = std::fs::metadata(path) {
+                        if m.is_dir() {
+                            recursive = true;
+                            break;
+                        }
                     }
                 }
             }
@@ -1528,10 +1534,11 @@ pub fn execute_upload(
 pub async fn start_upload(
     files: Vec<String>,
     dry_run: Option<bool>,
+    recursive: Option<bool>,
     app: AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    execute_upload(files, app, (*state).clone(), false, dry_run)
+    execute_upload(files, app, (*state).clone(), false, dry_run, recursive)
 }
 
 #[tauri::command]
@@ -1569,10 +1576,16 @@ pub fn cancel_scan(state: tauri::State<AppState>) {
 #[tauri::command]
 pub async fn scan_for_review(
     files: Vec<String>,
+    recursive: Option<bool>,
     state: tauri::State<'_, AppState>,
 ) -> Result<ReviewSummary, String> {
     let cfg = state.config_manager.get_config();
-    let recursive = cfg.preferences.recursive;
+    let recursive = recursive.unwrap_or(cfg.preferences.recursive);
+    let has_folder = files.iter().any(|f| {
+        std::fs::metadata(f)
+            .map(|m| m.is_dir())
+            .unwrap_or(false)
+    });
     let path_bufs: Vec<PathBuf> = files.iter().map(PathBuf::from).collect();
     let scan_opts = ScanOptions {
         recursive,
@@ -1618,6 +1631,7 @@ pub async fn scan_for_review(
         items: review_items,
         total_count,
         total_bytes,
+        has_folder,
     })
 }
 

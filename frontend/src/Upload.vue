@@ -302,7 +302,7 @@ const totalQueueCount = computed(() => {
         <div class="flex flex-col min-w-0">
           <div class="flex items-center gap-2">
             <span class="m3-title-medium text-[var(--md-sys-color-on-primary-container)]">
-              {{ t('backup.indexingTitle') }}
+              {{ state.scanProgress.phase === 'preparing' ? t('backup.preparingTitle') : t('backup.indexingTitle') }}
             </span>
             <span class="m3-label-small px-2 py-0.5 rounded-full bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] tabular-nums">
               {{ t('backup.filesFound', { count: state.scanProgress.filesFound }) }}
@@ -319,7 +319,7 @@ const totalQueueCount = computed(() => {
             v-else
             class="m3-body-medium text-[var(--md-sys-color-on-primary-container)]/85"
           >
-            {{ t('backup.scanningFolders') }}
+            {{ state.scanProgress.phase === 'preparing' ? t('backup.preparingFiles') : t('backup.scanningFolders') }}
           </span>
         </div>
       </div>
@@ -400,31 +400,8 @@ const totalQueueCount = computed(() => {
 
     <!-- Main Layout: clean flex on narrow/mobile, 2-pane grid on >=860px -->
     <div class="flex flex-col min-[860px]:grid min-[860px]:grid-cols-[380px_1fr] min-[1280px]:grid-cols-[440px_1fr] gap-4 min-[860px]:gap-5 flex-1 min-h-0 w-full min-[860px]:items-start">
-      <!-- Left Column: Drop strip + Summary Card -->
+      <!-- Left Column: Summary Card -->
       <div class="flex flex-col gap-3 sm:gap-4 w-full shrink-0">
-        <!-- Slim drop strip -->
-        <div
-          data-file-drop-target
-          data-drop-zone="regular"
-          class="h-11 bg-[var(--md-sys-color-surface-container-low)] border border-dashed border-[var(--md-sys-color-outline)] rounded-2xl flex items-center justify-center space-x-2 m3-body-medium hover:border-[var(--md-sys-color-primary)] hover:text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container)] cursor-pointer transition select-none flex-shrink-0"
-          @click="emit('pick-more')"
-        >
-          <svg
-            class="w-4 h-4 text-[var(--md-sys-color-primary)] shrink-0"
-            fill="none"
-            stroke="currentColor"
-            viewBox="0 0 24 24"
-          >
-            <path
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              stroke-width="2"
-              d="M12 4v16m8-8H4"
-            />
-          </svg>
-          <span class="truncate px-2">{{ t('upload.dropMore') }}</span>
-        </div>
-
         <!-- Summary Header Card (28px rounded, surface-container) -->
         <div class="bg-[var(--md-sys-color-surface-container)] rounded-[28px] p-5 sm:p-6 border border-[var(--md-sys-color-outline-variant)]/40 shadow-sm flex flex-col">
           <div class="flex items-start justify-between gap-3">
@@ -658,6 +635,30 @@ const totalQueueCount = computed(() => {
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- Slim drop strip: pinned to the bottom so more files/folders can be
+         queued while the current batch uploads -->
+    <div
+      data-file-drop-target
+      data-drop-zone="regular"
+      class="h-11 mt-4 bg-[var(--md-sys-color-surface-container-low)] border border-dashed border-[var(--md-sys-color-outline)] rounded-2xl flex items-center justify-center space-x-2 m3-body-medium hover:border-[var(--md-sys-color-primary)] hover:text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container)] cursor-pointer transition select-none flex-shrink-0"
+      @click="emit('pick-more')"
+    >
+      <svg
+        class="w-4 h-4 text-[var(--md-sys-color-primary)] shrink-0"
+        fill="none"
+        stroke="currentColor"
+        viewBox="0 0 24 24"
+      >
+        <path
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          stroke-width="2"
+          d="M12 4v16m8-8H4"
+        />
+      </svg>
+      <span class="truncate px-2">{{ t('upload.dropMore') }}</span>
     </div>
   </div>
 </template>
