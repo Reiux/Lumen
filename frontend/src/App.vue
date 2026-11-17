@@ -107,25 +107,31 @@ async function handleConfirmReview() {
 
   if (!files || files.length === 0) return
 
-  uploadManager.resetUploadResults()
-  uploadManager.beginPreparation()
-  if (uploadState.isUploading) {
+  const queuedMidUpload = uploadState.isUploading
+  if (!queuedMidUpload) {
+    uploadManager.resetUploadResults()
+    uploadManager.beginPreparation()
+  } else {
     toast.info(t('backup.toastAddedToQueue'))
   }
   try {
-    if (albumTargetMode.value === 'auto') {
-      await ConfigManager.SetAlbumName('')
-      await ConfigManager.SetAlbumAutoMode(true)
-    } else if (albumTargetMode.value === 'custom') {
-      await ConfigManager.SetAlbumName(customAlbumName.value)
-      await ConfigManager.SetAlbumAutoMode(false)
-    } else {
-      await ConfigManager.SetAlbumName('')
-      await ConfigManager.SetAlbumAutoMode(false)
+    if (!queuedMidUpload) {
+      if (albumTargetMode.value === 'auto') {
+        await ConfigManager.SetAlbumName('')
+        await ConfigManager.SetAlbumAutoMode(true)
+      } else if (albumTargetMode.value === 'custom') {
+        await ConfigManager.SetAlbumName(customAlbumName.value)
+        await ConfigManager.SetAlbumAutoMode(false)
+      } else {
+        await ConfigManager.SetAlbumName('')
+        await ConfigManager.SetAlbumAutoMode(false)
+      }
     }
     await Events.Emit('startUpload', { files, dryRun: false, recursive: reviewIncludeSubfolders.value })
   } catch (error) {
-    uploadManager.endPreparation()
+    if (!queuedMidUpload) {
+      uploadManager.endPreparation()
+    }
     console.error('Failed to start backup:', error)
     toast.error(t('backup.toastStartFailed'), {
       description: error instanceof Error ? error.message : String(error),
@@ -176,27 +182,33 @@ async function initiateUpload(files: string[]) {
   }
 
   // Direct upload when dry run is disabled
-  uploadManager.resetUploadResults()
-  // Show the indexing/preparation screen immediately — the backend scan,
-  // classification and hashing can take several seconds for large batches.
-  uploadManager.beginPreparation()
-  if (uploadState.isUploading) {
+  const queuedMidUpload = uploadState.isUploading
+  if (!queuedMidUpload) {
+    uploadManager.resetUploadResults()
+    // Show the indexing/preparation screen immediately — the backend scan,
+    // classification and hashing can take several seconds for large batches.
+    uploadManager.beginPreparation()
+  } else {
     toast.info(t('backup.toastAddedToQueue'))
   }
   try {
-    if (albumTargetMode.value === 'auto') {
-      await ConfigManager.SetAlbumName('')
-      await ConfigManager.SetAlbumAutoMode(true)
-    } else if (albumTargetMode.value === 'custom') {
-      await ConfigManager.SetAlbumName(customAlbumName.value)
-      await ConfigManager.SetAlbumAutoMode(false)
-    } else {
-      await ConfigManager.SetAlbumName('')
-      await ConfigManager.SetAlbumAutoMode(false)
+    if (!queuedMidUpload) {
+      if (albumTargetMode.value === 'auto') {
+        await ConfigManager.SetAlbumName('')
+        await ConfigManager.SetAlbumAutoMode(true)
+      } else if (albumTargetMode.value === 'custom') {
+        await ConfigManager.SetAlbumName(customAlbumName.value)
+        await ConfigManager.SetAlbumAutoMode(false)
+      } else {
+        await ConfigManager.SetAlbumName('')
+        await ConfigManager.SetAlbumAutoMode(false)
+      }
     }
     await Events.Emit('startUpload', { files, dryRun: false })
   } catch (error) {
-    uploadManager.endPreparation()
+    if (!queuedMidUpload) {
+      uploadManager.endPreparation()
+    }
     console.error('Failed to start backup:', error)
     toast.error(t('backup.toastStartFailed'), {
       description: error instanceof Error ? error.message : String(error),
@@ -1171,6 +1183,10 @@ const albumErrorHandler = (e: Event) => {
   }
 }
 
+const uploadEmptyHandler = () => {
+  toast.info(t('backup.toastNoMediaFound'))
+}
+
 const uploadErrorHandler = (e: Event) => {
   const event = e as CustomEvent<{ FileName: string; Message: string }>
   const { FileName, Message } = event.detail
@@ -1248,6 +1264,7 @@ onMounted(async () => {
   window.addEventListener('pointerdown', clearDragState)
   window.addEventListener('albumError', albumErrorHandler)
   window.addEventListener('uploadError', uploadErrorHandler)
+  window.addEventListener('uploadEmpty', uploadEmptyHandler)
 
   Events.On('folder-watch:detected', (data: any) => {
     const count = data?.count || (Array.isArray(data?.files) ? data.files.length : 1)
@@ -1353,6 +1370,7 @@ onUnmounted(() => {
   window.removeEventListener('pointerdown', clearDragState)
   window.removeEventListener('albumError', albumErrorHandler)
   window.removeEventListener('uploadError', uploadErrorHandler)
+  window.removeEventListener('uploadEmpty', uploadEmptyHandler)
   if (onGlobalKeydown) {
     window.removeEventListener('keydown', onGlobalKeydown)
   }
@@ -1727,7 +1745,7 @@ onUnmounted(() => {
                 </h2>
                 <div class="flex items-center gap-2 mt-1">
                   <span class="rounded-full bg-[var(--md-sys-color-primary-container)] px-3 py-0.5 m3-label-large text-[var(--md-sys-color-on-primary-container)] tabular-nums">
-                    {{ t('backup.filesFound', { count: uploadState.scanProgress.filesFound.toLocaleString() }) }}
+                    {{ t('backup.filesFound', { count: uploadState.scanProgress.filesFound }) }}
                   </span>
                 </div>
                 <p

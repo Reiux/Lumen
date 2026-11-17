@@ -155,7 +155,7 @@ interface QueueRowItem {
   id: string
   name: string
   detail: string
-  status: 'uploading' | 'committing' | 'hashing' | 'checking' | 'done' | 'failed' | 'skipped' | 'queued'
+  status: 'uploading' | 'committing' | 'hashing' | 'checking' | 'paused' | 'done' | 'failed' | 'skipped' | 'queued'
   progressPercent?: number
   isQueued?: boolean
 }
@@ -182,8 +182,10 @@ const queueList = computed<QueueRowItem[]>(() => {
     let status: QueueRowItem['status']
     let progressPercent: number | undefined
 
-    if (rawStatus.includes('commit')) {
+    if (rawStatus.includes('commit') || rawStatus.includes('finaliz')) {
       status = 'committing'
+    } else if (rawStatus.includes('pause')) {
+      status = 'paused'
     } else if (rawStatus.includes('hash')) {
       status = 'hashing'
     } else if (rawStatus.includes('check')) {
@@ -543,6 +545,11 @@ const totalQueueCount = computed(() => {
                   name="warning"
                   :size="16"
                 />
+                <M3Icon
+                  v-else-if="item.status === 'paused'"
+                  name="pause_circle"
+                  :size="16"
+                />
                 <M3LoadingIndicator
                   v-else
                   size="xs"
@@ -599,6 +606,12 @@ const totalQueueCount = computed(() => {
                 class="px-2.5 py-0.5 rounded-full bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-primary)] m3-label-small normal-case animate-pulse"
               >
                 {{ t('upload.checking') }}
+              </span>
+              <span
+                v-else-if="item.status === 'paused'"
+                class="px-2.5 py-0.5 rounded-full bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-on-surface-variant)] m3-label-small normal-case"
+              >
+                {{ t('upload.paused') }}
               </span>
               <span
                 v-else-if="item.status === 'done'"

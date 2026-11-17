@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
@@ -192,37 +192,18 @@ fn parse_apple_maker_note(data: &[u8]) -> Result<String, LivePhotoError> {
     Err(LivePhotoError::MissingContentIdentifier)
 }
 
-pub fn read_video_live_photo_metadata(path: &Path) -> Result<LivePhotoMetadata, LivePhotoError> {
-    let meta = std::fs::symlink_metadata(path).map_err(|e| LivePhotoError::Io(e.to_string()))?;
-    if !meta.is_file() || meta.file_type().is_symlink() {
-        return Err(LivePhotoError::Io("Not a regular file".to_string()));
-    }
-    let mut file = File::open(path).map_err(|e| LivePhotoError::Io(e.to_string()))?;
-    let mut buf = Vec::new();
-    // Read up to 2MB to find QuickTime metadata atoms
-    file.by_ref()
-        .take(2 * 1024 * 1024)
-        .read_to_end(&mut buf)
-        .map_err(|e| LivePhotoError::Io(e.to_string()))?;
-
-    let mut content_id = String::new();
-    let mut has_still = false;
-
-    // Scan for QuickTime string keys: com.apple.quicktime.content.identifier and still-image-time
+fn scan_quicktime_buffer(buf: &[u8]) -> (String, bool) {
     let id_key = b"com.apple.quicktime.content.identifier";
     let still_key = b"com.apple.quicktime.still-image-time";
 
-    if buf.windows(still_key.len()).any(|w| w == still_key) {
-        has_still = true;
-    }
+    let has_still = buf.windows(still_key.len()).any(|w| w == still_key);
+    let mut content_id = String::new();
 
     if let Some(pos) = buf.windows(id_key.len()).position(|w| w == id_key) {
-        // Look ahead for the value string (UUID format, approx 36 chars)
         let search_start = pos + id_key.len();
         let search_end = std::cmp::min(search_start + 256, buf.len());
         if search_start < search_end {
             let slice = &buf[search_start..search_end];
-            // Look for UUID-like format (8-4-4-4-12 hex) or alphanumeric identifier
             for window in slice.windows(36) {
                 if let Ok(s) = std::str::from_utf8(window) {
                     if s.chars().all(|c| c.is_ascii_hexdigit() || c == '-') && s.contains('-') {
@@ -230,6 +211,42 @@ pub fn read_video_live_photo_metadata(path: &Path) -> Result<LivePhotoMetadata, 
                         break;
                     }
                 }
+            }
+        }
+    }
+
+    (content_id, has_still)
+}
+
+pub fn read_video_live_photo_metadata(path: &Path) -> Result<LivePhotoMetadata, LivePhotoError> {
+    const WINDOW_BYTES: u64 = 2 * 1024 * 1024;
+    let meta = std::fs::symlink_metadata(path).map_err(|e| LivePhotoError::Io(e.to_string()))?;
+    if !meta.is_file() || meta.file_type().is_symlink() {
+        return Err(LivePhotoError::Io("Not a regular file".to_string()));
+    }
+    let mut file = File::open(path).map_err(|e| LivePhotoError::Io(e.to_string()))?;
+    let mut buf = Vec::new();
+    // Read up to 2MB at the start (faststart moov), and scan the trailing 2MB when moov sits at EOF
+    file.by_ref()
+        .take(WINDOW_BYTES)
+        .read_to_end(&mut buf)
+        .map_err(|e| LivePhotoError::Io(e.to_string()))?;
+
+    let (mut content_id, mut has_still) = scan_quicktime_buffer(&buf);
+
+    if (content_id.is_empty() || !has_still) && meta.len() > WINDOW_BYTES {
+        let tail_start = meta.len().saturating_sub(WINDOW_BYTES);
+        if file.seek(SeekFrom::Start(tail_start)).is_ok() {
+            let mut tail_buf = Vec::new();
+            file.take(WINDOW_BYTES)
+                .read_to_end(&mut tail_buf)
+                .map_err(|e| LivePhotoError::Io(e.to_string()))?;
+            let (tail_id, tail_still) = scan_quicktime_buffer(&tail_buf);
+            if content_id.is_empty() && !tail_id.is_empty() {
+                content_id = tail_id;
+            }
+            if tail_still {
+                has_still = true;
             }
         }
     }
@@ -489,5 +506,23 @@ mod tests {
         data[12..14].copy_from_slice(b"MM");
         data[16..20].copy_from_slice(&u32::to_be_bytes(0xffff_ff00));
         assert!(parse_apple_maker_note(&data).is_err());
+    }
+
+    #[test]
+    fn test_read_video_live_photo_metadata_trailing_moov() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let mov = dir.path().join("IMG_9999.MOV");
+        let mut f = File::create(&mov).unwrap();
+        // > 2 MB leading mdat padding before QuickTime moov keys
+        let padding = vec![0u8; 2 * 1024 * 1024 + 4096];
+        f.write_all(&padding).unwrap();
+        f.write_all(b"com.apple.quicktime.content.identifier\0\0=12345678-1234-1234-1234-1234567890AB").unwrap();
+        f.write_all(b"com.apple.quicktime.still-image-time").unwrap();
+        f.flush().unwrap();
+
+        let meta = read_video_live_photo_metadata(&mov).unwrap();
+        assert_eq!(meta.content_identifier, "12345678-1234-1234-1234-1234567890AB");
+        assert!(meta.has_still_image_time);
     }
 }

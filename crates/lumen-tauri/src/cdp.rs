@@ -192,6 +192,7 @@ pub struct CdpSession {
     #[allow(dead_code)]
     user_data_dir: tempfile::TempDir,
     ws_url: String,
+    closed: bool,
 }
 
 #[allow(dead_code)]
@@ -209,7 +210,10 @@ impl CdpSession {
             let _ = fs::set_permissions(user_data_dir.path(), fs::Permissions::from_mode(0o700));
         }
 
-        let child = Command::new(&browser_path)
+        BROWSER_CLOSE_FAILED.store(false, Ordering::SeqCst);
+        BROWSER_CANCELLED.store(false, Ordering::SeqCst);
+
+        let mut child = Command::new(&browser_path)
             .arg(format!("--user-data-dir={}", user_data_dir.path().display()))
             .arg("--remote-debugging-port=0")
             .arg("--no-first-run")
@@ -218,13 +222,18 @@ impl CdpSession {
             .spawn()
             .context("Failed to spawn browser process")?;
 
-        BROWSER_CANCELLED.store(false, Ordering::SeqCst);
         ACTIVE_BROWSER_PID.store(child.id(), Ordering::SeqCst);
 
         let port_file = user_data_dir.path().join("DevToolsActivePort");
 
         let mut port_content = String::new();
         for _ in 0..40 {
+            if BROWSER_CANCELLED.load(Ordering::SeqCst) {
+                ACTIVE_BROWSER_PID.store(0, Ordering::SeqCst);
+                let _ = child.kill();
+                let _ = child.wait();
+                bail!("Browser sign-in was cancelled by user.");
+            }
             if port_file.exists() {
                 if let Ok(c) = fs::read_to_string(&port_file) {
                     if !c.trim().is_empty() {
@@ -237,18 +246,30 @@ impl CdpSession {
         }
 
         if port_content.is_empty() {
+            ACTIVE_BROWSER_PID.store(0, Ordering::SeqCst);
+            let _ = child.kill();
+            let _ = child.wait();
             bail!("Timed out waiting for Chromium remote debugging port to become active.");
         }
 
         let lines: Vec<&str> = port_content.lines().collect();
         if lines.len() < 2 {
+            ACTIVE_BROWSER_PID.store(0, Ordering::SeqCst);
+            let _ = child.kill();
+            let _ = child.wait();
             bail!("Invalid DevToolsActivePort file format from browser");
         }
 
         let port_str = lines[0].trim();
-        let port: u16 = port_str
-            .parse()
-            .context("Invalid DevToolsActivePort: port is not a valid number")?;
+        let port: u16 = match port_str.parse() {
+            Ok(p) => p,
+            Err(e) => {
+                ACTIVE_BROWSER_PID.store(0, Ordering::SeqCst);
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(e).context("Invalid DevToolsActivePort: port is not a valid number");
+            }
+        };
         let ws_path = lines[1].trim();
         let clean_ws_path = if ws_path.starts_with('/') {
             ws_path.to_string()
@@ -261,6 +282,7 @@ impl CdpSession {
             child,
             user_data_dir,
             ws_url,
+            closed: false,
         })
     }
 
@@ -316,7 +338,14 @@ impl CdpSession {
     }
 
     pub fn close(&mut self) -> bool {
+        if self.closed {
+            return true;
+        }
+        self.closed = true;
         ACTIVE_BROWSER_PID.store(0, Ordering::SeqCst);
+        if matches!(self.child.try_wait(), Ok(Some(_))) {
+            return true;
+        }
         let mut success = true;
         if let Err(e) = self.child.kill() {
             tracing::warn!("Failed to terminate browser process: {}", e);

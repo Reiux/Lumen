@@ -94,7 +94,7 @@ function openDownload() {
                 <div class="flex items-center gap-2 mt-0.5 m3-body-medium">
                   <span>{{ t('updater.currentVersion', { version: updateInfo.currentVersion }) }}</span>
                   <span>&rarr;</span>
-                  <span class="m3-title-medium text-[var(--md-sys-color-primary)]">v{{ updateInfo.latestVersion }}</span>
+                  <span class="m3-title-medium text-[var(--md-sys-color-primary)]">v{{ updateInfo.latestVersion.replace(/^v/i, '') }}</span>
                 </div>
               </div>
             </div>

@@ -91,6 +91,8 @@ const hashCacheCount = ref(0)
 const isClearingCache = ref(false)
 const isTrayAvailable = ref(true)
 const activeAccountEmail = ref('')
+const proxyError = ref('')
+let proxySaveTimer: ReturnType<typeof setTimeout> | null = null
 
 // Sticky Navigation Sections matching Mockup A
 const sections = computed(() => [
@@ -278,11 +280,20 @@ onUnmounted(() => {
     scrollContainerEl = null
   }
   if (scrollResetTimer) clearTimeout(scrollResetTimer)
+  if (proxySaveTimer) clearTimeout(proxySaveTimer)
 })
 
-watch(() => settings.value.proxy, async (newValue) => {
+watch(() => settings.value.proxy, (newValue) => {
   if (isHydrating.value) return
-  await ConfigManager.SetProxy(newValue)
+  if (proxySaveTimer) clearTimeout(proxySaveTimer)
+  proxySaveTimer = setTimeout(async () => {
+    try {
+      await ConfigManager.SetProxy(newValue)
+      proxyError.value = ''
+    } catch (err) {
+      proxyError.value = err instanceof Error ? err.message : String(err)
+    }
+  }, 400)
 })
 
 watch(() => settings.value.useQuota, async (newValue) => {
@@ -916,6 +927,8 @@ watch(() => settings.value.dryRun, async (newValue) => {
                   placeholder="http://127.0.0.1:7890"
                   variant="outlined"
                   leading-icon="vpn_lock"
+                  :error="!!proxyError"
+                  :error-text="proxyError"
                 />
               </div>
             </div>

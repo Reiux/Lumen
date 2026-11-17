@@ -160,7 +160,7 @@ async function checkForUpdates() {
       toast.error(t('about.toastUpdateCheckError', { error: info.error }))
     } else if (info.hasUpdate) {
       showUpdateModal.value = true
-      toast.info(t('about.toastUpdateAvailable', { version: info.latestVersion }))
+      toast.info(t('about.toastUpdateAvailable', { version: info.latestVersion.replace(/^v/i, '') }))
     } else {
       toast.success(t('about.toastLatestVersion', { version: info.currentVersion || appVersion.value }))
     }

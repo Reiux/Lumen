@@ -270,6 +270,10 @@ fn main() {
                 let cfg = state.config_manager.get_config();
 
                 let mut fw = lumen_core::watcher::FolderWatcher::new(Duration::from_millis(1500));
+                fw.set_filter_options(
+                    !cfg.preferences.disable_unsupported_files_filter,
+                    cfg.preferences.exclude_pattern.clone(),
+                );
                 let mut initial_folders = std::collections::HashMap::new();
                 if cfg.preferences.watch_folders_enabled {
                     for c in &cfg.preferences.watched_folder_configs {
@@ -303,14 +307,24 @@ fn main() {
                     {
                         tracing::info!("Folder watcher: holding {} files outside scheduled quiet hours", string_paths.len());
                         let mut pending = state.pending_watch_files.lock().unwrap();
-                        pending.extend(string_paths);
+                        pending.push(commands::PendingUploadBatch {
+                            files: string_paths,
+                            is_watched: true,
+                            dry_run_override: None,
+                            recursive_override: None,
+                        });
                         return;
                     }
 
                     if cfg.preferences.pause_on_battery && lumen_core::safety::is_running_on_battery() {
                         tracing::info!("Folder watcher: holding {} files while on battery", string_paths.len());
                         let mut pending = state.pending_watch_files.lock().unwrap();
-                        pending.extend(string_paths);
+                        pending.push(commands::PendingUploadBatch {
+                            files: string_paths,
+                            is_watched: true,
+                            dry_run_override: None,
+                            recursive_override: None,
+                        });
                         return;
                     }
 
@@ -328,6 +342,21 @@ fn main() {
                 let watcher_arc = state.watcher.clone();
                 let mut lock = watcher_arc.lock().await;
                 *lock = Some(fw);
+                drop(lock);
+
+                let ah_drain = ah_watcher.clone();
+                tauri::async_runtime::spawn(async move {
+                    let mut ticker = tokio::time::interval(Duration::from_secs(30));
+                    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                    loop {
+                        ticker.tick().await;
+                        let st = ah_drain.state::<AppState>();
+                        let has_pending = !st.pending_watch_files.lock().unwrap().is_empty();
+                        if has_pending {
+                            commands::drain_ready_pending_batches(&ah_drain, &st);
+                        }
+                    }
+                });
             });
 
             #[cfg(target_os = "linux")]

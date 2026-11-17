@@ -26,6 +26,7 @@ export interface FileUploadResult {
   SkipReason: string;
   Path: string;
   Paths: string[];
+  SizeBytes?: number;
 }
 
 export interface PreflightWarning {
@@ -173,12 +174,14 @@ class UploadManager {
     // Handle upload start
     Events.On("uploadStart", (event: { data: UploadBatchStart }) => {
       const data = (event?.data || {}) as Record<string, any>;
-      this.state.totalFiles = Number(data.Total ?? data.total ?? 0);
-      this.state.totalBytes = Number(data.TotalBytes ?? data.totalBytes ?? 0); // May be 0 initially
-      this.state.isDryRun = Boolean(data.IsDryRun ?? data.isDryRun ?? false);
-      this.state.uploadedFiles = 0;
-      this.state.uploadedBytes = 0;
-      this.state.isUploading = true;
+      const totalFiles = Number(data.Total ?? data.total ?? 0);
+      const totalBytes = Number(data.TotalBytes ?? data.totalBytes ?? 0);
+      const isDryRun = Boolean(data.IsDryRun ?? data.isDryRun ?? false);
+
+      this.resetUploadResults();
+      this.state.totalFiles = totalFiles;
+      this.state.totalBytes = totalBytes; // May be 0 initially
+      this.state.isDryRun = isDryRun;
       this.state.threads.clear();
       this.state.startTime = Date.now();
       this.state.uploadSpeed = 0;
@@ -188,8 +191,17 @@ class UploadManager {
       this.completedBytes = 0;
       this.fileBytes.clear();
       this.totalBytesAdjustment = 0;
-      this.resetUploadResults();
       this.state.warnings = [];
+
+      if (totalFiles === 0) {
+        this.state.isUploading = false;
+        this.preparationActive = false;
+        this.state.scanProgress.isScanning = false;
+        window.dispatchEvent(new CustomEvent('uploadEmpty'));
+        return;
+      }
+
+      this.state.isUploading = true;
     });
 
     // Handle async total bytes update (calculated after uploadStart)
@@ -247,8 +259,8 @@ class UploadManager {
 
       this.state.uploadedFiles += recordUploadResult(this.state.results, event.data);
       if (!event.data.IsError) {
-        const completedFileBytes = this.fileBytes.get(Path);
-        if (completedFileBytes && completedFileBytes > 0) {
+        const completedFileBytes = this.fileBytes.get(Path) || Number(event.data.SizeBytes || 0);
+        if (completedFileBytes > 0) {
           this.completedBytes += completedFileBytes;
         }
       }

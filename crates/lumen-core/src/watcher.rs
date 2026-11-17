@@ -1,24 +1,82 @@
 use std::collections::HashMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc;
 
-use crate::scanner::{is_ignored_temp_file, is_supported_by_google_photos};
+use crate::scanner::{
+    directory_has_nomedia, is_ignored_temp_file, is_path_excluded, is_supported_by_google_photos,
+};
+
+const MAX_ZERO_BYTE_CHECKS: usize = 2;
 
 #[derive(Debug, Clone)]
 struct FileCandidate {
     size: i64,
     mtime: u64,
     checks: usize,
+    zero_byte_checks: usize,
+}
+
+fn has_nomedia_in_ancestors(path: &Path, watched_roots: &[PathBuf]) -> bool {
+    let matched_root = watched_roots
+        .iter()
+        .filter(|root| path.starts_with(root))
+        .max_by_key(|root| root.components().count());
+
+    let Some(mut dir) = path.parent() else {
+        return false;
+    };
+
+    loop {
+        if directory_has_nomedia(dir) {
+            return true;
+        }
+        if let Some(root) = matched_root {
+            if dir == root.as_path() {
+                break;
+            }
+        } else {
+            break;
+        }
+        match dir.parent() {
+            Some(parent) => dir = parent,
+            None => break,
+        }
+    }
+
+    false
+}
+
+fn should_watch_path(
+    path: &Path,
+    watched_roots: &[PathBuf],
+    filter_unsupported: bool,
+    exclude_pattern: &str,
+) -> bool {
+    if is_ignored_temp_file(path) {
+        return false;
+    }
+    if filter_unsupported && !is_supported_by_google_photos(path) {
+        return false;
+    }
+    if !exclude_pattern.trim().is_empty() && is_path_excluded(path, exclude_pattern) {
+        return false;
+    }
+    if has_nomedia_in_ancestors(path, watched_roots) {
+        return false;
+    }
+    true
 }
 
 pub struct FolderWatcher {
     watcher: Option<RecommendedWatcher>,
     folder_configs: Arc<Mutex<HashMap<PathBuf, bool>>>, // dir -> include_subfolders
     pending: Arc<Mutex<HashMap<PathBuf, FileCandidate>>>,
+    filter_unsupported: Arc<Mutex<bool>>,
+    exclude_pattern: Arc<Mutex<String>>,
     debounce: Duration,
     stop_tx: Option<tokio::sync::broadcast::Sender<()>>,
 }
@@ -29,9 +87,16 @@ impl FolderWatcher {
             watcher: None,
             folder_configs: Arc::new(Mutex::new(HashMap::new())),
             pending: Arc::new(Mutex::new(HashMap::new())),
+            filter_unsupported: Arc::new(Mutex::new(true)),
+            exclude_pattern: Arc::new(Mutex::new(String::new())),
             debounce,
             stop_tx: None,
         }
+    }
+
+    pub fn set_filter_options(&self, filter_unsupported: bool, exclude_pattern: String) {
+        *self.filter_unsupported.lock().unwrap() = filter_unsupported;
+        *self.exclude_pattern.lock().unwrap() = exclude_pattern;
     }
 
     pub fn start<F>(&mut self, on_new_files: F) -> Result<(), String>
@@ -40,17 +105,18 @@ impl FolderWatcher {
     {
         let (tx, mut rx) = mpsc::channel::<PathBuf>(1000);
         let folder_configs = self.folder_configs.clone();
+        let cb_roots = self.folder_configs.clone();
+        let cb_filter = self.filter_unsupported.clone();
+        let cb_exclude = self.exclude_pattern.clone();
 
         let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
             if let Ok(event) = res {
                 if matches!(event.kind, EventKind::Create(_) | EventKind::Modify(_)) {
+                    let roots: Vec<PathBuf> = cb_roots.lock().unwrap().keys().cloned().collect();
+                    let filter_unsupported = *cb_filter.lock().unwrap();
+                    let exclude_pattern = cb_exclude.lock().unwrap().clone();
                     for path in event.paths {
-                        if let Some(parent) = path.parent() {
-                            if crate::scanner::directory_has_nomedia(parent) {
-                                continue;
-                            }
-                        }
-                        if !is_ignored_temp_file(&path) && is_supported_by_google_photos(&path) {
+                        if should_watch_path(&path, &roots, filter_unsupported, &exclude_pattern) {
                             let _ = tx.blocking_send(path);
                         }
                     }
@@ -78,6 +144,9 @@ impl FolderWatcher {
         self.stop_tx = Some(stop_tx);
 
         let pending = self.pending.clone();
+        let loop_roots = self.folder_configs.clone();
+        let loop_filter = self.filter_unsupported.clone();
+        let loop_exclude = self.exclude_pattern.clone();
         let debounce = self.debounce;
 
         // Background loop for debouncing and stability checks
@@ -92,6 +161,7 @@ impl FolderWatcher {
                             size: -1,
                             mtime: 0,
                             checks: 0,
+                            zero_byte_checks: 0,
                         });
                     }
                     _ = ticker.tick() => {
@@ -103,6 +173,10 @@ impl FolderWatcher {
                         if candidates.is_empty() {
                             continue;
                         }
+
+                        let roots: Vec<PathBuf> = loop_roots.lock().unwrap().keys().cloned().collect();
+                        let filter_unsupported = *loop_filter.lock().unwrap();
+                        let exclude_pattern = loop_exclude.lock().unwrap().clone();
 
                         let mut ready = Vec::new();
                         let mut to_remove = Vec::new();
@@ -122,14 +196,19 @@ impl FolderWatcher {
                             }
 
                             if metadata.len() == 0 {
+                                let mut p = pending.lock().unwrap();
+                                if let Some(cand) = p.get_mut(&path) {
+                                    cand.zero_byte_checks += 1;
+                                    if cand.zero_byte_checks >= MAX_ZERO_BYTE_CHECKS {
+                                        to_remove.push(path);
+                                    }
+                                }
                                 continue;
                             }
 
-                            if let Some(parent) = path.parent() {
-                                if crate::scanner::directory_has_nomedia(parent) {
-                                    to_remove.push(path);
-                                    continue;
-                                }
+                            if !should_watch_path(&path, &roots, filter_unsupported, &exclude_pattern) {
+                                to_remove.push(path);
+                                continue;
                             }
 
                             // Check readability
@@ -147,6 +226,7 @@ impl FolderWatcher {
 
                             let mut p = pending.lock().unwrap();
                             if let Some(cand) = p.get_mut(&path) {
+                                cand.zero_byte_checks = 0;
                                 if cand.size == curr_size && cand.mtime == curr_mtime {
                                     cand.checks += 1;
                                 } else {
@@ -220,5 +300,29 @@ impl FolderWatcher {
             let _ = tx.send(());
         }
         self.watcher = None;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_should_watch_path_filters_and_ancestor_nomedia() {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path().join("Photos");
+        let sub = root.join("Private").join("2026");
+        fs::create_dir_all(&sub).unwrap();
+        fs::write(root.join("Private").join(".nomedia"), b"").unwrap();
+
+        let nested = sub.join("img.jpg");
+        assert!(has_nomedia_in_ancestors(&nested, &[root.clone()]));
+        assert!(!should_watch_path(&nested, &[root.clone()], true, ""));
+
+        let regular = root.join("holiday.raw");
+        assert!(!should_watch_path(&regular, &[root.clone()], true, ""));
+        assert!(should_watch_path(&regular, &[root.clone()], false, ""));
+        assert!(!should_watch_path(&regular, &[root.clone()], false, r"\.raw$"));
     }
 }

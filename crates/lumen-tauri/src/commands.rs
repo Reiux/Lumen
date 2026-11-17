@@ -26,6 +26,14 @@ use lumen_core::upload::{UploadEngine, UploadEvent, UploadOptions};
 use crate::cdp;
 use crate::models::*;
 
+#[derive(Clone, Debug)]
+pub struct PendingUploadBatch {
+    pub files: Vec<String>,
+    pub is_watched: bool,
+    pub dry_run_override: Option<bool>,
+    pub recursive_override: Option<bool>,
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub config_manager: Arc<ConfigManager>,
@@ -36,7 +44,7 @@ pub struct AppState {
     pub upload_pause: Arc<AtomicBool>,
     pub scan_cancel: Arc<AtomicBool>,
     pub is_uploading: Arc<AtomicBool>,
-    pub pending_watch_files: Arc<std::sync::Mutex<Vec<String>>>,
+    pub pending_watch_files: Arc<std::sync::Mutex<Vec<PendingUploadBatch>>>,
     pub watcher: Arc<tokio::sync::Mutex<Option<lumen_core::watcher::FolderWatcher>>>,
 }
 
@@ -50,10 +58,13 @@ pub fn sync_folder_watcher(state: &AppState) {
             }
         }
     }
+    let filter_unsupported = !cfg.preferences.disable_unsupported_files_filter;
+    let exclude_pattern = cfg.preferences.exclude_pattern.clone();
     let watcher_arc = state.watcher.clone();
     tauri::async_runtime::spawn(async move {
         let mut lock = watcher_arc.lock().await;
         if let Some(ref mut w) = *lock {
+            w.set_filter_options(filter_unsupported, exclude_pattern);
             let _ = w.set_folders(folders);
         }
     });
@@ -215,7 +226,9 @@ pub fn set_disable_unsupported_files_filter(
 ) -> Result<(), String> {
     state.config_manager.update(|cfg| {
         cfg.preferences.disable_unsupported_files_filter = disable_unsupported_files_filter;
-    })
+    })?;
+    sync_folder_watcher(&state);
+    Ok(())
 }
 
 #[tauri::command]
@@ -231,7 +244,9 @@ pub fn set_exclude_pattern(pattern: String, state: tauri::State<AppState>) -> Re
     validate_exclude_pattern(trimmed)?;
     state.config_manager.update(|cfg| {
         cfg.preferences.exclude_pattern = trimmed.to_string();
-    })
+    })?;
+    sync_folder_watcher(&state);
+    Ok(())
 }
 
 #[tauri::command]
@@ -709,6 +724,9 @@ pub fn find_watched_folder_config_for_path(
     configs.sort_by_key(|a| std::cmp::Reverse(a.path.len()));
 
     for folder_cfg in &configs {
+        if !folder_cfg.enabled {
+            continue;
+        }
         let folder_path = Path::new(&folder_cfg.path);
         if path_starts_with_case_insensitive(p, folder_path) {
             if !folder_cfg.include_subfolders {
@@ -797,6 +815,9 @@ pub async fn validate_and_add_credentials(
         return Err("Credential input cannot be empty".to_string());
     }
 
+    let prefs = state.config_manager.get_preferences();
+    let proxy = (!prefs.proxy.trim().is_empty()).then_some(prefs.proxy.clone());
+
     let (email, full_credential) = if looks_like_auth_string(raw) {
         let params: std::collections::HashMap<String, String> =
             url::form_urlencoded::parse(raw.as_bytes()).into_owned().collect();
@@ -811,7 +832,7 @@ pub async fn validate_and_add_credentials(
         (email.to_string(), raw.to_string())
     } else {
         let clean = normalize_oauth_token(raw).map_err(|e| e.to_string())?;
-        let client = create_http_client(None)?;
+        let client = create_http_client(proxy.as_deref())?;
         let android_id = generate_android_id();
         let exchange = exchange_embedded_setup_token(&client, EMBEDDED_SETUP_AUTH_ENDPOINT, &clean, &android_id)
             .await
@@ -824,6 +845,17 @@ pub async fn validate_and_add_credentials(
         let cred = build_google_photos_credential(&exchange.email, &exchange.master_token, &android_id);
         (exchange.email, cred)
     };
+
+    let custom_endpoint = std::env::var("LUMEN_API_ENDPOINT")
+        .ok()
+        .filter(|s| !s.trim().is_empty());
+    lumen_core::api::validate_google_photos_credential(
+        &full_credential,
+        proxy.as_deref(),
+        custom_endpoint.as_deref(),
+    )
+    .await
+    .map_err(|e| format!("Google Photos authorization (Stage 2) failed: {}", e))?;
 
     let save_status = state
         .config_manager
@@ -1068,8 +1100,11 @@ pub fn set_last_update_check(timestamp: i64, state: tauri::State<AppState>) -> R
 }
 
 #[tauri::command]
-pub fn get_release_notes(_tag: String) -> String {
-    String::new()
+pub async fn get_release_notes(tag: String) -> String {
+    UpdateChecker::new()
+        .fetch_release_notes(&tag)
+        .await
+        .unwrap_or_default()
 }
 
 #[tauri::command]
@@ -1146,27 +1181,56 @@ pub async fn pick_watched_folder(app: AppHandle) -> String {
 // Upload Orchestration & Events
 // -------------------------------------------------------------
 
-fn spawn_drain_pending_watch_files(app: AppHandle, state: AppState) {
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(500)).await;
-        let next_batch: Vec<String> = {
-            let mut pending = state.pending_watch_files.lock().unwrap();
-            if pending.is_empty() {
-                Vec::new()
-            } else {
-                pending.drain(..).collect()
-            }
-        };
-        if !next_batch.is_empty() {
+pub fn drain_ready_pending_batches(app: &AppHandle, state: &AppState) {
+    if state.is_uploading.load(Ordering::SeqCst) {
+        return;
+    }
+
+    let cfg = state.config_manager.get_config();
+    let watch_allowed = cfg.preferences.watch_folders_enabled
+        && (!cfg.preferences.schedule_enabled
+            || lumen_core::safety::is_within_schedule(
+                cfg.preferences.schedule_start_hour,
+                cfg.preferences.schedule_end_hour,
+            ))
+        && (!cfg.preferences.pause_on_battery || !lumen_core::safety::is_running_on_battery());
+
+    let next_batch = {
+        let mut pending = state.pending_watch_files.lock().unwrap();
+        if !cfg.preferences.watch_folders_enabled {
+            pending.retain(|b| !b.is_watched);
+        }
+        pending
+            .iter()
+            .position(|b| !b.is_watched || watch_allowed)
+            .map(|idx| pending.remove(idx))
+    };
+
+    if let Some(batch) = next_batch {
+        if batch.is_watched {
             let _ = app.emit(
                 "folder-watch:detected",
                 serde_json::json!({
-                    "files": &next_batch,
-                    "count": next_batch.len(),
+                    "files": &batch.files,
+                    "count": batch.files.len(),
                 }),
             );
-            let _ = execute_upload(next_batch, app, state, true, None, None);
         }
+        let _ = execute_upload(
+            batch.files,
+            app.clone(),
+            state.clone(),
+            batch.is_watched,
+            batch.dry_run_override,
+            batch.recursive_override,
+        );
+    }
+}
+
+fn spawn_drain_pending_watch_files(app: AppHandle, state: AppState) {
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        drain_ready_pending_batches(&app, &state);
     });
 }
 
@@ -1188,7 +1252,12 @@ pub fn execute_upload(
         .is_err()
     {
         let mut pending = state.pending_watch_files.lock().unwrap();
-        pending.extend(files);
+        pending.push(PendingUploadBatch {
+            files,
+            is_watched,
+            dry_run_override,
+            recursive_override,
+        });
         return Ok(());
     }
 
@@ -1206,38 +1275,35 @@ pub fn execute_upload(
 
     if is_watched {
         delete_from_host = false; // Watcher NEVER deletes local files
-    }
-
-    if let Some(first_path) = files.first() {
-        if let Some(folder_cfg) = find_watched_folder_config_for_path(first_path, &state) {
-            if !folder_cfg.account_email.is_empty() {
-                account = folder_cfg.account_email;
+        if let Some(first_path) = files.first() {
+            if let Some(folder_cfg) = find_watched_folder_config_for_path(first_path, &state) {
+                if !folder_cfg.account_email.is_empty() {
+                    account = folder_cfg.account_email;
+                }
+                if folder_cfg.album_mode == "auto" {
+                    album_auto_mode = true;
+                    album_name = String::new();
+                } else if folder_cfg.album_mode == "custom" && !folder_cfg.album_name_or_key.is_empty() {
+                    album_auto_mode = false;
+                    album_name = folder_cfg.album_name_or_key;
+                } else if folder_cfg.album_mode == "none" {
+                    album_auto_mode = false;
+                    album_name = String::new();
+                }
+                if folder_cfg.include_subfolders {
+                    recursive = true;
+                }
             }
-            if folder_cfg.album_mode == "auto" {
-                album_auto_mode = true;
-                album_name = String::new();
-            } else if folder_cfg.album_mode == "custom" && !folder_cfg.album_name_or_key.is_empty() {
-                album_auto_mode = false;
-                album_name = folder_cfg.album_name_or_key;
-            } else if folder_cfg.album_mode == "none" {
-                album_auto_mode = false;
-                album_name = String::new();
-            }
-            if folder_cfg.include_subfolders {
-                recursive = true;
-            }
-        } else if !is_watched {
-            // Auto-enable recursion when a folder is selected — but only when
-            // the caller did not pass an explicit override (review dialog
-            // toggle wins over this heuristic).
-            if recursive_override.is_none() {
-                for path in &files {
-                    if let Ok(m) = std::fs::metadata(path) {
-                        if m.is_dir() {
-                            recursive = true;
-                            break;
-                        }
-                    }
+        }
+    } else if recursive_override.is_none() {
+        // Auto-enable recursion when a folder is selected — but only when
+        // the caller did not pass an explicit override (review dialog
+        // toggle wins over this heuristic).
+        for path in &files {
+            if let Ok(m) = std::fs::metadata(path) {
+                if m.is_dir() {
+                    recursive = true;
+                    break;
                 }
             }
         }
@@ -1291,21 +1357,37 @@ pub fn execute_upload(
         });
 
         let app_for_scan = app_clone.clone();
-        let scanned_files = match scan_directories_incremental(
-            &path_bufs,
-            &scan_opts,
-            scan_cancelled.clone(),
-            move |p| {
-                let _ = app_for_scan.emit("scan:progress", serde_json::json!({
-                    "filesFound": p.files_found,
-                    "currentDirectory": p.current_directory,
-                    "isScanning": p.is_scanning,
-                }));
-            },
-        ) {
-            Ok(f) => {
+        let scan_cancelled_blocking = scan_cancelled.clone();
+        let live_photo_opts = LivePhotoClassificationOptions {
+            enabled: cfg.preferences.pair_live_photos,
+            skip_incomplete: cfg.preferences.skip_incomplete_live_photos,
+            ignore_apple_metadata: false,
+            default_account: account.clone(),
+        };
+
+        let scan_classify_result = tokio::task::spawn_blocking(move || {
+            let scanned_files = scan_directories_incremental(
+                &path_bufs,
+                &scan_opts,
+                scan_cancelled_blocking,
+                move |p| {
+                    let _ = app_for_scan.emit("scan:progress", serde_json::json!({
+                        "filesFound": p.files_found,
+                        "currentDirectory": p.current_directory,
+                        "isScanning": p.is_scanning,
+                    }));
+                },
+            )?;
+            Ok::<_, String>(classify_upload_work(&scanned_files, &live_photo_opts))
+        })
+        .await
+        .map_err(|e| format!("Scan task failed: {}", e))
+        .and_then(|res| res);
+
+        let (mut items, preflight_warnings) = match scan_classify_result {
+            Ok(res) => {
                 cancel_poll.abort();
-                f
+                res
             }
             Err(e) => {
                 cancel_poll.abort();
@@ -1320,14 +1402,6 @@ pub fn execute_upload(
             }
         };
 
-        let live_photo_opts = LivePhotoClassificationOptions {
-            enabled: cfg.preferences.pair_live_photos,
-            skip_incomplete: cfg.preferences.skip_incomplete_live_photos,
-            ignore_apple_metadata: false,
-            default_account: account.clone(),
-        };
-        let (mut items, preflight_warnings) = classify_upload_work(&scanned_files, &live_photo_opts);
-
         for w in preflight_warnings {
             let _ = app_clone.emit(
                 "uploadWarning",
@@ -1339,17 +1413,19 @@ pub fn execute_upload(
             );
         }
 
-        // Ensure each work item is mapped to its folder-configured account to prevent cross-account leaks
-        for item in &mut items {
-            let primary = item.primary_path().to_string_lossy();
-            if let Some(folder_cfg) = find_watched_folder_config_for_path(&primary, &state) {
-                if !folder_cfg.account_email.is_empty() {
-                    match item {
-                        lumen_core::livephoto::UploadWorkItem::Single { account_email, .. } => {
-                            *account_email = folder_cfg.account_email;
-                        }
-                        lumen_core::livephoto::UploadWorkItem::LivePhoto { account_email, .. } => {
-                            *account_email = folder_cfg.account_email;
+        // For watched folder triggers, ensure each work item maps to its watched folder's account
+        if is_watched {
+            for item in &mut items {
+                let primary = item.primary_path().to_string_lossy();
+                if let Some(folder_cfg) = find_watched_folder_config_for_path(&primary, &state) {
+                    if !folder_cfg.account_email.is_empty() {
+                        match item {
+                            lumen_core::livephoto::UploadWorkItem::Single { account_email, .. } => {
+                                *account_email = folder_cfg.account_email;
+                            }
+                            lumen_core::livephoto::UploadWorkItem::LivePhoto { account_email, .. } => {
+                                *account_email = folder_cfg.account_email;
+                            }
                         }
                     }
                 }
@@ -1456,7 +1532,15 @@ pub fn execute_upload(
                                 user_message: error_message.clone().or_else(|| skip_reason.clone()),
                                 ..Default::default()
                             };
-                            logs.write().unwrap().push(log_entry.clone());
+                            {
+                                let mut log_guard = logs.write().unwrap();
+                                log_guard.push(log_entry.clone());
+                                const MAX_LOGS: usize = 5000;
+                                if log_guard.len() > MAX_LOGS {
+                                    let excess = log_guard.len() - MAX_LOGS;
+                                    log_guard.drain(0..excess);
+                                }
+                            }
                             let _ = app_clone.emit("log:entry", log_entry);
                         }
                         UploadEvent::ThreadProgress(status) => {
@@ -1588,58 +1672,63 @@ pub async fn scan_for_review(
 ) -> Result<ReviewSummary, String> {
     let cfg = state.config_manager.get_config();
     let recursive = recursive.unwrap_or(cfg.preferences.recursive);
-    let has_folder = files.iter().any(|f| {
-        std::fs::metadata(f)
-            .map(|m| m.is_dir())
-            .unwrap_or(false)
-    });
-    let path_bufs: Vec<PathBuf> = files.iter().map(PathBuf::from).collect();
-    let scan_opts = ScanOptions {
-        recursive,
-        filter_unsupported_files: !cfg.preferences.disable_unsupported_files_filter,
-        exclude_pattern: cfg.preferences.exclude_pattern.clone(),
-        ..Default::default()
-    };
 
-    let cancelled = Arc::new(AtomicBool::new(false));
-    let scanned_files = scan_directories_incremental(
-        &path_bufs,
-        &scan_opts,
-        cancelled,
-        |_| {},
-    ).map_err(|e| e.to_string())?;
-
-    let live_photo_opts = LivePhotoClassificationOptions {
-        enabled: cfg.preferences.pair_live_photos,
-        skip_incomplete: cfg.preferences.skip_incomplete_live_photos,
-        ignore_apple_metadata: false,
-        default_account: cfg.account.selected.clone(),
-    };
-    let (items, _) = classify_upload_work(&scanned_files, &live_photo_opts);
-
-    let mut review_items = Vec::new();
-    let mut total_bytes = 0u64;
-
-    for item in items {
-        let p = item.primary_path();
-        let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-        let path = p.to_string_lossy().to_string();
-        let size_bytes = std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
-        total_bytes += size_bytes;
-        review_items.push(ReviewItem {
-            name,
-            path,
-            size_bytes,
+    tokio::task::spawn_blocking(move || {
+        let has_folder = files.iter().any(|f| {
+            std::fs::metadata(f)
+                .map(|m| m.is_dir())
+                .unwrap_or(false)
         });
-    }
+        let path_bufs: Vec<PathBuf> = files.iter().map(PathBuf::from).collect();
+        let scan_opts = ScanOptions {
+            recursive,
+            filter_unsupported_files: !cfg.preferences.disable_unsupported_files_filter,
+            exclude_pattern: cfg.preferences.exclude_pattern.clone(),
+            ..Default::default()
+        };
 
-    let total_count = review_items.len();
-    Ok(ReviewSummary {
-        items: review_items,
-        total_count,
-        total_bytes,
-        has_folder,
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let scanned_files = scan_directories_incremental(
+            &path_bufs,
+            &scan_opts,
+            cancelled,
+            |_| {},
+        )?;
+
+        let live_photo_opts = LivePhotoClassificationOptions {
+            enabled: cfg.preferences.pair_live_photos,
+            skip_incomplete: cfg.preferences.skip_incomplete_live_photos,
+            ignore_apple_metadata: false,
+            default_account: cfg.account.selected.clone(),
+        };
+        let (items, _) = classify_upload_work(&scanned_files, &live_photo_opts);
+
+        let mut review_items = Vec::new();
+        let mut total_bytes = 0u64;
+
+        for item in items {
+            let p = item.primary_path();
+            let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            let path = p.to_string_lossy().to_string();
+            let size_bytes = std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+            total_bytes += size_bytes;
+            review_items.push(ReviewItem {
+                name,
+                path,
+                size_bytes,
+            });
+        }
+
+        let total_count = review_items.len();
+        Ok(ReviewSummary {
+            items: review_items,
+            total_count,
+            total_bytes,
+            has_folder,
+        })
     })
+    .await
+    .map_err(|e| format!("Review scan failed: {}", e))?
 }
 
 #[tauri::command]
@@ -1827,7 +1916,7 @@ pub fn credential_needs_token_binding(auth_string: String) -> bool {
 
 #[tauri::command]
 pub fn add_token_binding_alias_from_adb(_email: String) -> Result<(), String> {
-    Ok(())
+    Err("ADB token binding extraction is not supported in this version. Please sign in with Embedded Setup instead.".to_string())
 }
 
 #[tauri::command]

@@ -9,12 +9,36 @@ use tokio::sync::mpsc;
 use tracing::warn;
 
 use crate::album::{AlbumManager, AlbumRegistry};
-use crate::api::{Api, ApiOptions};
+use crate::api::{Api, ApiError, ApiOptions};
 use crate::auth::TokenManager;
 use crate::config::ConfigManager;
 use crate::dedup::{calculate_file_sha1, HashCache};
+use crate::filename_parser::parse_timestamp_from_filename;
 use crate::livephoto::{LivePhotoPair, UploadWorkItem};
-use crate::safety::{classify_error, CircuitBreaker, ErrorKind};
+use crate::safety::{classify_error, is_retryable, CircuitBreaker, ErrorKind};
+
+const MAX_TRANSIENT_RETRIES: usize = 3;
+
+fn resolve_upload_timestamp(path: &Path, metadata: &fs::Metadata, set_date_from_filename: bool) -> i64 {
+    if set_date_from_filename {
+        if let Some(ts) = parse_timestamp_from_filename(path) {
+            return ts;
+        }
+    }
+    metadata
+        .modified()
+        .unwrap_or(SystemTime::UNIX_EPOCH)
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
+}
+
+async fn calculate_file_sha1_async(path: &Path) -> std::io::Result<(Vec<u8>, String)> {
+    let owned = path.to_path_buf();
+    tokio::task::spawn_blocking(move || calculate_file_sha1(&owned))
+        .await
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("hash task join failed: {}", e)))?
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UploadOptions {
@@ -589,6 +613,16 @@ impl UploadEngine {
             failed: count_failed,
         }).await;
 
+        if opts.delete_from_host && !opts.dry_run {
+            for res in &finished_results {
+                if !res.is_error && res.skip_code != "dry-run" {
+                    for p in &res.paths {
+                        remove_regular_file_if_not_symlink(p);
+                    }
+                }
+            }
+        }
+
         Ok(finished_results)
     }
 
@@ -678,7 +712,7 @@ impl UploadEngine {
             attempt: 1,
         })).await;
 
-        let (sha1_bytes, sha1_b64) = match calculate_file_sha1(path) {
+        let (sha1_bytes, sha1_b64) = match calculate_file_sha1_async(path).await {
             Ok(h) => h,
             Err(e) => {
                 return FileUploadResult {
@@ -712,10 +746,6 @@ impl UploadEngine {
                         bytes_total: file_size,
                         attempt: 1,
                     })).await;
-
-                    if opts.delete_from_host {
-                        remove_regular_file_if_not_symlink(path);
-                    }
 
                     return FileUploadResult {
                         media_key: cached_key,
@@ -767,10 +797,6 @@ impl UploadEngine {
                         attempt: 1,
                     })).await;
 
-                    if opts.delete_from_host {
-                        remove_regular_file_if_not_symlink(path);
-                    }
-
                     return FileUploadResult {
                         media_key: remote_key,
                         is_error: false,
@@ -791,6 +817,8 @@ impl UploadEngine {
                     let kind = classify_error(&err_str);
                     if matches!(kind, ErrorKind::SignInRequired | ErrorKind::AccountRestricted) {
                         breaker.trip(kind, account_email, &err_str);
+                    }
+                    if matches!(kind, ErrorKind::SignInRequired | ErrorKind::AccountRestricted) || matches!(e, ApiError::Auth(_)) {
                         return FileUploadResult {
                             media_key: String::new(),
                             is_error: true,
@@ -840,137 +868,143 @@ impl UploadEngine {
             };
         }
 
-        // Stage 3: Request Scotty Upload Token (or restore existing session)
-        let mut upload_token: Option<String> = None;
-        if let Some(cache) = hash_cache {
-            if let Ok(Some(cached_tok)) = cache.get_upload_session(account_email, &sha1_b64, file_size) {
-                if let Ok(Some(_)) = api.query_upload_status(&cached_tok).await {
-                    upload_token = Some(cached_tok);
-                } else {
-                    let _ = cache.remove_upload_session(account_email, &sha1_b64, file_size);
+        let timestamp = resolve_upload_timestamp(path, &metadata, opts.set_date_from_filename);
+        let mut final_media_key: Option<String> = None;
+
+        for attempt in 1..=MAX_TRANSIENT_RETRIES {
+            let mut stage_err: Option<(&'static str, String)> = None;
+
+            // Stage 3: Request Scotty Upload Token (or restore existing session)
+            let mut upload_token: Option<String> = None;
+            if let Some(cache) = hash_cache {
+                if let Ok(Some(cached_tok)) = cache.get_upload_session(account_email, &sha1_b64, file_size) {
+                    if let Ok(Some(_)) = api.query_upload_status(&cached_tok).await {
+                        upload_token = Some(cached_tok);
+                    } else {
+                        let _ = cache.remove_upload_session(account_email, &sha1_b64, file_size);
+                    }
                 }
+            }
+
+            let upload_token = match upload_token {
+                Some(tok) => Some(tok),
+                None => match api.get_upload_token(&sha1_b64, file_size).await {
+                    Ok(tok) => {
+                        if let Some(cache) = hash_cache {
+                            let _ = cache.save_upload_session(account_email, &sha1_b64, file_size, &tok);
+                        }
+                        Some(tok)
+                    }
+                    Err(e) => {
+                        stage_err = Some(("upload-token-failed", e.to_string()));
+                        None
+                    }
+                },
+            };
+
+            let finalize_token = if let Some(ref upload_token) = upload_token {
+                // Stage 4: Resumable Uploading
+                let tx = event_tx.clone();
+                let p_str = path.to_string_lossy().to_string();
+                let fn_str = file_name.clone();
+
+                match api.upload_file_resumable(
+                    upload_token,
+                    path,
+                    Some(cancelled.clone()),
+                    Some(paused.clone()),
+                    move |bytes_up, total, att| {
+                        let effective_attempt = attempt.max(att);
+                        let _ = tx.try_send(UploadEvent::ThreadProgress(ThreadStatus {
+                            worker_id,
+                            status: "uploading".to_string(),
+                            file_path: p_str.clone(),
+                            file_name: fn_str.clone(),
+                            message: if effective_attempt > 1 {
+                                format!("Retrying... (attempt {})", effective_attempt)
+                            } else {
+                                "Uploading...".to_string()
+                            },
+                            bytes_uploaded: bytes_up,
+                            bytes_total: total,
+                            attempt: effective_attempt,
+                        }));
+                    },
+                ).await {
+                    Ok(tok) => Some(tok),
+                    Err(e) => {
+                        stage_err = Some(("upload-stream-failed", e.to_string()));
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            if let Some(ref finalize_token) = finalize_token {
+                // Stage 5: Committing
+                let _ = event_tx.send(UploadEvent::ThreadProgress(ThreadStatus {
+                    worker_id,
+                    status: "finalizing".to_string(),
+                    file_path: path.to_string_lossy().to_string(),
+                    file_name: file_name.clone(),
+                    message: "Committing backup...".to_string(),
+                    bytes_uploaded: file_size,
+                    bytes_total: file_size,
+                    attempt,
+                })).await;
+
+                match api.commit_upload(finalize_token, &file_name, &sha1_bytes, timestamp).await {
+                    Ok(k) => {
+                        final_media_key = Some(k);
+                        break;
+                    }
+                    Err(e) => {
+                        stage_err = Some(("commit-failed", e.to_string()));
+                    }
+                }
+            }
+
+            if let Some((skip_code, err_str)) = stage_err {
+                let kind = classify_error(&err_str);
+                if matches!(kind, ErrorKind::SignInRequired | ErrorKind::AccountRestricted) {
+                    breaker.trip(kind, account_email, &err_str);
+                }
+                if is_retryable(&err_str)
+                    && attempt < MAX_TRANSIENT_RETRIES
+                    && !cancelled.load(Ordering::Relaxed)
+                {
+                    let _ = event_tx.send(UploadEvent::ThreadProgress(ThreadStatus {
+                        worker_id,
+                        status: "retrying".to_string(),
+                        file_path: path.to_string_lossy().to_string(),
+                        file_name: file_name.clone(),
+                        message: format!("Transient error, retrying ({}/{})...", attempt + 1, MAX_TRANSIENT_RETRIES),
+                        bytes_uploaded: 0,
+                        bytes_total: file_size,
+                        attempt: attempt + 1,
+                    })).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(attempt as u64)).await;
+                    continue;
+                }
+                return FileUploadResult {
+                    media_key: String::new(),
+                    is_error: true,
+                    is_live_photo: false,
+                    skipped: false,
+                    skip_code: skip_code.to_string(),
+                    skip_reason: String::new(),
+                    error_message: err_str,
+                    path: path.to_path_buf(),
+                    paths: vec![path.to_path_buf()],
+                    size_bytes: file_size,
+                    duration_ms: 0,
+                    account_email: account_email.to_string(),
+                };
             }
         }
 
-        let upload_token = match upload_token {
-            Some(tok) => tok,
-            None => match api.get_upload_token(&sha1_b64, file_size).await {
-                Ok(tok) => {
-                    if let Some(cache) = hash_cache {
-                        let _ = cache.save_upload_session(account_email, &sha1_b64, file_size, &tok);
-                    }
-                    tok
-                }
-                Err(e) => {
-                    let err_str = e.to_string();
-                    let kind = classify_error(&err_str);
-                    if matches!(kind, ErrorKind::SignInRequired | ErrorKind::AccountRestricted) {
-                        breaker.trip(kind, account_email, &err_str);
-                    }
-                    return FileUploadResult {
-                        media_key: String::new(),
-                        is_error: true,
-                        is_live_photo: false,
-                        skipped: false,
-                        skip_code: "upload-token-failed".to_string(),
-                        skip_reason: String::new(),
-                        error_message: err_str,
-                        path: path.to_path_buf(),
-                        paths: vec![path.to_path_buf()],
-                        size_bytes: file_size,
-                        duration_ms: 0,
-                        account_email: account_email.to_string(),
-                    };
-                }
-            },
-        };
-
-        // Stage 4: Resumable Uploading
-        let tx = event_tx.clone();
-        let p_str = path.to_string_lossy().to_string();
-        let fn_str = file_name.clone();
-
-        let finalize_token = match api.upload_file_resumable(
-            &upload_token,
-            path,
-            Some(cancelled.clone()),
-            Some(paused.clone()),
-            move |bytes_up, total, att| {
-                let _ = tx.try_send(UploadEvent::ThreadProgress(ThreadStatus {
-                    worker_id,
-                    status: "uploading".to_string(),
-                    file_path: p_str.clone(),
-                    file_name: fn_str.clone(),
-                    message: if att > 1 { format!("Retrying... (attempt {})", att) } else { "Uploading...".to_string() },
-                    bytes_uploaded: bytes_up,
-                    bytes_total: total,
-                    attempt: att,
-                }));
-            },
-        ).await {
-            Ok(tok) => tok,
-            Err(e) => {
-                let err_str = e.to_string();
-                let kind = classify_error(&err_str);
-                if matches!(kind, ErrorKind::SignInRequired | ErrorKind::AccountRestricted) {
-                    breaker.trip(kind, account_email, &err_str);
-                }
-                return FileUploadResult {
-                    media_key: String::new(),
-                    is_error: true,
-                    is_live_photo: false,
-                    skipped: false,
-                    skip_code: "upload-stream-failed".to_string(),
-                    skip_reason: String::new(),
-                    error_message: err_str,
-                    path: path.to_path_buf(),
-                    paths: vec![path.to_path_buf()],
-                    size_bytes: file_size,
-                    duration_ms: 0,
-                    account_email: account_email.to_string(),
-                };
-            }
-        };
-
-        // Stage 5: Committing
-        let _ = event_tx.send(UploadEvent::ThreadProgress(ThreadStatus {
-            worker_id,
-            status: "finalizing".to_string(),
-            file_path: path.to_string_lossy().to_string(),
-            file_name: file_name.clone(),
-            message: "Committing backup...".to_string(),
-            bytes_uploaded: file_size,
-            bytes_total: file_size,
-            attempt: 1,
-        })).await;
-
-        let timestamp = metadata.modified().unwrap_or(SystemTime::UNIX_EPOCH)
-            .duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
-
-        let media_key = match api.commit_upload(&finalize_token, &file_name, &sha1_bytes, timestamp).await {
-            Ok(k) => k,
-            Err(e) => {
-                let err_str = e.to_string();
-                let kind = classify_error(&err_str);
-                if matches!(kind, ErrorKind::SignInRequired | ErrorKind::AccountRestricted) {
-                    breaker.trip(kind, account_email, &err_str);
-                }
-                return FileUploadResult {
-                    media_key: String::new(),
-                    is_error: true,
-                    is_live_photo: false,
-                    skipped: false,
-                    skip_code: "commit-failed".to_string(),
-                    skip_reason: String::new(),
-                    error_message: err_str,
-                    path: path.to_path_buf(),
-                    paths: vec![path.to_path_buf()],
-                    size_bytes: file_size,
-                    duration_ms: 0,
-                    account_email: account_email.to_string(),
-                };
-            }
-        };
+        let media_key = final_media_key.unwrap_or_default();
 
         if let Some(cache) = hash_cache {
             let _ = cache.remove_upload_session(account_email, &sha1_b64, file_size);
@@ -980,10 +1014,6 @@ impl UploadEngine {
             if let Some(cache) = hash_cache {
                 let _ = cache.put(account_email, &sha1_b64, &media_key, file_size, timestamp);
             }
-        }
-
-        if opts.delete_from_host {
-            remove_regular_file_if_not_symlink(path);
         }
 
         let _ = event_tx.send(UploadEvent::ThreadProgress(ThreadStatus {
@@ -1099,7 +1129,7 @@ impl UploadEngine {
             attempt: 1,
         })).await;
 
-        let (photo_sha1, photo_b64) = match calculate_file_sha1(&pair.photo_path) {
+        let (photo_sha1, photo_b64) = match calculate_file_sha1_async(&pair.photo_path).await {
             Ok(h) => h,
             Err(e) => {
                 return FileUploadResult {
@@ -1119,7 +1149,7 @@ impl UploadEngine {
             }
         };
 
-        let (video_sha1, video_b64) = match calculate_file_sha1(&pair.video_path) {
+        let (video_sha1, video_b64) = match calculate_file_sha1_async(&pair.video_path).await {
             Ok(h) => h,
             Err(e) => {
                 return FileUploadResult {
@@ -1152,10 +1182,62 @@ impl UploadEngine {
             }
 
             if photo_remote.is_none() {
-                photo_remote = api.find_remote_media_by_hash(&photo_sha1).await.ok().flatten();
+                match api.find_remote_media_by_hash(&photo_sha1).await {
+                    Ok(res) => photo_remote = res,
+                    Err(e) => {
+                        let err_str = e.to_string();
+                        let kind = classify_error(&err_str);
+                        if matches!(kind, ErrorKind::SignInRequired | ErrorKind::AccountRestricted) {
+                            breaker.trip(kind, account_email, &err_str);
+                        }
+                        if matches!(kind, ErrorKind::SignInRequired | ErrorKind::AccountRestricted) || matches!(e, ApiError::Auth(_)) {
+                            return FileUploadResult {
+                                media_key: String::new(),
+                                is_error: true,
+                                is_live_photo: true,
+                                skipped: false,
+                                skip_code: "auth-failure".to_string(),
+                                skip_reason: String::new(),
+                                error_message: err_str,
+                                path: pair.photo_path.clone(),
+                                paths: vec![pair.photo_path.clone(), pair.video_path.clone()],
+                                size_bytes: total_size,
+                                duration_ms: 0,
+                                account_email: account_email.to_string(),
+                            };
+                        }
+                        warn!("Remote photo hash check warning: {}, proceeding with upload", e);
+                    }
+                }
             }
             if video_remote.is_none() {
-                video_remote = api.find_remote_media_by_hash(&video_sha1).await.ok().flatten();
+                match api.find_remote_media_by_hash(&video_sha1).await {
+                    Ok(res) => video_remote = res,
+                    Err(e) => {
+                        let err_str = e.to_string();
+                        let kind = classify_error(&err_str);
+                        if matches!(kind, ErrorKind::SignInRequired | ErrorKind::AccountRestricted) {
+                            breaker.trip(kind, account_email, &err_str);
+                        }
+                        if matches!(kind, ErrorKind::SignInRequired | ErrorKind::AccountRestricted) || matches!(e, ApiError::Auth(_)) {
+                            return FileUploadResult {
+                                media_key: String::new(),
+                                is_error: true,
+                                is_live_photo: true,
+                                skipped: false,
+                                skip_code: "auth-failure".to_string(),
+                                skip_reason: String::new(),
+                                error_message: err_str,
+                                path: pair.photo_path.clone(),
+                                paths: vec![pair.photo_path.clone(), pair.video_path.clone()],
+                                size_bytes: total_size,
+                                duration_ms: 0,
+                                account_email: account_email.to_string(),
+                            };
+                        }
+                        warn!("Remote video hash check warning: {}, proceeding with upload", e);
+                    }
+                }
             }
 
             if photo_remote.is_some() || video_remote.is_some() {
@@ -1215,138 +1297,168 @@ impl UploadEngine {
             };
         }
 
-        // Upload photo component
-        let photo_upload_token = match api.get_upload_token(&photo_b64, p_meta.len() as i64).await {
-            Ok(tok) => tok,
-            Err(e) => {
-                let err_str = e.to_string();
-                let kind = classify_error(&err_str);
-                if matches!(kind, ErrorKind::SignInRequired | ErrorKind::AccountRestricted) {
-                    breaker.trip(kind, account_email, &err_str);
-                }
-                return FileUploadResult {
-                    media_key: String::new(),
-                    is_error: true,
-                    is_live_photo: true,
-                    skipped: false,
-                    skip_code: "upload-token-failed".to_string(),
-                    skip_reason: String::new(),
-                    error_message: err_str,
-                    path: pair.photo_path.clone(),
-                    paths: vec![pair.photo_path.clone(), pair.video_path.clone()],
-                    size_bytes: total_size,
-                    duration_ms: 0,
-                    account_email: account_email.to_string(),
-                };
-            }
-        };
-
-        let tx = event_tx.clone();
-        let p_str = pair.photo_path.to_string_lossy().to_string();
-        let disp_name = display_name.clone();
-        let photo_finalize_tok = match api.upload_file_resumable(
-            &photo_upload_token,
-            &pair.photo_path,
-            Some(cancelled.clone()),
-            Some(paused.clone()),
-            move |bytes_up, _, att| {
-                let _ = tx.try_send(UploadEvent::ThreadProgress(ThreadStatus {
-                    worker_id,
-                    status: "uploading".to_string(),
-                    file_path: p_str.clone(),
-                    file_name: disp_name.clone(),
-                    message: if att > 1 { format!("Uploading photo (attempt {})...", att) } else { "Uploading photo...".to_string() },
-                    bytes_uploaded: bytes_up,
-                    bytes_total: total_size,
-                    attempt: att,
-                }));
-            },
-        ).await {
-            Ok(tok) => tok,
-            Err(e) => {
-                let err_str = e.to_string();
-                let kind = classify_error(&err_str);
-                if matches!(kind, ErrorKind::SignInRequired | ErrorKind::AccountRestricted) {
-                    breaker.trip(kind, account_email, &err_str);
-                }
-                return FileUploadResult {
-                    media_key: String::new(),
-                    is_error: true,
-                    is_live_photo: true,
-                    skipped: false,
-                    skip_code: "upload-stream-failed".to_string(),
-                    skip_reason: String::new(),
-                    error_message: err_str,
-                    path: pair.photo_path.clone(),
-                    paths: vec![pair.photo_path.clone(), pair.video_path.clone()],
-                    size_bytes: total_size,
-                    duration_ms: 0,
-                    account_email: account_email.to_string(),
-                };
-            }
-        };
-
-        // Upload video component
-        let video_upload_token = match api.get_upload_token(&video_b64, v_meta.len() as i64).await {
-            Ok(tok) => tok,
-            Err(e) => {
-                let err_str = e.to_string();
-                let kind = classify_error(&err_str);
-                if matches!(kind, ErrorKind::SignInRequired | ErrorKind::AccountRestricted) {
-                    breaker.trip(kind, account_email, &err_str);
-                }
-                return FileUploadResult {
-                    media_key: String::new(),
-                    is_error: true,
-                    is_live_photo: true,
-                    skipped: false,
-                    skip_code: "upload-token-failed".to_string(),
-                    skip_reason: String::new(),
-                    error_message: err_str,
-                    path: pair.photo_path.clone(),
-                    paths: vec![pair.photo_path.clone(), pair.video_path.clone()],
-                    size_bytes: total_size,
-                    duration_ms: 0,
-                    account_email: account_email.to_string(),
-                };
-            }
-        };
-
-        let tx = event_tx.clone();
-        let v_str = pair.video_path.to_string_lossy().to_string();
-        let disp_name = display_name.clone();
+        let timestamp = resolve_upload_timestamp(&pair.photo_path, &p_meta, opts.set_date_from_filename);
         let p_size = p_meta.len() as i64;
-        let video_finalize_tok = match api.upload_file_resumable(
-            &video_upload_token,
-            &pair.video_path,
-            Some(cancelled.clone()),
-            Some(paused.clone()),
-            move |bytes_up, _, att| {
-                let _ = tx.try_send(UploadEvent::ThreadProgress(ThreadStatus {
+        let v_size = v_meta.len() as i64;
+        let mut final_media_key: Option<String> = None;
+
+        for attempt in 1..=MAX_TRANSIENT_RETRIES {
+            let mut stage_err: Option<(&'static str, String)> = None;
+
+            // Upload photo component
+            let photo_upload_token = match api.get_upload_token(&photo_b64, p_size).await {
+                Ok(tok) => Some(tok),
+                Err(e) => {
+                    stage_err = Some(("upload-token-failed", e.to_string()));
+                    None
+                }
+            };
+
+            let photo_finalize_tok = if let Some(ref photo_upload_token) = photo_upload_token {
+                let tx = event_tx.clone();
+                let p_str = pair.photo_path.to_string_lossy().to_string();
+                let disp_name = display_name.clone();
+                match api.upload_file_resumable(
+                    photo_upload_token,
+                    &pair.photo_path,
+                    Some(cancelled.clone()),
+                    Some(paused.clone()),
+                    move |bytes_up, _, att| {
+                        let effective_attempt = attempt.max(att);
+                        let _ = tx.try_send(UploadEvent::ThreadProgress(ThreadStatus {
+                            worker_id,
+                            status: "uploading".to_string(),
+                            file_path: p_str.clone(),
+                            file_name: disp_name.clone(),
+                            message: if effective_attempt > 1 {
+                                format!("Uploading photo (attempt {})...", effective_attempt)
+                            } else {
+                                "Uploading photo...".to_string()
+                            },
+                            bytes_uploaded: bytes_up,
+                            bytes_total: total_size,
+                            attempt: effective_attempt,
+                        }));
+                    },
+                ).await {
+                    Ok(tok) => Some(tok),
+                    Err(e) => {
+                        stage_err = Some(("upload-stream-failed", e.to_string()));
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            // Upload video component
+            let video_upload_token = if photo_finalize_tok.is_some() {
+                match api.get_upload_token(&video_b64, v_size).await {
+                    Ok(tok) => Some(tok),
+                    Err(e) => {
+                        stage_err = Some(("upload-token-failed", e.to_string()));
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            let video_finalize_tok = if let Some(ref video_upload_token) = video_upload_token {
+                let tx = event_tx.clone();
+                let v_str = pair.video_path.to_string_lossy().to_string();
+                let disp_name = display_name.clone();
+                match api.upload_file_resumable(
+                    video_upload_token,
+                    &pair.video_path,
+                    Some(cancelled.clone()),
+                    Some(paused.clone()),
+                    move |bytes_up, _, att| {
+                        let effective_attempt = attempt.max(att);
+                        let _ = tx.try_send(UploadEvent::ThreadProgress(ThreadStatus {
+                            worker_id,
+                            status: "uploading".to_string(),
+                            file_path: v_str.clone(),
+                            file_name: disp_name.clone(),
+                            message: if effective_attempt > 1 {
+                                format!("Uploading video (attempt {})...", effective_attempt)
+                            } else {
+                                "Uploading video...".to_string()
+                            },
+                            bytes_uploaded: p_size + bytes_up,
+                            bytes_total: total_size,
+                            attempt: effective_attempt,
+                        }));
+                    },
+                ).await {
+                    Ok(tok) => Some(tok),
+                    Err(e) => {
+                        stage_err = Some(("upload-stream-failed", e.to_string()));
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            if let (Some(ref p_tok), Some(ref v_tok)) = (photo_finalize_tok, video_finalize_tok) {
+                let _ = event_tx.send(UploadEvent::ThreadProgress(ThreadStatus {
                     worker_id,
-                    status: "uploading".to_string(),
-                    file_path: v_str.clone(),
-                    file_name: disp_name.clone(),
-                    message: if att > 1 { format!("Uploading video (attempt {})...", att) } else { "Uploading video...".to_string() },
-                    bytes_uploaded: p_size + bytes_up,
+                    status: "finalizing".to_string(),
+                    file_path: pair.photo_path.to_string_lossy().to_string(),
+                    file_name: display_name.clone(),
+                    message: "Committing Live Photo...".to_string(),
+                    bytes_uploaded: total_size,
                     bytes_total: total_size,
-                    attempt: att,
-                }));
-            },
-        ).await {
-            Ok(tok) => tok,
-            Err(e) => {
-                let err_str = e.to_string();
+                    attempt,
+                })).await;
+
+                match api.commit_live_photo(
+                    p_tok,
+                    v_tok,
+                    &p_name,
+                    &photo_sha1,
+                    &video_sha1,
+                    timestamp,
+                ).await {
+                    Ok(k) => {
+                        final_media_key = Some(k);
+                        break;
+                    }
+                    Err(e) => {
+                        stage_err = Some(("commit-failed", e.to_string()));
+                    }
+                }
+            }
+
+            if let Some((skip_code, err_str)) = stage_err {
                 let kind = classify_error(&err_str);
                 if matches!(kind, ErrorKind::SignInRequired | ErrorKind::AccountRestricted) {
                     breaker.trip(kind, account_email, &err_str);
+                }
+                if is_retryable(&err_str)
+                    && attempt < MAX_TRANSIENT_RETRIES
+                    && !cancelled.load(Ordering::Relaxed)
+                {
+                    let _ = event_tx.send(UploadEvent::ThreadProgress(ThreadStatus {
+                        worker_id,
+                        status: "retrying".to_string(),
+                        file_path: pair.photo_path.to_string_lossy().to_string(),
+                        file_name: display_name.clone(),
+                        message: format!("Transient error, retrying ({}/{})...", attempt + 1, MAX_TRANSIENT_RETRIES),
+                        bytes_uploaded: 0,
+                        bytes_total: total_size,
+                        attempt: attempt + 1,
+                    })).await;
+                    tokio::time::sleep(std::time::Duration::from_secs(attempt as u64)).await;
+                    continue;
                 }
                 return FileUploadResult {
                     media_key: String::new(),
                     is_error: true,
                     is_live_photo: true,
                     skipped: false,
-                    skip_code: "upload-stream-failed".to_string(),
+                    skip_code: skip_code.to_string(),
                     skip_reason: String::new(),
                     error_message: err_str,
                     path: pair.photo_path.clone(),
@@ -1356,53 +1468,9 @@ impl UploadEngine {
                     account_email: account_email.to_string(),
                 };
             }
-        };
+        }
 
-        let _ = event_tx.send(UploadEvent::ThreadProgress(ThreadStatus {
-            worker_id,
-            status: "finalizing".to_string(),
-            file_path: pair.photo_path.to_string_lossy().to_string(),
-            file_name: display_name.clone(),
-            message: "Committing Live Photo...".to_string(),
-            bytes_uploaded: total_size,
-            bytes_total: total_size,
-            attempt: 1,
-        })).await;
-
-        let timestamp = p_meta.modified().unwrap_or(SystemTime::UNIX_EPOCH)
-            .duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
-
-        let media_key = match api.commit_live_photo(
-            &photo_finalize_tok,
-            &video_finalize_tok,
-            &p_name,
-            &photo_sha1,
-            &video_sha1,
-            timestamp,
-        ).await {
-            Ok(k) => k,
-            Err(e) => {
-                let err_str = e.to_string();
-                let kind = classify_error(&err_str);
-                if matches!(kind, ErrorKind::SignInRequired | ErrorKind::AccountRestricted) {
-                    breaker.trip(kind, account_email, &err_str);
-                }
-                return FileUploadResult {
-                    media_key: String::new(),
-                    is_error: true,
-                    is_live_photo: true,
-                    skipped: false,
-                    skip_code: "commit-failed".to_string(),
-                    skip_reason: String::new(),
-                    error_message: err_str,
-                    path: pair.photo_path.clone(),
-                    paths: vec![pair.photo_path.clone(), pair.video_path.clone()],
-                    size_bytes: total_size,
-                    duration_ms: 0,
-                    account_email: account_email.to_string(),
-                };
-            }
-        };
+        let media_key = final_media_key.unwrap_or_default();
 
         let _ = event_tx.send(UploadEvent::ThreadProgress(ThreadStatus {
             worker_id,
@@ -1417,14 +1485,9 @@ impl UploadEngine {
 
         if opts.use_local_hash_cache {
             if let Some(cache) = hash_cache {
-                let _ = cache.put(account_email, &photo_b64, &media_key, p_meta.len() as i64, timestamp);
-                let _ = cache.put(account_email, &video_b64, &media_key, v_meta.len() as i64, timestamp);
+                let _ = cache.put(account_email, &photo_b64, &media_key, p_size, timestamp);
+                let _ = cache.put(account_email, &video_b64, &media_key, v_size, timestamp);
             }
-        }
-
-        if opts.delete_from_host {
-            remove_regular_file_if_not_symlink(&pair.photo_path);
-            remove_regular_file_if_not_symlink(&pair.video_path);
         }
 
         FileUploadResult {

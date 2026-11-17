@@ -12,7 +12,7 @@ use crate::proto::lumen::*;
 
 pub const DEFAULT_PHOTOS_DATA_BASE: &str = "https://photosdata-pa.googleapis.com/6439526531001121323";
 pub const DEFAULT_PHOTOS_UPLOAD_BASE: &str = "https://photos.googleapis.com";
-pub const DEFAULT_AUTH_BASE: &str = "https://android.googleapis.com";
+pub const DEFAULT_AUTH_BASE: &str = "https://android.clients.google.com";
 
 pub const LIVE_PHOTO_RESULT_ITEM_MASK_BASE64: &str = "CnsKAggBEAEaAggBIgIIASoQCgIIARICCAEaAggBIgIIATICCAGCAQIIAYoBAggBmgECCAGiAQIIAaoBCggBKgIgATICCAHKAQIIAfIBBggBEgIIAfoBAggBggICCAGKAgQKAggBkgIGCAESAggBogICCAGqAgC6AgDCAgAQASpiCAESKggBEhIIARoGCAESAggBIgQIASIAKAEiBggBEgIQASoGCAESAggBMAE4ARoWCAESDAgBGgIIASICCAEoARoCCAEwASIKCAESBggBEgIIASoOCgQIATABEgYIARICCAE6AggBQgIIAUoKCAESAggBGgISAFoSEgIIARoCCAEiCAgBEgQIARACYgIIAXISEgIIARoCCAEiCAgBEgQIARACeggKAggBIgIIAYoBBAoCCAGSAQQIARABqgECCgA=";
 
@@ -163,6 +163,14 @@ impl Api {
         self.rate_limiter = limiter;
     }
 
+    fn invalidate_token_if_unauthorized(&self, status: u16) {
+        if matches!(status, 401 | 403) {
+            if let Some(ref tm) = self.token_manager {
+                tm.invalidate();
+            }
+        }
+    }
+
     fn apply_device_profile(&mut self) {
         if self.use_quota {
             self.model = "Pixel 8".to_string();
@@ -204,7 +212,13 @@ impl Api {
         let mut form_params: Vec<(String, String)> = url::form_urlencoded::parse(self.auth_data.as_bytes())
             .into_owned()
             .collect();
-        form_params.retain(|(k, _)| k != "it_caveat_types" && k != "assertion_jwt");
+        form_params.retain(|(k, _)| {
+            k != "it_caveat_types"
+                && k != "assertion_jwt"
+                && k != "token_binding_alias"
+                && k != "app"
+                && k != "callerPkg"
+        });
         form_params.push(("app".to_string(), GOOGLE_PHOTOS_PACKAGE.to_string()));
         form_params.push(("callerPkg".to_string(), GOOGLE_PHOTOS_PACKAGE.to_string()));
 
@@ -251,18 +265,38 @@ impl Api {
         }
 
         let parsed = crate::auth::parse_key_value_response(&body);
+        if let Some(err_code) = parsed.get("Error") {
+            let detail = parsed
+                .get("ErrorDetail")
+                .map(|d| format!(" ({})", d))
+                .unwrap_or_default();
+            return Err(ApiError::Auth(format!(
+                "Google auth failed: {}{}",
+                err_code, detail
+            )));
+        }
+
         let token = parsed
             .get("Auth")
             .ok_or_else(|| ApiError::Auth(format!("auth response missing Auth token. Server response: {}", body.trim())))?
             .clone();
 
-        let expiry_sec: i64 = parsed
-            .get("Expiry")
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(3600);
+        // Google returns `Expiry` as a Unix epoch timestamp in seconds (~1.7e9),
+        // while test mocks may return relative TTL seconds (e.g. 3600).
+        let ttl_secs: u64 = match parsed.get("Expiry").and_then(|s| s.parse::<i64>().ok()) {
+            Some(val) if val > 1_000_000_000 => {
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs() as i64;
+                (val - now).max(60) as u64
+            }
+            Some(val) if val > 0 => std::cmp::max(60, val as u64),
+            _ => 3600,
+        };
 
         if let Some(ref tm) = self.token_manager {
-            tm.set_token(token.clone(), Duration::from_secs(std::cmp::max(60, expiry_sec as u64)));
+            tm.set_token(token.clone(), Duration::from_secs(ttl_secs));
         }
 
         Ok(token)
@@ -307,6 +341,7 @@ impl Api {
             .map_err(ApiError::Network)?;
 
         if !status.is_success() {
+            self.invalidate_token_if_unauthorized(status.as_u16());
             return Err(ApiError::HttpStatus {
                 status: status.as_u16(),
                 body: String::from_utf8_lossy(&body_bytes).to_string(),
@@ -364,6 +399,7 @@ impl Api {
 
         let status = resp.status();
         if !status.is_success() {
+            self.invalidate_token_if_unauthorized(status.as_u16());
             let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
                 .await
                 .unwrap_or_default();
@@ -409,7 +445,8 @@ impl Api {
             .await
             .map_err(|e| ApiError::Network(e.to_string()))?;
 
-        if resp.status().is_success() {
+        let status = resp.status();
+        if status.is_success() {
             if let Some(recv_str) = resp.headers().get("x-goog-upload-size-received").and_then(|v| v.to_str().ok()) {
                 if let Ok(recv) = recv_str.parse::<i64>() {
                     return Ok(Some(recv));
@@ -418,6 +455,7 @@ impl Api {
             return Ok(Some(0));
         }
 
+        self.invalidate_token_if_unauthorized(status.as_u16());
         Ok(None)
     }
 
@@ -481,9 +519,17 @@ impl Api {
                 .await
                 .map_err(|e| ApiError::Network(e.to_string()))?;
 
+            let status = resp.status();
             let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
                 .await
                 .map_err(ApiError::Network)?;
+            if !status.is_success() {
+                self.invalidate_token_if_unauthorized(status.as_u16());
+                return Err(ApiError::HttpStatus {
+                    status: status.as_u16(),
+                    body: String::from_utf8_lossy(&body_bytes).to_string(),
+                });
+            }
             return ScottyFinalizeToken::parse(&body_bytes);
         }
 
@@ -540,6 +586,7 @@ impl Api {
                 .map_err(ApiError::Network)?;
 
             if !status.is_success() {
+                self.invalidate_token_if_unauthorized(status.as_u16());
                 return Err(ApiError::HttpStatus {
                     status: status.as_u16(),
                     body: String::from_utf8_lossy(&body_bytes).to_string(),
@@ -635,6 +682,7 @@ impl Api {
             .map_err(ApiError::Network)?;
 
         if !status.is_success() {
+            self.invalidate_token_if_unauthorized(status.as_u16());
             return Err(ApiError::HttpStatus {
                 status: status.as_u16(),
                 body: String::from_utf8_lossy(&body_bytes).to_string(),
@@ -747,6 +795,7 @@ impl Api {
             .map_err(ApiError::Network)?;
 
         if !status.is_success() {
+            self.invalidate_token_if_unauthorized(status.as_u16());
             return Err(ApiError::HttpStatus {
                 status: status.as_u16(),
                 body: String::from_utf8_lossy(&body_bytes).to_string(),
@@ -829,6 +878,7 @@ impl AlbumApi for Api {
             .map_err(AlbumError::Api)?;
 
         if !status.is_success() {
+            self.invalidate_token_if_unauthorized(status.as_u16());
             let body = String::from_utf8_lossy(&body_bytes).to_string();
             if status == reqwest::StatusCode::NOT_FOUND || body.to_lowercase().contains("not found") {
                 return Err(AlbumError::NotFound(album_name.to_string()));
@@ -893,6 +943,7 @@ impl AlbumApi for Api {
 
         let status = resp.status();
         if !status.is_success() {
+            self.invalidate_token_if_unauthorized(status.as_u16());
             let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
                 .await
                 .unwrap_or_default();
@@ -905,4 +956,23 @@ impl AlbumApi for Api {
 
         Ok(())
     }
+}
+
+/// Validates a Google Photos credential by performing Stage 2 bearer token
+/// exchange (`master_token + androidId -> photos.native`) and verifying a light
+/// API hash lookup against Google Photos.
+pub async fn validate_google_photos_credential(
+    credentials: &str,
+    proxy: Option<&str>,
+    custom_endpoint_base: Option<&str>,
+) -> Result<(), ApiError> {
+    let opts = ApiOptions {
+        proxy: proxy.unwrap_or_default().to_string(),
+        custom_endpoint_base: custom_endpoint_base.map(|s| s.to_string()),
+        ..Default::default()
+    };
+    let api = Api::new(opts, credentials)?;
+    api.bearer_token().await?;
+    let _ = api.find_remote_media_by_hash(&[0u8; 20]).await?;
+    Ok(())
 }

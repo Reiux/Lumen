@@ -249,6 +249,59 @@ impl UpdateChecker {
             ..Default::default()
         }
     }
+
+    pub async fn fetch_release_notes(&self, tag: &str) -> Result<String, String> {
+        let trimmed = tag.trim().trim_start_matches('v');
+        if trimmed.is_empty() {
+            return Err("Empty release tag".to_string());
+        }
+        let clean_tag = if tag.trim().starts_with('v') {
+            tag.trim().to_string()
+        } else {
+            format!("v{}", trimmed)
+        };
+        if !clean_tag
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_' | '+'))
+        {
+            return Err("Invalid release tag characters".to_string());
+        }
+
+        let configured_proxy = crate::config::ConfigManager::global().get_preferences().proxy;
+        let client = if !configured_proxy.trim().is_empty() {
+            crate::net::create_http_client(Some(&configured_proxy))
+                .map_err(|e| format!("Invalid proxy configuration: {}", e))?
+        } else {
+            self.client.clone()
+        };
+
+        let api_url = format!(
+            "https://api.github.com/repos/Reiux/Lumen/releases/tags/{}",
+            clean_tag
+        );
+        let resp = client
+            .get(&api_url)
+            .header("User-Agent", "Lumen-Desktop")
+            .header("Accept", "application/vnd.github+json")
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if !resp.status().is_success() {
+            return Err(format!("GitHub API returned HTTP {}", resp.status()));
+        }
+
+        #[derive(Deserialize)]
+        struct GitHubRelease {
+            body: Option<String>,
+        }
+        let body_bytes = crate::net::read_response_bytes_bounded(resp, 512 * 1024)
+            .await
+            .map_err(|e| e.to_string())?;
+        let parsed: GitHubRelease =
+            serde_json::from_slice(&body_bytes).map_err(|e| e.to_string())?;
+        Ok(parsed.body.unwrap_or_default().trim().to_string())
+    }
 }
 
 pub fn extract_tag_from_location(loc: &str) -> Option<String> {
@@ -265,16 +318,35 @@ pub fn extract_tag_from_location(loc: &str) -> Option<String> {
     }
 }
 
-pub fn is_version_newer(latest: &str, current: &str) -> bool {
-    let clean = |s: &str| -> Vec<u64> {
-        let s = s.trim().trim_start_matches('v');
-        s.split(['.', '-', '+'])
-            .filter_map(|part| part.parse::<u64>().ok())
-            .collect()
+fn parse_semver_parts(raw: &str) -> (Vec<u64>, Option<String>) {
+    let s = raw.trim().trim_start_matches(['v', 'V']);
+    let without_build = s.split('+').next().unwrap_or("");
+    let (core_str, pre_str) = match without_build.split_once('-') {
+        Some((core, pre)) => (core, (!pre.trim().is_empty()).then(|| pre.trim().to_string())),
+        None => (without_build, None),
     };
-    let v_latest = clean(latest);
-    let v_current = clean(current);
-    v_latest > v_current
+    let mut core: Vec<u64> = core_str
+        .split('.')
+        .map(|part| part.parse::<u64>().unwrap_or(0))
+        .collect();
+    while core.len() < 3 {
+        core.push(0);
+    }
+    (core, pre_str)
+}
+
+pub fn is_version_newer(latest: &str, current: &str) -> bool {
+    let (latest_core, latest_pre) = parse_semver_parts(latest);
+    let (current_core, current_pre) = parse_semver_parts(current);
+    if latest_core != current_core {
+        return latest_core > current_core;
+    }
+    match (latest_pre, current_pre) {
+        (None, Some(_)) => true,
+        (Some(_), None) => false,
+        (Some(lp), Some(cp)) => lp > cp,
+        (None, None) => false,
+    }
 }
 
 fn parse_rate_limit_message(resp: &reqwest::Response) -> String {
@@ -317,5 +389,8 @@ mod tests {
         assert!(is_version_newer("v2.0.0", "v1.9.9"));
         assert!(!is_version_newer("v1.0.0", "v1.0.0"));
         assert!(!is_version_newer("v0.9.0", "v1.0.0"));
+        assert!(!is_version_newer("v2.1.0-beta.1", "2.1.0"));
+        assert!(is_version_newer("v2.1.0", "2.1.0-beta.1"));
+        assert!(is_version_newer("v2.1.1-rc.1", "2.1.0"));
     }
 }

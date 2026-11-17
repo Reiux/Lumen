@@ -614,3 +614,213 @@ async fn test_scenario_5_two_account_queue_isolation() {
     assert!(hash_cache.get("bob@example.com", &bob_sha1, bob_size).unwrap().is_some());
     assert!(hash_cache.get("alice@example.com", &bob_sha1, bob_size).unwrap().is_none());
 }
+
+#[tokio::test]
+async fn test_scenario_6_delete_from_host_waits_for_album_attachment() {
+    let mock_server = MockServer::start().await;
+    let base_url = mock_server.uri();
+
+    let dir = tempdir().unwrap();
+    let photo = dir.path().join("delete_guard.jpg");
+    fs::write(&photo, b"delete_guard_bytes").unwrap();
+
+    let cfg_path = dir.path().join("config.yaml");
+    let cfg_mgr = Arc::new(ConfigManager::new_with_mock_keyring(cfg_path));
+    cfg_mgr
+        .save_credential(
+            "user@example.com",
+            "androidId=12345&Email=user@example.com&Token=oauth2_token",
+        )
+        .unwrap();
+
+    let db_path = dir.path().join("hashes.db");
+    let hash_cache = HashCache::open(&db_path).unwrap();
+    let album_registry = AlbumRegistry::new(dir.path().join("albums.json")).unwrap();
+
+    Mock::given(method("POST"))
+        .and(path("/auth"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("Auth=bearer_tok\nExpiry=3600\n"))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/5084965799730810217"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(helper_empty_remote_matches_bytes()))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/data/upload/uploadmedia/interactive"))
+        .respond_with(ResponseTemplate::new(200).insert_header("X-GUploader-UploadID", "sess_del"))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("PUT"))
+        .and(path("/data/upload/uploadmedia/interactive"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(helper_commit_token_bytes()))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/16538846908252377752"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(helper_commit_response_bytes("media_key_del")))
+        .mount(&mock_server)
+        .await;
+
+    // Album creation fails -> run_upload returns Err and must NOT delete local file
+    Mock::given(method("POST"))
+        .and(path("/8386163679468898444"))
+        .respond_with(ResponseTemplate::new(500).set_body_string("album failure"))
+        .mount(&mock_server)
+        .await;
+
+    let engine = UploadEngine::new(cfg_mgr, Some(hash_cache), album_registry);
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(100);
+    let drain_handle = tokio::spawn(async move {
+        while let Some(_event) = event_rx.recv().await {}
+    });
+
+    let opts = UploadOptions {
+        threads: 1,
+        album_name: "Fail Album".to_string(),
+        delete_from_host: true,
+        custom_endpoint_base: Some(base_url),
+        ..Default::default()
+    };
+
+    let results = engine
+        .run_upload(
+            vec![UploadWorkItem::Single {
+                path: photo.clone(),
+                account_email: "user@example.com".to_string(),
+            }],
+            opts,
+            event_tx,
+        )
+        .await
+        .unwrap();
+    let _ = drain_handle.await;
+
+    assert_eq!(results.len(), 1);
+    assert!(results[0].is_error, "album failure must mark item as error");
+    assert!(photo.exists(), "local file must NOT be deleted when album attachment fails");
+}
+
+#[tokio::test]
+async fn test_scenario_7_transient_retry_and_401_invalidation() {
+    let mock_server = MockServer::start().await;
+    let base_url = mock_server.uri();
+
+    let dir = tempdir().unwrap();
+    let photo = dir.path().join("retry_test.jpg");
+    fs::write(&photo, b"retry_payload_bytes").unwrap();
+
+    let cfg_path = dir.path().join("config.yaml");
+    let cfg_mgr = Arc::new(ConfigManager::new_with_mock_keyring(cfg_path));
+    cfg_mgr
+        .save_credential(
+            "user@example.com",
+            "androidId=12345&Email=user@example.com&Token=oauth2_token",
+        )
+        .unwrap();
+
+    let db_path = dir.path().join("hashes.db");
+    let hash_cache = HashCache::open(&db_path).unwrap();
+    let album_registry = AlbumRegistry::new(dir.path().join("albums.json")).unwrap();
+
+    // First /auth returns tok1 (with epoch expiry far in future), second returns tok2 after 401 invalidates tok1
+    Mock::given(method("POST"))
+        .and(path("/auth"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("Auth=tok1\nExpiry=9999999999\n"))
+        .up_to_n_times(1)
+        .mount(&mock_server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/auth"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("Auth=tok2\nExpiry=9999999999\n"))
+        .mount(&mock_server)
+        .await;
+
+    // First HashCheck gets 401 with tok1, invalidating TokenManager's cache; next call must use tok2!
+    Mock::given(method("POST"))
+        .and(path("/5084965799730810217"))
+        .and(header("Authorization", "Bearer tok1"))
+        .respond_with(ResponseTemplate::new(401).set_body_string("token expired"))
+        .mount(&mock_server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/5084965799730810217"))
+        .and(header("Authorization", "Bearer tok2"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(helper_empty_remote_matches_bytes()))
+        .mount(&mock_server)
+        .await;
+
+    let api = lumen_core::api::Api::new(
+        lumen_core::api::ApiOptions {
+            custom_endpoint_base: Some(base_url.clone()),
+            ..Default::default()
+        },
+        "androidId=12345&Email=user@example.com&Token=oauth2_token",
+    )
+    .unwrap();
+    let err = api.find_remote_media_by_hash(b"01234567890123456789").await.unwrap_err();
+    assert!(err.to_string().contains("401"));
+    // Next call must bypass the invalidated tok1 and exchange for tok2
+    assert!(api.find_remote_media_by_hash(b"01234567890123456789").await.unwrap().is_none());
+
+    // Now test full UploadEngine retry on transient 503 during get_upload_token
+    Mock::given(method("POST"))
+        .and(path("/data/upload/uploadmedia/interactive"))
+        .respond_with(ResponseTemplate::new(503).set_body_string("Service Unavailable"))
+        .up_to_n_times(1)
+        .mount(&mock_server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/data/upload/uploadmedia/interactive"))
+        .respond_with(ResponseTemplate::new(200).insert_header("X-GUploader-UploadID", "sess_retry"))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("PUT"))
+        .and(path("/data/upload/uploadmedia/interactive"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(helper_commit_token_bytes()))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/16538846908252377752"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(helper_commit_response_bytes("retry_media_key")))
+        .mount(&mock_server)
+        .await;
+
+    let engine = UploadEngine::new(cfg_mgr, Some(hash_cache), album_registry);
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(100);
+    let drain_handle = tokio::spawn(async move {
+        while let Some(_event) = event_rx.recv().await {}
+    });
+
+    let opts = UploadOptions {
+        threads: 1,
+        delete_from_host: true,
+        custom_endpoint_base: Some(base_url),
+        ..Default::default()
+    };
+
+    let results = engine
+        .run_upload(
+            vec![UploadWorkItem::Single {
+                path: photo.clone(),
+                account_email: "user@example.com".to_string(),
+            }],
+            opts,
+            event_tx,
+        )
+        .await
+        .unwrap();
+    let _ = drain_handle.await;
+
+    assert_eq!(results.len(), 1);
+    assert!(!results[0].is_error, "expected retry to succeed: {}", results[0].error_message);
+    assert_eq!(results[0].media_key, "retry_media_key");
+    assert!(!photo.exists(), "local file should be deleted after successful batch");
+}

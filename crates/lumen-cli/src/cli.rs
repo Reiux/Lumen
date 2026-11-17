@@ -456,6 +456,9 @@ pub async fn handle_creds(args: CredsArgs, config_manager: Arc<ConfigManager>) -
                 bail!("Credential string cannot be empty.");
             }
 
+            let prefs = config_manager.get_preferences();
+            let proxy = (!prefs.proxy.trim().is_empty()).then_some(prefs.proxy.as_str());
+
             let (email, full_credential) = if looks_like_auth_string(cred_str) {
                 let params: HashMap<String, String> = url::form_urlencoded::parse(cred_str.as_bytes())
                     .into_owned()
@@ -473,7 +476,7 @@ pub async fn handle_creds(args: CredsArgs, config_manager: Arc<ConfigManager>) -
                 let clean_token = normalize_oauth_token(cred_str)
                     .map_err(|e| anyhow::anyhow!("Invalid oauth token: {}", e))?;
 
-                let client = create_http_client(None)
+                let client = create_http_client(proxy)
                     .map_err(|e| anyhow::anyhow!("Failed to initialize HTTP client: {}", e))?;
                 let android_id = generate_android_id();
                 let exchange = exchange_embedded_setup_token(
@@ -492,6 +495,23 @@ pub async fn handle_creds(args: CredsArgs, config_manager: Arc<ConfigManager>) -
                 let cred = build_google_photos_credential(&exchange.email, &exchange.master_token, &android_id);
                 (exchange.email, cred)
             };
+
+            let custom_endpoint = std::env::var("LUMEN_API_ENDPOINT")
+                .ok()
+                .filter(|s| !s.trim().is_empty());
+            lumen_core::api::validate_google_photos_credential(
+                &full_credential,
+                proxy,
+                custom_endpoint.as_deref(),
+            )
+            .await
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "Google Photos authorization (Stage 2) failed for {}: {}",
+                    email,
+                    e
+                )
+            })?;
 
             let save_status = config_manager.save_credential(&email, &full_credential)
                 .map_err(|e| anyhow::anyhow!("Failed to save credential: {}", e))?;
