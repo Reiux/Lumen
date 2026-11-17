@@ -108,6 +108,7 @@ pub fn get_settings(state: tauri::State<AppState>) -> Preferences {
         schedule_end_hour: cfg.preferences.schedule_end_hour,
         pause_on_battery: cfg.preferences.pause_on_battery,
         dry_run: cfg.preferences.dry_run,
+        locale: cfg.preferences.locale,
         album_name: cfg.preferences.album_name,
         album_auto_mode: cfg.preferences.album_auto_mode,
     }
@@ -454,6 +455,13 @@ pub fn set_schedule_hours(start: u8, end: u8, state: tauri::State<AppState>) -> 
 pub fn set_pause_on_battery(v: bool, state: tauri::State<AppState>) -> Result<(), String> {
     state.config_manager.update(|cfg| {
         cfg.preferences.pause_on_battery = v;
+    })
+}
+
+#[tauri::command]
+pub fn set_locale(locale: String, state: tauri::State<AppState>) -> Result<(), String> {
+    state.config_manager.update(|cfg| {
+        cfg.preferences.locale = locale;
     })
 }
 
@@ -1365,6 +1373,8 @@ pub fn execute_upload(
 
         let is_dry_run_batch = upload_opts.dry_run;
 
+        let config_mgr_for_events = config_manager.clone();
+
         let engine = UploadEngine::new(
             config_manager,
             if cfg.preferences.use_local_hash_cache { hash_cache } else { None },
@@ -1376,6 +1386,7 @@ pub fn execute_upload(
         let event_handle = tokio::spawn({
             let app_clone = app_clone.clone();
             let logs = logs.clone();
+            let config_mgr_for_events = config_mgr_for_events.clone();
             async move {
                 while let Some(ev) = event_rx.recv().await {
                     match ev {
@@ -1487,10 +1498,12 @@ pub fn execute_upload(
                         }
                         UploadEvent::BatchComplete { uploaded, skipped, failed } => {
                             if notify_on_complete {
+                                let locale = config_mgr_for_events.get_config().preferences.locale;
+                                let (title, body) = format_batch_complete_notification(&locale, uploaded, skipped, failed);
                                 let _ = app_clone.notification()
                                     .builder()
-                                    .title("Backup Complete")
-                                    .body(format!("Finished: {} completed, {} skipped, {} failed.", uploaded, skipped, failed))
+                                    .title(title)
+                                    .body(body)
                                     .show();
                             }
                         }
@@ -1614,13 +1627,74 @@ pub fn app_ready(window: Window) {
     let _ = window.set_focus();
 }
 
+fn format_batch_complete_notification(
+    locale: &str,
+    uploaded: usize,
+    skipped: usize,
+    failed: usize,
+) -> (&'static str, String) {
+    match locale {
+        "id" => (
+            "Pencadangan Selesai",
+            format!(
+                "Selesai: {} dicadangkan, {} dilewati, {} gagal.",
+                uploaded, skipped, failed
+            ),
+        ),
+        "ja" => (
+            "バックアップ完了",
+            format!(
+                "完了: {}件成功、{}件スキップ、{}件失敗",
+                uploaded, skipped, failed
+            ),
+        ),
+        "es" => (
+            "Copia de seguridad completada",
+            format!(
+                "Terminado: {} completados, {} omitidos, {} fallidos.",
+                uploaded, skipped, failed
+            ),
+        ),
+        _ => (
+            "Backup Complete",
+            format!(
+                "Finished: {} completed, {} skipped, {} failed.",
+                uploaded, skipped, failed
+            ),
+        ),
+    }
+}
+
+fn format_test_notification(locale: &str) -> (&'static str, &'static str) {
+    match locale {
+        "id" => ("Lumen", "Pencadangan batch selesai (notifikasi uji coba)"),
+        "ja" => ("Lumen", "バックアップバッチが完了しました（テスト通知）"),
+        "es" => ("Lumen", "Lote de copia completado (notificación de prueba)"),
+        _ => ("Lumen", "Backup batch complete (test notification)"),
+    }
+}
+
 #[tauri::command]
-pub fn test_notification(app: AppHandle) {
+pub fn test_notification(
+    title: Option<String>,
+    body: Option<String>,
+    app: AppHandle,
+    state: tauri::State<AppState>,
+) {
+    let cfg = state.config_manager.get_config();
+    let (default_title, default_body) = format_test_notification(&cfg.preferences.locale);
+    let final_title = title
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or_else(|| default_title.to_string());
+    let final_body = body
+        .filter(|b| !b.trim().is_empty())
+        .unwrap_or_else(|| default_body.to_string());
+
     let _ = app
         .notification()
         .builder()
-        .title("Lumen")
-        .body("Backup batch complete (test notification)")
+        .title(final_title)
+        .body(final_body)
         .show();
 }
 

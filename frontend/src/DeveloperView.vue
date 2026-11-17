@@ -164,7 +164,10 @@ const isTestingNotification = ref(false)
 async function testNotification() {
   isTestingNotification.value = true
   try {
-    Events.Emit('dev:test-notification')
+    Events.Emit('dev:test-notification', {
+      title: 'Lumen',
+      body: t('notification.testNotificationBody'),
+    })
     toast.info(t('developer.toastSent'))
   } catch {
     toast.error(t('developer.toastFailed'))

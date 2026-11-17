@@ -165,6 +165,7 @@ fn main() {
             commands::set_schedule_enabled,
             commands::set_schedule_hours,
             commands::set_pause_on_battery,
+            commands::set_locale,
             commands::set_dry_run,
             commands::scan_for_review,
             commands::cancel_scan,

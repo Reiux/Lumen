@@ -696,5 +696,10 @@
     "accountSlowDown": "Googleから一時的な待機を求められました (HTTP 429)",
     "accountSignInRequired": "Googleアカウントへの再ログインが必要です (HTTP 401)",
     "retryItemAria": "{path} のバックアップを再試行"
+  },
+  "notification": {
+    "backupCompleteTitle": "バックアップ完了",
+    "backupCompleteBody": "完了: {uploaded}件成功、{skipped}件スキップ、{failed}件失敗",
+    "testNotificationBody": "バックアップバッチが完了しました（テスト通知）"
   }
 }

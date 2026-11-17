@@ -81,10 +81,16 @@ pub struct Preferences {
     pub pause_on_battery: bool,
     #[serde(default, rename = "dry_run")]
     pub dry_run: bool,
+    #[serde(default = "default_locale", rename = "locale")]
+    pub locale: String,
     #[serde(default, skip_serializing)]
     pub album_name: String,
     #[serde(default, skip_serializing)]
     pub album_auto_mode: bool,
+}
+
+fn default_locale() -> String {
+    "en".to_string()
 }
 
 fn deserialize_last_update_check<'de, D>(deserializer: D) -> Result<i64, D::Error>
@@ -180,6 +186,7 @@ impl Default for Preferences {
             schedule_end_hour: 7,
             pause_on_battery: false,
             dry_run: false,
+            locale: default_locale(),
             album_name: String::new(),
             album_auto_mode: false,
         }

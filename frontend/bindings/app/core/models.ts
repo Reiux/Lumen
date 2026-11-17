@@ -464,6 +464,7 @@ export class Preferences {
     "scheduleEndHour"?: number;
     "pauseOnBattery"?: boolean;
     "dryRun"?: boolean;
+    "locale"?: string;
 
     /**
      * AlbumName and AlbumAutoMode are per-session choices and are never persisted.

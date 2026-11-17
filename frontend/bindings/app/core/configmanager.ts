@@ -399,6 +399,10 @@ export function SetPauseOnBattery(v: boolean): $CancellablePromise<void> {
     return $Call.ByID(99990003, v);
 }
 
+export function SetLocale(locale: string): $CancellablePromise<void> {
+    return $Call.ByID(99990004, locale);
+}
+
 export function SetDryRun(v: boolean): $CancellablePromise<void> {
     return $Call.ByID(99990004, v);
 }

@@ -488,6 +488,12 @@ export const ConfigManager = {
     }
   },
 
+  async SetLocale(locale: string): Promise<void> {
+    if (hasTauri()) {
+      return tauriInvoke('set_locale', { locale });
+    }
+  },
+
   async SetDryRun(v: boolean): Promise<void> {
     if (hasTauri()) {
       return tauriInvoke('set_dry_run', { v });

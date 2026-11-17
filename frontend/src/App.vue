@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useColorMode, useWindowSize } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
+import { setLocale } from './i18n'
 import { toast } from 'vue-sonner'
 import { Events } from '@wailsio/runtime'
 import { ConfigManager } from '../bindings/app/core'
@@ -1173,6 +1174,9 @@ onMounted(async () => {
     if (cfg) {
       isSaverMode.value = !!cfg.saver
       isDryRunEnabled.value = !!cfg.dryRun
+      if (cfg.locale) {
+        setLocale(cfg.locale)
+      }
     }
   } catch {
     // Ignore in test/mock environment

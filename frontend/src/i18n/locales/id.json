@@ -696,5 +696,10 @@
     "accountSlowDown": "Google meminta Lumen memperlambat (HTTP 429)",
     "accountSignInRequired": "Google meminta Anda masuk kembali (HTTP 401)",
     "retryItemAria": "Ulangi pencadangan untuk {path}"
+  },
+  "notification": {
+    "backupCompleteTitle": "Pencadangan Selesai",
+    "backupCompleteBody": "Selesai: {uploaded} dicadangkan, {skipped} dilewati, {failed} gagal.",
+    "testNotificationBody": "Pencadangan batch selesai (notifikasi uji coba)"
   }
 }

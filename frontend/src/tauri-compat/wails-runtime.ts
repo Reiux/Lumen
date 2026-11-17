@@ -153,7 +153,11 @@ export const Events = {
         return tauriInvoke('app_ready');
       }
       if (eventName === 'dev:test-notification') {
-        return tauriInvoke('test_notification');
+        const payload = (data || {}) as { title?: string; body?: string };
+        return tauriInvoke('test_notification', {
+          title: payload.title,
+          body: payload.body,
+        });
       }
 
       const w = window as any;

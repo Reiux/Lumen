@@ -696,5 +696,10 @@
     "accountSlowDown": "Google ha solicitado ralentizar las peticiones (HTTP 429)",
     "accountSignInRequired": "Google solicita iniciar sesión de nuevo (HTTP 401)",
     "retryItemAria": "Reintentar copia de seguridad de {path}"
+  },
+  "notification": {
+    "backupCompleteTitle": "Copia de seguridad completada",
+    "backupCompleteBody": "Terminado: {uploaded} completados, {skipped} omitidos, {failed} fallidos.",
+    "testNotificationBody": "Lote de copia completado (notificación de prueba)"
   }
 }

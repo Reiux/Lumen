@@ -696,5 +696,10 @@
     "accountSlowDown": "Google asked Lumen to slow down (HTTP 429)",
     "accountSignInRequired": "Google is asking you to sign in again (HTTP 401)",
     "retryItemAria": "Retry backup for {path}"
+  },
+  "notification": {
+    "backupCompleteTitle": "Backup Complete",
+    "backupCompleteBody": "Finished: {uploaded} completed, {skipped} skipped, {failed} failed.",
+    "testNotificationBody": "Backup batch complete (test notification)"
   }
 }
