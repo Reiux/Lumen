@@ -1074,7 +1074,14 @@ pub fn get_release_notes(_tag: String) -> String {
 
 #[tauri::command]
 pub fn get_app_version() -> String {
-    env!("CARGO_PKG_VERSION").to_string()
+    // Dev builds (cargo/tauri debug profile — local machines and CI dev
+    // artifacts alike) always report a "-dev" suffix so they're never
+    // mistaken for a stable release. Release builds report the plain version.
+    if cfg!(debug_assertions) {
+        format!("{}-dev", env!("CARGO_PKG_VERSION"))
+    } else {
+        env!("CARGO_PKG_VERSION").to_string()
+    }
 }
 
 #[tauri::command]
