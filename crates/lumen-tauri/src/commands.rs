@@ -33,6 +33,7 @@ pub struct AppState {
     pub album_registry: AlbumRegistry,
     pub logs: Arc<std::sync::RwLock<Vec<LogEntry>>>,
     pub upload_cancel: Arc<AtomicBool>,
+    pub upload_pause: Arc<AtomicBool>,
     pub scan_cancel: Arc<AtomicBool>,
     pub is_uploading: Arc<AtomicBool>,
     pub pending_watch_files: Arc<std::sync::Mutex<Vec<String>>>,
@@ -102,6 +103,12 @@ pub fn get_settings(state: tauri::State<AppState>) -> Preferences {
         recent_albums: cfg.preferences.recent_albums,
         auto_check_updates: cfg.preferences.auto_check_updates,
         last_update_check: cfg.preferences.last_update_check,
+        schedule_enabled: cfg.preferences.schedule_enabled,
+        schedule_start_hour: cfg.preferences.schedule_start_hour,
+        schedule_end_hour: cfg.preferences.schedule_end_hour,
+        pause_on_battery: cfg.preferences.pause_on_battery,
+        dry_run: cfg.preferences.dry_run,
+        locale: cfg.preferences.locale,
         album_name: cfg.preferences.album_name,
         album_auto_mode: cfg.preferences.album_auto_mode,
     }
@@ -350,7 +357,7 @@ pub fn set_launch_on_startup(v: bool, state: tauri::State<AppState>) -> Result<(
             if let Ok(exe) = std::env::current_exe() {
                 let clean_exe = exe.to_string_lossy().replace(['\r', '\n'], "").replace('"', "\\\"");
                 let desktop_entry = format!(
-                    "[Desktop Entry]\nType=Application\nName=Lumen\nComment=Lumen Google Photos Uploader\nExec=\"{}\"\nTerminal=false\nCategories=Utility;\n",
+                    "[Desktop Entry]\nType=Application\nName=Lumen\nComment=Lumen Google Photos Backup\nExec=\"{}\"\nTerminal=false\nCategories=Utility;\n",
                     clean_exe
                 );
                 let _ = std::fs::write(&desktop_file, desktop_entry);
@@ -427,6 +434,35 @@ pub fn is_account_risk_acknowledged(_state: tauri::State<AppState>) -> bool {
 #[tauri::command]
 pub fn set_account_risk_acknowledged(_acknowledged: bool, _state: tauri::State<AppState>) -> Result<(), String> {
     Ok(())
+}
+
+#[tauri::command]
+pub fn set_schedule_enabled(v: bool, state: tauri::State<AppState>) -> Result<(), String> {
+    state.config_manager.update(|cfg| {
+        cfg.preferences.schedule_enabled = v;
+    })
+}
+
+#[tauri::command]
+pub fn set_schedule_hours(start: u8, end: u8, state: tauri::State<AppState>) -> Result<(), String> {
+    state.config_manager.update(|cfg| {
+        cfg.preferences.schedule_start_hour = start;
+        cfg.preferences.schedule_end_hour = end;
+    })
+}
+
+#[tauri::command]
+pub fn set_pause_on_battery(v: bool, state: tauri::State<AppState>) -> Result<(), String> {
+    state.config_manager.update(|cfg| {
+        cfg.preferences.pause_on_battery = v;
+    })
+}
+
+#[tauri::command]
+pub fn set_locale(locale: String, state: tauri::State<AppState>) -> Result<(), String> {
+    state.config_manager.update(|cfg| {
+        cfg.preferences.locale = locale;
+    })
 }
 
 // -------------------------------------------------------------
@@ -798,7 +834,7 @@ pub async fn validate_and_add_credentials(
         let _ = app.emit(
             "log:entry",
             LogEntry {
-                id: format!("keyring-warn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()),
+                id: format!("keyring-warn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis()),
                 timestamp: chrono_iso(),
                 level: "WARN".to_string(),
                 category: "Auth".to_string(),
@@ -946,6 +982,11 @@ pub fn clear_log_entries(state: tauri::State<AppState>) {
 }
 
 #[tauri::command]
+pub fn clear_problem_logs(state: tauri::State<AppState>) {
+    state.logs.write().unwrap().retain(|e| e.level != "WARN" && e.level != "ERROR");
+}
+
+#[tauri::command]
 pub fn export_logs(format: String, state: tauri::State<AppState>) -> String {
     let logs = state.logs.read().unwrap();
     if format.to_lowercase() == "json" {
@@ -1056,7 +1097,7 @@ pub async fn pick_upload_files(app: AppHandle) -> Vec<String> {
     let (tx, rx) = oneshot::channel();
     app.dialog()
         .file()
-        .set_title("Select Photos & Videos to Upload")
+        .set_title("Select Photos & Videos to Back Up")
         .pick_files(move |paths| {
             let res = paths
                 .map(|list| list.into_iter().map(|p| p.to_string()).collect())
@@ -1072,7 +1113,7 @@ pub async fn pick_upload_folder(app: AppHandle) -> String {
     let (tx, rx) = oneshot::channel();
     app.dialog()
         .file()
-        .set_title("Select Folder to Upload")
+        .set_title("Select Folder to Back Up")
         .pick_folder(move |path| {
             let res = path.map(|p| p.to_string()).unwrap_or_default();
             let _ = tx.send(res);
@@ -1117,7 +1158,7 @@ fn spawn_drain_pending_watch_files(app: AppHandle, state: AppState) {
                     "count": next_batch.len(),
                 }),
             );
-            let _ = execute_upload(next_batch, app, state, true);
+            let _ = execute_upload(next_batch, app, state, true, None, None);
         }
     });
 }
@@ -1127,6 +1168,8 @@ pub fn execute_upload(
     app: AppHandle,
     state: AppState,
     is_watched: bool,
+    dry_run_override: Option<bool>,
+    recursive_override: Option<bool>,
 ) -> Result<(), String> {
     if files.is_empty() {
         return Ok(());
@@ -1143,6 +1186,7 @@ pub fn execute_upload(
     }
 
     state.upload_cancel.store(false, Ordering::SeqCst);
+    state.upload_pause.store(false, Ordering::SeqCst);
     state.scan_cancel.store(false, Ordering::SeqCst);
 
     let cfg = state.config_manager.get_config();
@@ -1150,7 +1194,7 @@ pub fn execute_upload(
 
     let mut album_name = cfg.preferences.album_name.clone();
     let mut album_auto_mode = cfg.preferences.album_auto_mode;
-    let mut recursive = cfg.preferences.recursive;
+    let mut recursive = recursive_override.unwrap_or(cfg.preferences.recursive);
     let mut delete_from_host = cfg.preferences.delete_from_host;
 
     if is_watched {
@@ -1176,11 +1220,16 @@ pub fn execute_upload(
                 recursive = true;
             }
         } else if !is_watched {
-            for path in &files {
-                if let Ok(m) = std::fs::metadata(path) {
-                    if m.is_dir() {
-                        recursive = true;
-                        break;
+            // Auto-enable recursion when a folder is selected — but only when
+            // the caller did not pass an explicit override (review dialog
+            // toggle wins over this heuristic).
+            if recursive_override.is_none() {
+                for path in &files {
+                    if let Ok(m) = std::fs::metadata(path) {
+                        if m.is_dir() {
+                            recursive = true;
+                            break;
+                        }
                     }
                 }
             }
@@ -1201,6 +1250,7 @@ pub fn execute_upload(
         })?;
 
     let upload_cancel_flag = state.upload_cancel.clone();
+    let upload_pause_flag = state.upload_pause.clone();
     let scan_cancel_flag = state.scan_cancel.clone();
     let is_uploading_flag = state.is_uploading.clone();
     let notify_on_complete = cfg.preferences.notify_on_complete;
@@ -1320,17 +1370,29 @@ pub fn execute_upload(
             album_name,
             album_auto_mode,
             custom_endpoint_base: std::env::var("LUMEN_API_ENDPOINT").ok(),
+            dry_run: dry_run_override.unwrap_or(cfg.preferences.dry_run),
+            schedule_enabled: cfg.preferences.schedule_enabled,
+            schedule_start_hour: cfg.preferences.schedule_start_hour,
+            schedule_end_hour: cfg.preferences.schedule_end_hour,
+            pause_on_battery: cfg.preferences.pause_on_battery,
         };
+
+        let is_dry_run_batch = upload_opts.dry_run;
+
+        let config_mgr_for_events = config_manager.clone();
 
         let engine = UploadEngine::new(
             config_manager,
             if cfg.preferences.use_local_hash_cache { hash_cache } else { None },
             album_registry,
-        ).with_cancelled(upload_cancel_flag);
+        )
+        .with_cancelled(upload_cancel_flag)
+        .with_paused(upload_pause_flag);
 
         let event_handle = tokio::spawn({
             let app_clone = app_clone.clone();
             let logs = logs.clone();
+            let config_mgr_for_events = config_mgr_for_events.clone();
             async move {
                 while let Some(ev) = event_rx.recv().await {
                     match ev {
@@ -1340,6 +1402,7 @@ pub fn execute_upload(
                                 UploadBatchStart {
                                     total: total_items,
                                     total_bytes: total_bytes as u64,
+                                    is_dry_run: is_dry_run_batch,
                                 },
                             );
                             let _ = app_clone.emit("uploadTotalBytes", total_bytes);
@@ -1441,10 +1504,12 @@ pub fn execute_upload(
                         }
                         UploadEvent::BatchComplete { uploaded, skipped, failed } => {
                             if notify_on_complete {
+                                let locale = config_mgr_for_events.get_config().preferences.locale;
+                                let (title, body) = format_batch_complete_notification(&locale, uploaded, skipped, failed);
                                 let _ = app_clone.notification()
                                     .builder()
-                                    .title("Upload Complete")
-                                    .body(format!("Finished: {} uploaded, {} skipped, {} failed.", uploaded, skipped, failed))
+                                    .title(title)
+                                    .body(body)
                                     .show();
                             }
                         }
@@ -1468,10 +1533,19 @@ pub fn execute_upload(
 #[tauri::command]
 pub async fn start_upload(
     files: Vec<String>,
+    dry_run: Option<bool>,
+    recursive: Option<bool>,
     app: AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    execute_upload(files, app, (*state).clone(), false)
+    execute_upload(files, app, (*state).clone(), false, dry_run, recursive)
+}
+
+#[tauri::command]
+pub fn set_dry_run(v: bool, state: tauri::State<AppState>) -> Result<(), String> {
+    state.config_manager.update(|cfg| {
+        cfg.preferences.dry_run = v;
+    })
 }
 
 #[tauri::command]
@@ -1480,8 +1554,85 @@ pub fn cancel_upload(state: tauri::State<AppState>) {
 }
 
 #[tauri::command]
+pub fn pause_upload(state: tauri::State<AppState>) {
+    state.upload_pause.store(true, Ordering::SeqCst);
+}
+
+#[tauri::command]
+pub fn resume_upload(state: tauri::State<AppState>) {
+    state.upload_pause.store(false, Ordering::SeqCst);
+}
+
+#[tauri::command]
+pub fn is_upload_paused(state: tauri::State<AppState>) -> bool {
+    state.upload_pause.load(Ordering::Relaxed)
+}
+
+#[tauri::command]
 pub fn cancel_scan(state: tauri::State<AppState>) {
     state.scan_cancel.store(true, Ordering::SeqCst);
+}
+
+#[tauri::command]
+pub async fn scan_for_review(
+    files: Vec<String>,
+    recursive: Option<bool>,
+    state: tauri::State<'_, AppState>,
+) -> Result<ReviewSummary, String> {
+    let cfg = state.config_manager.get_config();
+    let recursive = recursive.unwrap_or(cfg.preferences.recursive);
+    let has_folder = files.iter().any(|f| {
+        std::fs::metadata(f)
+            .map(|m| m.is_dir())
+            .unwrap_or(false)
+    });
+    let path_bufs: Vec<PathBuf> = files.iter().map(PathBuf::from).collect();
+    let scan_opts = ScanOptions {
+        recursive,
+        filter_unsupported_files: !cfg.preferences.disable_unsupported_files_filter,
+        exclude_pattern: cfg.preferences.exclude_pattern.clone(),
+        ..Default::default()
+    };
+
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let scanned_files = scan_directories_incremental(
+        &path_bufs,
+        &scan_opts,
+        cancelled,
+        |_| {},
+    ).map_err(|e| e.to_string())?;
+
+    let live_photo_opts = LivePhotoClassificationOptions {
+        enabled: cfg.preferences.pair_live_photos,
+        skip_incomplete: cfg.preferences.skip_incomplete_live_photos,
+        ignore_apple_metadata: false,
+        default_account: cfg.account.selected.clone(),
+    };
+    let (items, _) = classify_upload_work(&scanned_files, &live_photo_opts);
+
+    let mut review_items = Vec::new();
+    let mut total_bytes = 0u64;
+
+    for item in items {
+        let p = item.primary_path();
+        let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let path = p.to_string_lossy().to_string();
+        let size_bytes = std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+        total_bytes += size_bytes;
+        review_items.push(ReviewItem {
+            name,
+            path,
+            size_bytes,
+        });
+    }
+
+    let total_count = review_items.len();
+    Ok(ReviewSummary {
+        items: review_items,
+        total_count,
+        total_bytes,
+        has_folder,
+    })
 }
 
 #[tauri::command]
@@ -1490,13 +1641,74 @@ pub fn app_ready(window: Window) {
     let _ = window.set_focus();
 }
 
+fn format_batch_complete_notification(
+    locale: &str,
+    uploaded: usize,
+    skipped: usize,
+    failed: usize,
+) -> (&'static str, String) {
+    match locale {
+        "id" => (
+            "Pencadangan Selesai",
+            format!(
+                "Selesai: {} dicadangkan, {} dilewati, {} gagal.",
+                uploaded, skipped, failed
+            ),
+        ),
+        "ja" => (
+            "バックアップ完了",
+            format!(
+                "完了: {}件成功、{}件スキップ、{}件失敗",
+                uploaded, skipped, failed
+            ),
+        ),
+        "es" => (
+            "Copia de seguridad completada",
+            format!(
+                "Terminado: {} completados, {} omitidos, {} fallidos.",
+                uploaded, skipped, failed
+            ),
+        ),
+        _ => (
+            "Backup Complete",
+            format!(
+                "Finished: {} completed, {} skipped, {} failed.",
+                uploaded, skipped, failed
+            ),
+        ),
+    }
+}
+
+fn format_test_notification(locale: &str) -> (&'static str, &'static str) {
+    match locale {
+        "id" => ("Lumen", "Pencadangan batch selesai (notifikasi uji coba)"),
+        "ja" => ("Lumen", "バックアップバッチが完了しました（テスト通知）"),
+        "es" => ("Lumen", "Lote de copia completado (notificación de prueba)"),
+        _ => ("Lumen", "Backup batch complete (test notification)"),
+    }
+}
+
 #[tauri::command]
-pub fn test_notification(app: AppHandle) {
+pub fn test_notification(
+    title: Option<String>,
+    body: Option<String>,
+    app: AppHandle,
+    state: tauri::State<AppState>,
+) {
+    let cfg = state.config_manager.get_config();
+    let (default_title, default_body) = format_test_notification(&cfg.preferences.locale);
+    let final_title = title
+        .filter(|t| !t.trim().is_empty())
+        .unwrap_or_else(|| default_title.to_string());
+    let final_body = body
+        .filter(|b| !b.trim().is_empty())
+        .unwrap_or_else(|| default_body.to_string());
+
     let _ = app
         .notification()
         .builder()
-        .title("Lumen")
-        .body("Upload batch complete (test notification)")
+        .title(final_title)
+        .body(final_body)
         .show();
 }
 
@@ -1543,13 +1755,20 @@ pub fn set_title(window: Window, title: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn clipboard_set_text(_text: String) -> Result<(), String> {
-    Ok(())
+pub fn clipboard_set_text(text: String) -> Result<(), String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    clipboard.set_text(text).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub fn clipboard_get_text() -> String {
-    String::new()
+    match arboard::Clipboard::new() {
+        Ok(mut clipboard) => clipboard.get_text().unwrap_or_default(),
+        Err(e) => {
+            tracing::warn!("Failed to access clipboard: {}", e);
+            String::new()
+        }
+    }
 }
 
 #[tauri::command]

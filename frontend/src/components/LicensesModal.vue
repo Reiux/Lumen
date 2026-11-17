@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import licensesData from '../../../docs/THIRD_PARTY_LICENSES.json'
 import M3Button from './ui/M3Button.vue'
 import M3Icon from './ui/M3Icon.vue'
@@ -14,17 +15,23 @@ const emit = defineEmits<{
   (e: 'update:open', val: boolean): void
 }>()
 
-const activeTab = ref<'project' | 'go' | 'npm'>('project')
+const { t } = useI18n()
+
+const activeTab = ref<'project' | 'rust' | 'npm'>('project')
 const searchQuery = ref('')
 
 function close() {
   emit('update:open', false)
 }
 
-const filteredGoDeps = computed(() => {
-  if (!searchQuery.value) return licensesData.goDependencies
+const rustDeps = computed(() => {
+  return (licensesData as { rustDependencies?: Array<{ name: string; version: string; license: string }> }).rustDependencies || []
+})
+
+const filteredRustDeps = computed(() => {
+  if (!searchQuery.value) return rustDeps.value
   const q = searchQuery.value.toLowerCase()
-  return licensesData.goDependencies.filter(
+  return rustDeps.value.filter(
     (d) => d.name.toLowerCase().includes(q) || d.license.toLowerCase().includes(q)
   )
 })
@@ -63,10 +70,10 @@ const filteredNpmDeps = computed(() => {
                   id="licenses-modal-title"
                   class="m3-headline-small text-[var(--md-sys-color-on-surface)]"
                 >
-                  Open source licenses
+                  {{ t('licenses.title') }}
                 </h2>
                 <p class="m3-body-medium">
-                  Third-party components and project copyright notices
+                  {{ t('licenses.subtitle') }}
                 </p>
               </div>
             </div>
@@ -75,7 +82,7 @@ const filteredNpmDeps = computed(() => {
               variant="text"
               size="xs"
               icon="close"
-              aria-label="Close dialog"
+              :aria-label="t('licenses.closeAria')"
               class="!size-9 !min-w-0 !p-0"
               @click="close"
             />
@@ -84,172 +91,171 @@ const filteredNpmDeps = computed(() => {
           <!-- Navigation Tabs Bar -->
           <div class="flex items-center justify-between border-b border-[var(--md-sys-color-outline-variant)]/30 px-6 py-2.5 bg-[var(--md-sys-color-surface-container)] gap-4">
             <div class="flex items-center gap-1.5 p-1 rounded-full bg-[var(--md-sys-color-surface-container-high)] border border-[var(--md-sys-color-outline-variant)]/30">
-            <M3Button
-              size="xs"
-              :toggle="true"
-              :selected="activeTab === 'project'"
-              :variant="activeTab === 'project' ? 'filled' : 'text'"
-              icon="copyright"
-              @click="activeTab = 'project'"
-            >
-              Project licenses
-            </M3Button>
+              <M3Button
+                size="xs"
+                :toggle="true"
+                :selected="activeTab === 'project'"
+                :variant="activeTab === 'project' ? 'filled' : 'text'"
+                icon="copyright"
+                @click="activeTab = 'project'"
+              >
+                {{ t('licenses.projectTab') }}
+              </M3Button>
 
-            <M3Button
-              size="xs"
-              :toggle="true"
-              :selected="activeTab === 'go'"
-              :variant="activeTab === 'go' ? 'filled' : 'text'"
-              icon="code"
-              @click="activeTab = 'go'"
-            >
-              Go modules ({{ licensesData.goDependencies.length }})
-            </M3Button>
+              <M3Button
+                size="xs"
+                :toggle="true"
+                :selected="activeTab === 'rust'"
+                :variant="activeTab === 'rust' ? 'filled' : 'text'"
+                icon="build"
+                @click="activeTab = 'rust'"
+              >
+                {{ t('licenses.rustTab', { count: rustDeps.length }) }}
+              </M3Button>
 
-            <M3Button
-              size="xs"
-              :toggle="true"
-              :selected="activeTab === 'npm'"
-              :variant="activeTab === 'npm' ? 'filled' : 'text'"
-              icon="javascript"
-              @click="activeTab = 'npm'"
-            >
-              NPM packages ({{ licensesData.npmDependencies.length }})
-            </M3Button>
-          </div>
-
-          <div v-if="activeTab !== 'project'" class="w-64">
-            <M3TextField
-              id="license-search"
-              v-model="searchQuery"
-              placeholder="Search dependencies..."
-              variant="outlined"
-              leading-icon="search"
-            />
-          </div>
-        </div>
-
-        <!-- Tab 1: Project & Upstream Licenses -->
-        <div
-          v-if="activeTab === 'project'"
-          class="flex flex-col gap-6 p-6 overflow-y-auto flex-1 min-h-0 m3-body-medium"
-        >
-          <!-- Lumen License -->
-          <div class="flex flex-col gap-2 rounded-2xl bg-[var(--md-sys-color-surface-container-low)] p-5 border border-[var(--md-sys-color-outline-variant)]/30">
-            <div class="flex items-center justify-between border-b border-[var(--md-sys-color-outline-variant)]/20 pb-2">
-              <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">{{ licensesData.project.name }}</span>
-              <span class="rounded-full bg-[var(--md-sys-color-primary-container)] px-2.5 py-0.5 m3-label-small text-[var(--md-sys-color-on-primary-container)]">
-                {{ licensesData.project.license }}
-              </span>
+              <M3Button
+                size="xs"
+                :toggle="true"
+                :selected="activeTab === 'npm'"
+                :variant="activeTab === 'npm' ? 'filled' : 'text'"
+                icon="javascript"
+                @click="activeTab = 'npm'"
+              >
+                {{ t('licenses.npmTab', { count: licensesData.npmDependencies.length }) }}
+              </M3Button>
             </div>
-            <pre class="m3-mono m3-body-medium leading-relaxed whitespace-pre-wrap mt-1">{{ licensesData.project.text }}</pre>
+
+            <div v-if="activeTab !== 'project'" class="w-64">
+              <M3TextField
+                id="license-search"
+                v-model="searchQuery"
+                :placeholder="t('licenses.searchPlaceholder')"
+                variant="outlined"
+                leading-icon="search"
+              />
+            </div>
           </div>
 
-          <!-- Upstream gotohp License -->
-          <div class="flex flex-col gap-2 rounded-2xl bg-[var(--md-sys-color-surface-container-low)] p-5 border border-[var(--md-sys-color-outline-variant)]/30">
-            <div class="flex items-center justify-between border-b border-[var(--md-sys-color-outline-variant)]/20 pb-2">
-              <div>
-                <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">Upstream Project: {{ licensesData.upstream.name }}</span>
-                <span class="block m3-body-medium mt-0.5">{{ licensesData.upstream.copyright }}</span>
+          <!-- Tab 1: Project & Upstream Licenses -->
+          <div
+            v-if="activeTab === 'project'"
+            class="flex flex-col gap-6 p-6 overflow-y-auto flex-1 min-h-0 m3-body-medium"
+          >
+            <!-- Lumen License -->
+            <div class="flex flex-col gap-2 rounded-2xl bg-[var(--md-sys-color-surface-container-low)] p-5 border border-[var(--md-sys-color-outline-variant)]/30">
+              <div class="flex items-center justify-between border-b border-[var(--md-sys-color-outline-variant)]/20 pb-2">
+                <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">{{ licensesData.project.name }}</span>
+                <span class="rounded-full bg-[var(--md-sys-color-primary-container)] px-2.5 py-0.5 m3-label-small text-[var(--md-sys-color-on-primary-container)]">
+                  {{ licensesData.project.license }}
+                </span>
               </div>
-              <span class="rounded-full bg-[var(--md-sys-color-secondary-container)] px-2.5 py-0.5 m3-label-small text-[var(--md-sys-color-on-secondary-container)]">
-                {{ licensesData.upstream.license }}
-              </span>
+              <pre class="m3-mono m3-body-medium leading-relaxed whitespace-pre-wrap mt-1">{{ licensesData.project.text }}</pre>
             </div>
-            <pre class="m3-mono m3-body-medium leading-relaxed whitespace-pre-wrap mt-1">{{ licensesData.upstream.text }}</pre>
+
+            <!-- Upstream gotohp License -->
+            <div class="flex flex-col gap-2 rounded-2xl bg-[var(--md-sys-color-surface-container-low)] p-5 border border-[var(--md-sys-color-outline-variant)]/30">
+              <div class="flex items-center justify-between border-b border-[var(--md-sys-color-outline-variant)]/20 pb-2">
+                <div>
+                  <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">{{ t('licenses.upstreamProject', { name: licensesData.upstream.name }) }}</span>
+                  <span class="block m3-body-medium mt-0.5">{{ licensesData.upstream.copyright }}</span>
+                </div>
+                <span class="rounded-full bg-[var(--md-sys-color-secondary-container)] px-2.5 py-0.5 m3-label-small text-[var(--md-sys-color-on-secondary-container)]">
+                  {{ licensesData.upstream.license }}
+                </span>
+              </div>
+              <pre class="m3-mono m3-body-medium leading-relaxed whitespace-pre-wrap mt-1">{{ licensesData.upstream.text }}</pre>
+            </div>
           </div>
-        </div>
 
-        <!-- Tab 2: Go Dependencies -->
-        <div
-          v-if="activeTab === 'go'"
-          class="flex flex-col overflow-y-auto flex-1 min-h-0 divide-y divide-[var(--md-sys-color-outline-variant)]/20"
-        >
+          <!-- Tab 2: Rust Dependencies -->
           <div
-            v-for="dep in filteredGoDeps"
-            :key="dep.name"
-            class="px-6 py-3 flex items-center justify-between gap-4 hover:bg-[var(--md-sys-color-surface-container-high)]/60 transition-colors"
+            v-if="activeTab === 'rust'"
+            class="flex flex-col overflow-y-auto flex-1 min-h-0 divide-y divide-[var(--md-sys-color-outline-variant)]/20"
           >
-            <div class="flex flex-col min-w-0">
-              <span class="m3-mono m3-body-medium text-[var(--md-sys-color-on-surface)] truncate" :title="dep.name">
-                {{ dep.name }}
-              </span>
-              <span class="m3-body-medium">
-                version {{ dep.version }}
-              </span>
-            </div>
-
-            <span
-              class="rounded-full px-2.5 py-0.5 m3-label-small shrink-0"
-              :class="dep.license === 'unknown'
-                ? 'bg-amber-500/20 text-amber-300'
-                : 'bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-on-surface)]'"
+            <div
+              v-for="dep in filteredRustDeps"
+              :key="dep.name"
+              class="px-6 py-3 flex items-center justify-between gap-4 hover:bg-[var(--md-sys-color-surface-container-high)]/60 transition-colors"
             >
-              {{ dep.license }}
-            </span>
-          </div>
+              <div class="flex flex-col min-w-0">
+                <span class="m3-mono m3-body-medium text-[var(--md-sys-color-on-surface)] truncate" :title="dep.name">
+                  {{ dep.name }}
+                </span>
+                <span class="m3-body-medium">
+                  {{ t('licenses.version', { version: dep.version }) }}
+                </span>
+              </div>
 
-          <div
-            v-if="filteredGoDeps.length === 0"
-            class="p-8 text-center m3-body-medium"
-          >
-            No dependencies match the search query.
-          </div>
-        </div>
-
-        <!-- Tab 3: NPM Dependencies -->
-        <div
-          v-if="activeTab === 'npm'"
-          class="flex flex-col overflow-y-auto flex-1 min-h-0 divide-y divide-[var(--md-sys-color-outline-variant)]/20"
-        >
-          <div
-            v-for="dep in filteredNpmDeps"
-            :key="dep.name"
-            class="px-6 py-3 flex items-center justify-between gap-4 hover:bg-[var(--md-sys-color-surface-container-high)]/60 transition-colors"
-          >
-            <div class="flex flex-col min-w-0">
-              <span class="m3-mono m3-body-medium text-[var(--md-sys-color-on-surface)] truncate" :title="dep.name">
-                {{ dep.name }}
-              </span>
-              <span class="m3-body-medium">
-                version {{ dep.version }}
+              <span
+                class="rounded-full px-2.5 py-0.5 m3-label-small shrink-0"
+                :class="dep.license === 'unknown'
+                  ? 'bg-amber-500/20 text-amber-300'
+                  : 'bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-on-surface)]'"
+              >
+                {{ dep.license }}
               </span>
             </div>
 
-            <span
-              class="rounded-full px-2.5 py-0.5 m3-label-small shrink-0"
-              :class="dep.license === 'unknown'
-                ? 'bg-amber-500/20 text-amber-300'
-                : 'bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-on-surface)]'"
+            <div
+              v-if="filteredRustDeps.length === 0"
+              class="p-8 text-center m3-body-medium"
             >
-              {{ dep.license }}
-            </span>
+              {{ t('licenses.noDependencies') }}
+            </div>
           </div>
 
+          <!-- Tab 3: NPM Dependencies -->
           <div
-            v-if="filteredNpmDeps.length === 0"
-            class="p-8 text-center m3-body-medium"
+            v-if="activeTab === 'npm'"
+            class="flex flex-col overflow-y-auto flex-1 min-h-0 divide-y divide-[var(--md-sys-color-outline-variant)]/20"
           >
-            No dependencies match the search query.
-          </div>
-        </div>
+            <div
+              v-for="dep in filteredNpmDeps"
+              :key="dep.name"
+              class="px-6 py-3 flex items-center justify-between gap-4 hover:bg-[var(--md-sys-color-surface-container-high)]/60 transition-colors"
+            >
+              <div class="flex flex-col min-w-0">
+                <span class="m3-mono m3-body-medium text-[var(--md-sys-color-on-surface)] truncate" :title="dep.name">
+                  {{ dep.name }}
+                </span>
+                <span class="m3-body-medium">
+                  {{ t('licenses.version', { version: dep.version }) }}
+                </span>
+              </div>
 
-        <!-- Modal Footer -->
-        <div class="flex items-center justify-between border-t border-[var(--md-sys-color-outline-variant)]/30 px-6 py-3.5 bg-[var(--md-sys-color-surface-container)]">
-          <span class="m3-body-medium">
-            Licenses retrieved from official project manifests and distribution licenses
-            Licenses retrieved from official project manifests and distribution licenses
-          </span>
-          <M3Button
-            variant="filled"
-            size="s"
-            @click="close"
-          >
-            Done
-          </M3Button>
+              <span
+                class="rounded-full px-2.5 py-0.5 m3-label-small shrink-0"
+                :class="dep.license === 'unknown'
+                  ? 'bg-amber-500/20 text-amber-300'
+                  : 'bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-on-surface)]'"
+              >
+                {{ dep.license }}
+              </span>
+            </div>
+
+            <div
+              v-if="filteredNpmDeps.length === 0"
+              class="p-8 text-center m3-body-medium"
+            >
+              {{ t('licenses.noDependencies') }}
+            </div>
+          </div>
+
+          <!-- Modal Footer -->
+          <div class="flex items-center justify-between border-t border-[var(--md-sys-color-outline-variant)]/30 px-6 py-3.5 bg-[var(--md-sys-color-surface-container)]">
+            <span class="m3-body-medium">
+              {{ t('licenses.notice') }}
+            </span>
+            <M3Button
+              variant="filled"
+              size="s"
+              @click="close"
+            >
+              {{ t('licenses.done') }}
+            </M3Button>
+          </div>
         </div>
       </div>
-    </div>
     </Transition>
   </Teleport>
 </template>

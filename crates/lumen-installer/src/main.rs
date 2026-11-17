@@ -1023,12 +1023,40 @@ fn get_system_powershell() -> PathBuf {
             return ps;
         }
     }
+    let default_ps = PathBuf::from(r"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe");
+    if default_ps.is_file() {
+        return default_ps;
+    }
     PathBuf::from("powershell.exe")
 }
 
 #[cfg(windows)]
 fn escape_powershell_single_quote(s: &str) -> String {
     s.replace('\'', "''").replace(['\r', '\n', '\0', ';', '`', '$'], "")
+}
+
+#[cfg(windows)]
+fn encode_base64(bytes: &[u8]) -> String {
+    const TABLE: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0];
+        let b1 = if chunk.len() > 1 { chunk[1] } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] } else { 0 };
+        out.push(TABLE[(b0 >> 2) as usize] as char);
+        out.push(TABLE[(((b0 & 0x03) << 4) | (b1 >> 4)) as usize] as char);
+        if chunk.len() > 1 {
+            out.push(TABLE[(((b1 & 0x0f) << 2) | (b2 >> 6)) as usize] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() > 2 {
+            out.push(TABLE[(b2 & 0x3f) as usize] as char);
+        } else {
+            out.push('=');
+        }
+    }
+    out
 }
 
 #[cfg(windows)]
@@ -1122,6 +1150,29 @@ fn remove_legacy_nsis_installation() {
         (HKEY_CURRENT_USER, "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall"),
     ];
 
+    let mut trusted_roots: Vec<String> = Vec::new();
+    for pf_var in &["ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"] {
+        if let Ok(pf) = env::var(pf_var) {
+            if let Ok(c) = PathBuf::from(&pf).canonicalize() {
+                let mut s = c.to_string_lossy().to_lowercase();
+                if let Some(stripped) = s.strip_prefix(r"\\?\") {
+                    s = stripped.to_string();
+                }
+                if !s.ends_with('\\') {
+                    s.push('\\');
+                }
+                trusted_roots.push(s);
+            }
+            let mut s = pf.to_lowercase();
+            if !s.ends_with('\\') {
+                s.push('\\');
+            }
+            trusted_roots.push(s);
+        }
+    }
+    trusted_roots.push(r"c:\program files\".to_string());
+    trusted_roots.push(r"c:\program files (x86)\".to_string());
+
     for (hkey, root_path) in hives {
         let root = RegKey::predef(hkey);
         if let Ok(uninstall_root) = root.open_subkey(root_path) {
@@ -1133,7 +1184,15 @@ fn remove_legacy_nsis_installation() {
                     if let Ok(app_key) = uninstall_root.open_subkey(&key_name) {
                         if let Some(p) = extract_dir_from_reg_key(&app_key) {
                             if p.is_dir() {
-                                legacy_dirs.push(p);
+                                if let Ok(canon) = p.canonicalize() {
+                                    let mut canon_str = canon.to_string_lossy().to_lowercase();
+                                    if let Some(stripped) = canon_str.strip_prefix(r"\\?\") {
+                                        canon_str = stripped.to_string();
+                                    }
+                                    if trusted_roots.iter().any(|r| canon_str.starts_with(r)) {
+                                        legacy_dirs.push(canon);
+                                    }
+                                }
                             }
                         }
                     }
@@ -1170,12 +1229,6 @@ fn remove_legacy_nsis_installation() {
         r#"$dirs = @({dirs});
 foreach ($d in $dirs) {{
     if (Test-Path -LiteralPath $d) {{
-        $uninst = Join-Path $d 'uninstall.exe';
-        if (Test-Path -LiteralPath $uninst) {{
-            $sysCmd = Join-Path $env:SystemRoot 'System32\cmd.exe';
-            Start-Process -FilePath $sysCmd -ArgumentList ('/c `"' + $uninst + '`" /S _?=' + $d) -Wait -WindowStyle Hidden -ErrorAction SilentlyContinue;
-            Start-Sleep -Milliseconds 800;
-        }}
         Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {{ $_.ExecutablePath -and $_.ExecutablePath.StartsWith($d, [System.StringComparison]::OrdinalIgnoreCase) }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }};
         for ($i = 0; $i -lt 5; $i++) {{
             Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue;
@@ -1226,24 +1279,20 @@ if ($pub) {{
         dirs = dir_list_ps
     );
 
-    let random_id: u64 = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0);
-    let temp_ps1 = env::temp_dir().join(format!("lumen_legacy_cleanup_{:016x}.ps1", random_id));
-    if fs::write(&temp_ps1, script).is_ok() {
-        let ps_bin = escape_powershell_single_quote(&get_system_powershell().to_string_lossy());
-        let ps_arg = format!(
-            "Start-Process '{}' -WindowStyle Hidden -ArgumentList '-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -File \"{}\"' -Verb RunAs -Wait",
-            ps_bin,
-            escape_powershell_single_quote(&temp_ps1.to_string_lossy())
-        );
-        let _ = Command::new(get_system_powershell())
-            .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &ps_arg])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output();
-        let _ = fs::remove_file(&temp_ps1);
-    }
+    // Encode script to UTF-16LE Base64 for PowerShell -EncodedCommand to avoid writing a temp script
+    let utf16_bytes: Vec<u8> = script.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
+    let b64_encoded = encode_base64(&utf16_bytes);
+
+    let ps_bin = escape_powershell_single_quote(&get_system_powershell().to_string_lossy());
+    let ps_arg = format!(
+        "Start-Process '{}' -WindowStyle Hidden -ArgumentList '-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand {}' -Verb RunAs -Wait",
+        ps_bin,
+        b64_encoded
+    );
+    let _ = Command::new(get_system_powershell())
+        .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &ps_arg])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output();
 
     // Clean up user-scoped shortcuts and HKCU keys
     if let Ok(appdata) = env::var("APPDATA") {

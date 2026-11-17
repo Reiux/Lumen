@@ -459,6 +459,12 @@ export class Preferences {
     "recentAlbums": string[];
     "auto_check_updates": boolean;
     "lastUpdateCheck": number;
+    "scheduleEnabled"?: boolean;
+    "scheduleStartHour"?: number;
+    "scheduleEndHour"?: number;
+    "pauseOnBattery"?: boolean;
+    "dryRun"?: boolean;
+    "locale"?: string;
 
     /**
      * AlbumName and AlbumAutoMode are per-session choices and are never persisted.
@@ -536,6 +542,21 @@ export class Preferences {
         }
         if (!("lastUpdateCheck" in $$source)) {
             this["lastUpdateCheck"] = 0;
+        }
+        if (!("scheduleEnabled" in $$source)) {
+            this["scheduleEnabled"] = false;
+        }
+        if (!("scheduleStartHour" in $$source)) {
+            this["scheduleStartHour"] = 1;
+        }
+        if (!("scheduleEndHour" in $$source)) {
+            this["scheduleEndHour"] = 7;
+        }
+        if (!("pauseOnBattery" in $$source)) {
+            this["pauseOnBattery"] = false;
+        }
+        if (!("dryRun" in $$source)) {
+            this["dryRun"] = false;
         }
         if (!("albumName" in $$source)) {
             this["albumName"] = "";
@@ -803,6 +824,7 @@ export class UpdateInfo {
 export class UploadBatchStart {
     "Total": number;
     "TotalBytes": number;
+    "IsDryRun"?: boolean;
 
     /** Creates a new UploadBatchStart instance. */
     constructor($$source: Partial<UploadBatchStart> = {}) {
@@ -811,6 +833,9 @@ export class UploadBatchStart {
         }
         if (!("TotalBytes" in $$source)) {
             this["TotalBytes"] = 0;
+        }
+        if (!("IsDryRun" in $$source)) {
+            this["IsDryRun"] = false;
         }
 
         Object.assign(this, $$source);

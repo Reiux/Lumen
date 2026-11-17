@@ -68,10 +68,19 @@ export interface ScanProgressState {
   isScanning: boolean;
   currentDirectory: string;
   filesFound: number;
+  /**
+   * UI phase while the screen is visible:
+   * - "scanning": backend is traversing folders (currentDirectory updates live)
+   * - "preparing": traversal finished; batch is being classified and hashed
+   *   before the first worker reports activity.
+   */
+  phase?: 'scanning' | 'preparing';
 }
 
 export interface UploadState {
   isUploading: boolean;
+  isPaused: boolean;
+  isDryRun: boolean;
   totalFiles: number;
   uploadedFiles: number;
   threads: Map<number, ThreadStatus>;
@@ -99,6 +108,8 @@ class UploadManager {
   // Reactive state that can be accessed by components
   public state = reactive<UploadState>({
     isUploading: false,
+    isPaused: false,
+    isDryRun: false,
     totalFiles: 0,
     uploadedFiles: 0,
     threads: new Map<number, ThreadStatus>(),
@@ -138,6 +149,9 @@ class UploadManager {
   private fileBytes: Map<string, number> = new Map();
   // Dedupe decisions can change the bytes that will actually be uploaded.
   private totalBytesAdjustment: number = 0;
+  // True between the moment the user picks/drops files and the first upload
+  // worker reporting activity. Keeps the indexing/preparation screen sticky.
+  private preparationActive: boolean = false;
 
   private constructor() {
     // Bind all methods to ensure 'this' context is preserved
@@ -161,6 +175,7 @@ class UploadManager {
       const data = (event?.data || {}) as Record<string, any>;
       this.state.totalFiles = Number(data.Total ?? data.total ?? 0);
       this.state.totalBytes = Number(data.TotalBytes ?? data.totalBytes ?? 0); // May be 0 initially
+      this.state.isDryRun = Boolean(data.IsDryRun ?? data.isDryRun ?? false);
       this.state.uploadedFiles = 0;
       this.state.uploadedBytes = 0;
       this.state.isUploading = true;
@@ -203,6 +218,13 @@ class UploadManager {
       const thread = event.data;
       const prevThread = this.state.threads.get(thread.WorkerID);
 
+      // First real worker activity (hashing/checking/uploading/...) means the
+      // batch is prepared — hand over from the preparation screen to the
+      // upload view.
+      if (thread.Status !== 'idle') {
+        this.finishPreparationIfActive();
+      }
+
       if (thread.Status === 'uploading' && thread.FilePath && thread.BytesTotal > 0) {
         this.fileBytes.set(thread.FilePath, thread.BytesTotal);
       }
@@ -218,6 +240,10 @@ class UploadManager {
     // Handle file status updates
     Events.On("FileStatus", (event: { data: FileUploadResult }) => {
       const { Path, Paths } = event.data;
+
+      // A file result means the batch is actively processing — hand over from
+      // the preparation screen to the upload view.
+      this.finishPreparationIfActive();
 
       this.state.uploadedFiles += recordUploadResult(this.state.results, event.data);
       if (!event.data.IsError) {
@@ -246,20 +272,37 @@ class UploadManager {
     // Handle upload stop
     Events.On("uploadStop", () => {
       this.state.isUploading = false;
+      this.preparationActive = false;
       this.state.scanProgress.isScanning = false;
     });
 
     // Handle incremental folder scan progress
     Events.On("scan:progress", (event: { data: { currentDirectory: string; filesFound: number; isScanning: boolean } }) => {
+      const data = event.data || ({} as { currentDirectory: string; filesFound: number; isScanning: boolean });
+      // When the backend finishes traversing while the batch is still being
+      // classified/hashed, keep the preparation screen up until the first
+      // worker reports activity. Backend-initiated scans (watched folders)
+      // without a frontend preparation phase clear immediately as before.
+      if (data.isScanning === false && this.preparationActive) {
+        this.state.scanProgress = {
+          isScanning: true,
+          currentDirectory: '',
+          filesFound: data.filesFound || this.state.scanProgress.filesFound,
+          phase: 'preparing',
+        };
+        return;
+      }
       this.state.scanProgress = {
-        isScanning: event.data?.isScanning ?? true,
-        currentDirectory: event.data?.currentDirectory || '',
-        filesFound: event.data?.filesFound || 0,
+        isScanning: data.isScanning ?? true,
+        currentDirectory: data.currentDirectory || '',
+        filesFound: data.filesFound || 0,
+        phase: data.isScanning === false ? undefined : 'scanning',
       };
     });
 
     // Handle folder scan cancelled
     Events.On("scan:cancelled", () => {
+      this.preparationActive = false;
       this.state.scanProgress = {
         isScanning: false,
         currentDirectory: '',
@@ -310,13 +353,61 @@ class UploadManager {
     };
   }
 
+  /**
+   * Show the indexing/preparation screen immediately when the user picks or
+   * drops files, before the backend starts scanning. The screen stays up
+   * (sticky) until the first upload worker reports activity, so the UI never
+   * shows an empty "0 out of 0" upload view while files are being classified
+   * and hashed.
+   */
+  public beginPreparation() {
+    // When a batch is already uploading, the new selection is queued by the
+    // backend and starts after the current one — keep the upload view visible
+    // instead of covering it with the preparation screen.
+    if (this.state.isUploading) return;
+    this.preparationActive = true;
+    this.state.scanProgress = {
+      isScanning: true,
+      currentDirectory: '',
+      filesFound: 0,
+      phase: 'preparing',
+    };
+  }
+
+  /** Hide the preparation screen (e.g. when the upload failed to start). */
+  public endPreparation() {
+    this.preparationActive = false;
+    this.state.scanProgress = {
+      isScanning: false,
+      currentDirectory: '',
+      filesFound: 0,
+    };
+  }
+
+  private finishPreparationIfActive() {
+    if (this.preparationActive) {
+      this.preparationActive = false;
+      this.state.scanProgress.isScanning = false;
+      this.state.scanProgress.currentDirectory = '';
+    }
+  }
+
   public async cancelScan() {
     this.state.scanProgress.isScanning = false;
+    this.preparationActive = false;
     try {
       const { ConfigManager } = await import('../../bindings/app/core');
       await ConfigManager.CancelScan();
     } catch (e) {
       console.warn("Failed to cancel scan:", e);
+    }
+    // If the scan already finished (batch is being classified/hashed), the
+    // scan-cancel flag is no longer polled anywhere — cancel the batch too so
+    // "Cancel Indexing" keeps working through the whole preparation window.
+    try {
+      await Events.Emit("uploadCancel");
+    } catch {
+      // Ignore — nothing to cancel
     }
   }
 
@@ -364,6 +455,7 @@ class UploadManager {
     this.state.totalFiles = 0;
     this.state.uploadedBytes = 0;
     this.state.totalBytes = 0;
+    this.state.isDryRun = false;
     this.state.results.success = [];
     this.state.results.fail = [];
     this.state.results.skipped = [];
@@ -373,7 +465,13 @@ class UploadManager {
   public async upload(paths: string[]) {
     if (!paths || paths.length === 0) return;
     this.resetUploadResults();
-    await Events.Emit("startUpload", { files: paths });
+    this.beginPreparation();
+    try {
+      await Events.Emit("startUpload", { files: paths });
+    } catch (e) {
+      this.endPreparation();
+      throw e;
+    }
   }
 
   public async retryFailed(paths?: string[]) {
@@ -385,7 +483,26 @@ class UploadManager {
   }
 
   public cancelUpload() {
+    this.state.isPaused = false;
     Events.Emit("uploadCancel");
+  }
+
+  public pauseUpload() {
+    this.state.isPaused = true;
+    Events.Emit("uploadPause");
+  }
+
+  public resumeUpload() {
+    this.state.isPaused = false;
+    Events.Emit("uploadResume");
+  }
+
+  public togglePause() {
+    if (this.state.isPaused) {
+      this.resumeUpload();
+    } else {
+      this.pauseUpload();
+    }
   }
 
   public async copyResultsAsJson() {

@@ -18,7 +18,7 @@ const props = withDefaults(defineProps<Props>(), {
   max: 100,
   step: 1,
   stops: false,
-  labeled: true,
+  labeled: false,
   disabled: false,
   id: undefined,
   ariaLabel: undefined,

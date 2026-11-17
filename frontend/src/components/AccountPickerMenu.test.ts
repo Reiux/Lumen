@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import AccountPickerMenu from './AccountPickerMenu.vue'
+import { i18n } from '../i18n'
 
 describe('AccountPickerMenu', () => {
   it('renders menu when open is true with role="menu"', async () => {
@@ -13,6 +14,9 @@ describe('AccountPickerMenu', () => {
         anchorEl: anchor,
         activeAccount: 'test@example.com',
         accounts: ['test@example.com', 'second@example.com'],
+      },
+      global: {
+        plugins: [i18n],
       },
       attachTo: document.body,
     })
@@ -39,6 +43,9 @@ describe('AccountPickerMenu', () => {
         activeAccount: 'test@example.com',
         accounts: ['test@example.com'],
       },
+      global: {
+        plugins: [i18n],
+      },
       attachTo: document.body,
     })
 
@@ -59,6 +66,9 @@ describe('AccountPickerMenu', () => {
         anchorEl: anchor,
         activeAccount: 'first@example.com',
         accounts: ['first@example.com', 'second@example.com'],
+      },
+      global: {
+        plugins: [i18n],
       },
       attachTo: document.body,
     })
@@ -84,6 +94,9 @@ describe('AccountPickerMenu', () => {
         anchorEl: anchor,
         activeAccount: 'test@example.com',
         accounts: ['test@example.com'],
+      },
+      global: {
+        plugins: [i18n],
       },
       attachTo: document.body,
     })

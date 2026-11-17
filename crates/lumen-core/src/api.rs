@@ -1,4 +1,6 @@
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use prost::Message;
 use thiserror::Error;
@@ -251,7 +253,7 @@ impl Api {
         let parsed = crate::auth::parse_key_value_response(&body);
         let token = parsed
             .get("Auth")
-            .ok_or_else(|| ApiError::Auth("auth response missing Auth token".to_string()))?
+            .ok_or_else(|| ApiError::Auth(format!("auth response missing Auth token. Server response: {}", body.trim())))?
             .clone();
 
         let expiry_sec: i64 = parsed
@@ -386,10 +388,45 @@ impl Api {
         Ok(upload_id)
     }
 
-    pub async fn upload_file_stream<F>(
+    pub async fn query_upload_status(&self, upload_token: &str) -> Result<Option<i64>, ApiError> {
+        let encoded_token = url::form_urlencoded::byte_serialize(upload_token.as_bytes()).collect::<String>();
+        let upload_url = match &self.custom_endpoint_base {
+            Some(base) => format!("{}/data/upload/uploadmedia/interactive?upload_id={}", base.trim_end_matches('/'), encoded_token),
+            None => format!("{}/data/upload/uploadmedia/interactive?upload_id={}", DEFAULT_PHOTOS_UPLOAD_BASE, encoded_token),
+        };
+
+        let bearer = self.bearer_token().await?;
+        let resp = self
+            .client
+            .post(&upload_url)
+            .header("Authorization", format!("Bearer {}", bearer))
+            .header("User-Agent", &self.user_agent)
+            .header("Accept-Language", &self.language)
+            .header("X-Goog-Upload-Protocol", "resumable")
+            .header("X-Goog-Upload-Command", "query")
+            .header("Content-Length", "0")
+            .send()
+            .await
+            .map_err(|e| ApiError::Network(e.to_string()))?;
+
+        if resp.status().is_success() {
+            if let Some(recv_str) = resp.headers().get("x-goog-upload-size-received").and_then(|v| v.to_str().ok()) {
+                if let Ok(recv) = recv_str.parse::<i64>() {
+                    return Ok(Some(recv));
+                }
+            }
+            return Ok(Some(0));
+        }
+
+        Ok(None)
+    }
+
+    pub async fn upload_file_resumable<F>(
         &self,
         upload_token: &str,
         file_path: &Path,
+        cancelled: Option<Arc<AtomicBool>>,
+        paused: Option<Arc<AtomicBool>>,
         mut on_progress: F,
     ) -> Result<ScottyFinalizeToken, ApiError>
     where
@@ -407,69 +444,129 @@ impl Api {
             None => format!("{}/data/upload/uploadmedia/interactive?upload_id={}", DEFAULT_PHOTOS_UPLOAD_BASE, encoded_token),
         };
 
-        let bearer = self.bearer_token().await?;
-
-        let file = tokio::fs::File::open(file_path).await.map_err(|e| ApiError::Io(e.to_string()))?;
-        let chunk_size = 64 * 1024;
-        let rate_limiter = self.rate_limiter.clone();
-        let (progress_tx, mut progress_rx) = tokio::sync::mpsc::unbounded_channel::<i64>();
-
-        let progress_handle = tokio::spawn(async move {
-            while let Some(uploaded) = progress_rx.recv().await {
-                on_progress(uploaded, file_size, 1);
+        // Query server to check if any bytes have already arrived
+        let mut current_offset: i64 = 0;
+        if let Ok(Some(recv)) = self.query_upload_status(upload_token).await {
+            if recv > 0 && recv <= file_size {
+                current_offset = recv;
+                on_progress(current_offset, file_size, 1);
             }
-        });
-
-        let stream = futures_util::stream::unfold((file, 0i64), move |(mut file, mut uploaded)| {
-            let rate_limiter = rate_limiter.clone();
-            let progress_tx = progress_tx.clone();
-            async move {
-                use tokio::io::AsyncReadExt;
-                let mut buf = vec![0u8; chunk_size];
-                match file.read(&mut buf).await {
-                    Ok(0) => None,
-                    Ok(n) => {
-                        buf.truncate(n);
-                        rate_limiter.wait(n).await;
-                        uploaded += n as i64;
-                        let _ = progress_tx.send(uploaded);
-                        Some((Ok::<bytes::Bytes, std::io::Error>(bytes::Bytes::from(buf)), (file, uploaded)))
-                    }
-                    Err(e) => Some((Err(e), (file, uploaded))),
-                }
-            }
-        });
-
-        let body = reqwest::Body::wrap_stream(stream);
-
-        let resp = self
-            .client
-            .put(&upload_url)
-            .header("Accept-Encoding", "gzip")
-            .header("Accept-Language", &self.language)
-            .header("User-Agent", &self.user_agent)
-            .header("Authorization", format!("Bearer {}", bearer))
-            .header("Content-Length", file_size.to_string())
-            .body(body)
-            .send()
-            .await
-            .map_err(|e| ApiError::Network(e.to_string()))?;
-
-        let _ = progress_handle.await;
-
-        let status = resp.status();
-        let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
-            .await
-            .map_err(ApiError::Network)?;
-
-        if !status.is_success() {
-            return Err(ApiError::HttpStatus {
-                status: status.as_u16(),
-                body: String::from_utf8_lossy(&body_bytes).to_string(),
-            });
         }
 
-        ScottyFinalizeToken::parse(&body_bytes)
+        let chunk_size: usize = 1024 * 1024; // 1 MiB chunk (multiple of 256 KiB)
+        let mut file = tokio::fs::File::open(file_path).await.map_err(|e| ApiError::Io(e.to_string()))?;
+        use tokio::io::{AsyncReadExt, AsyncSeekExt};
+        if current_offset > 0 {
+            file.seek(std::io::SeekFrom::Start(current_offset as u64))
+                .await
+                .map_err(|e| ApiError::Io(e.to_string()))?;
+        }
+
+        // Handle empty file edge case
+        if file_size == 0 {
+            let bearer = self.bearer_token().await?;
+            let resp = self
+                .client
+                .put(&upload_url)
+                .header("Accept-Encoding", "gzip")
+                .header("Accept-Language", &self.language)
+                .header("User-Agent", &self.user_agent)
+                .header("Authorization", format!("Bearer {}", bearer))
+                .header("X-Goog-Upload-Protocol", "resumable")
+                .header("X-Goog-Upload-Command", "upload, finalize")
+                .header("X-Goog-Upload-Offset", "0")
+                .header("Content-Length", "0")
+                .body(Vec::new())
+                .send()
+                .await
+                .map_err(|e| ApiError::Network(e.to_string()))?;
+
+            let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
+                .await
+                .map_err(ApiError::Network)?;
+            return ScottyFinalizeToken::parse(&body_bytes);
+        }
+
+        while current_offset < file_size {
+            if let Some(ref c) = cancelled {
+                if c.load(Ordering::Relaxed) {
+                    return Err(ApiError::Io("Upload cancelled".to_string()));
+                }
+            }
+
+            if let Some(ref p) = paused {
+                if p.load(Ordering::Relaxed) {
+                    while p.load(Ordering::Relaxed) {
+                        if let Some(ref c) = cancelled {
+                            if c.load(Ordering::Relaxed) {
+                                return Err(ApiError::Io("Upload cancelled".to_string()));
+                            }
+                        }
+                        tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
+                    }
+                }
+            }
+
+            let remaining = (file_size - current_offset) as usize;
+            let to_read = remaining.min(chunk_size);
+            let mut chunk = vec![0u8; to_read];
+            file.read_exact(&mut chunk).await.map_err(|e| ApiError::Io(e.to_string()))?;
+
+            self.rate_limiter.wait(to_read).await;
+
+            let is_last = (current_offset + to_read as i64) >= file_size;
+            let command = if is_last { "upload, finalize" } else { "upload" };
+
+            let bearer = self.bearer_token().await?;
+            let resp = self
+                .client
+                .put(&upload_url)
+                .header("Accept-Encoding", "gzip")
+                .header("Accept-Language", &self.language)
+                .header("User-Agent", &self.user_agent)
+                .header("Authorization", format!("Bearer {}", bearer))
+                .header("X-Goog-Upload-Protocol", "resumable")
+                .header("X-Goog-Upload-Command", command)
+                .header("X-Goog-Upload-Offset", current_offset.to_string())
+                .header("Content-Length", to_read.to_string())
+                .body(chunk)
+                .send()
+                .await
+                .map_err(|e| ApiError::Network(e.to_string()))?;
+
+            let status = resp.status();
+            let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
+                .await
+                .map_err(ApiError::Network)?;
+
+            if !status.is_success() {
+                return Err(ApiError::HttpStatus {
+                    status: status.as_u16(),
+                    body: String::from_utf8_lossy(&body_bytes).to_string(),
+                });
+            }
+
+            current_offset += to_read as i64;
+            on_progress(current_offset, file_size, 1);
+
+            if is_last {
+                return ScottyFinalizeToken::parse(&body_bytes);
+            }
+        }
+
+        Err(ApiError::Io("Unexpected end of upload loop".to_string()))
+    }
+
+    pub async fn upload_file_stream<F>(
+        &self,
+        upload_token: &str,
+        file_path: &Path,
+        on_progress: F,
+    ) -> Result<ScottyFinalizeToken, ApiError>
+    where
+        F: FnMut(i64, i64, usize) + Send + 'static,
+    {
+        self.upload_file_resumable(upload_token, file_path, None, None, on_progress).await
     }
 
     pub async fn commit_upload(

@@ -36,7 +36,7 @@ export function recordUploadResult(results: UploadResults, event: UploadResultEv
   if (event.IsError) {
     results.fail.push({
       path: event.Path || 'Unknown file',
-      error: event.ErrorMessage || 'Upload failed',
+      error: event.ErrorMessage || 'Backup failed',
     })
     return 1
   }
@@ -46,7 +46,7 @@ export function recordUploadResult(results: UploadResults, event: UploadResultEv
     results.skipped.push({
       paths: paths.filter(Boolean),
       code: event.SkipCode || 'skipped',
-      reason: event.SkipReason || 'Skipped by upload policy',
+      reason: event.SkipReason || 'Skipped by backup policy',
     })
     return 1
   }

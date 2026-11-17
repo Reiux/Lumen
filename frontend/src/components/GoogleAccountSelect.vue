@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import M3Icon from './ui/M3Icon.vue'
 import M3Button from './ui/M3Button.vue'
 import { displayNameFromEmail } from '../utils/avatar'
+
+const { t } = useI18n()
 import {
   SelectItem as SelectItemPrimitive,
   SelectItemIndicator,
@@ -80,7 +83,7 @@ const selectedInitial = computed(() => {
       <img
         v-if="avatarUrl"
         :src="avatarUrl"
-        alt="Account avatar"
+        :alt="t('accounts.avatarAlt')"
         class="size-6 shrink-0 rounded-full object-cover"
       >
       <div
@@ -100,7 +103,7 @@ const selectedInitial = computed(() => {
       </div>
 
       <span class="truncate m3-label-large">
-        {{ selectedValue ? displayNameFromEmail(selectedValue) : 'Select account' }}
+        {{ selectedValue ? displayNameFromEmail(selectedValue) : t('accounts.selectAccount') }}
       </span>
 
       <M3Icon
@@ -180,7 +183,7 @@ const selectedInitial = computed(() => {
         @pointerdown.stop.prevent
         @click.stop.prevent="isOpen = false; emit('add')"
       >
-        Add account
+        {{ t('accounts.addAccount') }}
       </M3Button>
     </SelectContent>
   </Select>

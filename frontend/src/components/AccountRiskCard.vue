@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import M3Button from './ui/M3Button.vue'
 import M3Icon from './ui/M3Icon.vue'
 
+const { t } = useI18n()
 const acknowledged = defineModel<boolean>('modelValue', { default: false })
 
 function acknowledge() {
@@ -32,7 +34,7 @@ function acknowledge() {
       <div class="flex flex-col gap-1.5 flex-1">
         <div class="flex items-center justify-between">
           <h3 class="m3-title-medium">
-            Heads up
+            {{ t('riskNotice.headsUp') }}
           </h3>
           <span
             v-if="acknowledged"
@@ -42,12 +44,12 @@ function acknowledge() {
               name="check"
               :size="14"
             />
-            Acknowledged
+            {{ t('riskNotice.acknowledged') }}
           </span>
         </div>
 
         <p class="m3-body-medium leading-relaxed opacity-90">
-          Lumen is unofficial and may violate Google's Terms of Service. Google can restrict or disable an account, which can also lock you out of Gmail and Drive. Use an account you can afford to lose, and keep your original photos.
+          {{ t('riskNotice.warningText') }}
         </p>
 
         <div
@@ -60,7 +62,7 @@ function acknowledge() {
             icon="check"
             @click="acknowledge"
           >
-            <span>I understand</span>
+            <span>{{ t('riskNotice.understand') }}</span>
           </M3Button>
         </div>
       </div>

@@ -134,7 +134,15 @@ impl HashCache {
                 created_at INTEGER NOT NULL,
                 PRIMARY KEY (account_email, sha1_b64, file_size)
             );
-            CREATE INDEX IF NOT EXISTS idx_file_hashes_acc ON file_hashes(account_email);",
+            CREATE INDEX IF NOT EXISTS idx_file_hashes_acc ON file_hashes(account_email);
+            CREATE TABLE IF NOT EXISTS upload_sessions (
+                account_email TEXT NOT NULL,
+                sha1_b64 TEXT NOT NULL,
+                file_size INTEGER NOT NULL,
+                upload_token TEXT NOT NULL,
+                updated_at INTEGER NOT NULL,
+                PRIMARY KEY (account_email, sha1_b64, file_size)
+            );",
         )?;
 
         Ok(())
@@ -206,6 +214,42 @@ impl HashCache {
         };
         let _ = conn.execute("VACUUM", []);
         Ok(rows)
+    }
+
+    pub fn save_upload_session(&self, account_email: &str, sha1_b64: &str, file_size: i64, token: &str) -> Result<(), DedupError> {
+        let conn = self.conn.lock().unwrap();
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        conn.execute(
+            "INSERT OR REPLACE INTO upload_sessions (account_email, sha1_b64, file_size, upload_token, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![account_email, sha1_b64, file_size, token, now],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_upload_session(&self, account_email: &str, sha1_b64: &str, file_size: i64) -> Result<Option<String>, DedupError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT upload_token FROM upload_sessions WHERE account_email = ?1 AND sha1_b64 = ?2 AND file_size = ?3"
+        )?;
+        let mut rows = stmt.query(params![account_email, sha1_b64, file_size])?;
+        if let Some(row) = rows.next()? {
+            let tok: String = row.get(0)?;
+            Ok(Some(tok))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn remove_upload_session(&self, account_email: &str, sha1_b64: &str, file_size: i64) -> Result<(), DedupError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM upload_sessions WHERE account_email = ?1 AND sha1_b64 = ?2 AND file_size = ?3",
+            params![account_email, sha1_b64, file_size],
+        )?;
+        Ok(())
     }
 }
 

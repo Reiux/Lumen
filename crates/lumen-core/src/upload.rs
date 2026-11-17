@@ -36,6 +36,11 @@ pub struct UploadOptions {
     pub album_name: String,
     pub album_auto_mode: bool,
     pub custom_endpoint_base: Option<String>,
+    pub dry_run: bool,
+    pub schedule_enabled: bool,
+    pub schedule_start_hour: u8,
+    pub schedule_end_hour: u8,
+    pub pause_on_battery: bool,
 }
 
 impl Default for UploadOptions {
@@ -59,6 +64,11 @@ impl Default for UploadOptions {
             album_name: String::new(),
             album_auto_mode: false,
             custom_endpoint_base: None,
+            dry_run: false,
+            schedule_enabled: false,
+            schedule_start_hour: 1,
+            schedule_end_hour: 7,
+            pause_on_battery: false,
         }
     }
 }
@@ -130,6 +140,7 @@ pub struct UploadEngine {
     hash_cache: Option<HashCache>,
     album_registry: AlbumRegistry,
     cancelled: Arc<AtomicBool>,
+    paused: Arc<AtomicBool>,
 }
 
 impl UploadEngine {
@@ -143,11 +154,17 @@ impl UploadEngine {
             hash_cache,
             album_registry,
             cancelled: Arc::new(AtomicBool::new(false)),
+            paused: Arc::new(AtomicBool::new(false)),
         }
     }
 
     pub fn with_cancelled(mut self, cancelled: Arc<AtomicBool>) -> Self {
         self.cancelled = cancelled;
+        self
+    }
+
+    pub fn with_paused(mut self, paused: Arc<AtomicBool>) -> Self {
+        self.paused = paused;
         self
     }
 
@@ -157,6 +174,18 @@ impl UploadEngine {
 
     pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Relaxed)
+    }
+
+    pub fn pause(&self) {
+        self.paused.store(true, Ordering::SeqCst);
+    }
+
+    pub fn resume(&self) {
+        self.paused.store(false, Ordering::SeqCst);
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.paused.load(Ordering::Relaxed)
     }
 
     pub async fn run_upload(
@@ -219,6 +248,7 @@ impl UploadEngine {
             let hash_cache = self.hash_cache.clone();
             let opts = opts.clone();
             let cancelled = self.cancelled.clone();
+            let paused = self.paused.clone();
             let breakers = breakers.clone();
             let token_managers = token_managers.clone();
             let worker_limiter = shared_rate_limiter.clone();
@@ -238,6 +268,60 @@ impl UploadEngine {
                 loop {
                     if cancelled.load(Ordering::Relaxed) {
                         break;
+                    }
+
+                    // Check user pause
+                    while paused.load(Ordering::Relaxed) {
+                        if cancelled.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        let _ = event_tx.send(UploadEvent::ThreadProgress(ThreadStatus {
+                            worker_id,
+                            status: "paused".to_string(),
+                            file_path: String::new(),
+                            file_name: String::new(),
+                            message: "Backup paused".to_string(),
+                            bytes_uploaded: 0,
+                            bytes_total: 0,
+                            attempt: 0,
+                        })).await;
+                        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                    }
+
+                    // Check quiet hours schedule
+                    while opts.schedule_enabled && !crate::safety::is_within_schedule(opts.schedule_start_hour, opts.schedule_end_hour) {
+                        if cancelled.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        let _ = event_tx.send(UploadEvent::ThreadProgress(ThreadStatus {
+                            worker_id,
+                            status: "paused".to_string(),
+                            file_path: String::new(),
+                            file_name: String::new(),
+                            message: "Backup paused (quiet hours schedule)".to_string(),
+                            bytes_uploaded: 0,
+                            bytes_total: 0,
+                            attempt: 0,
+                        })).await;
+                        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+                    }
+
+                    // Check battery power
+                    while opts.pause_on_battery && crate::safety::is_running_on_battery() {
+                        if cancelled.load(Ordering::Relaxed) {
+                            break;
+                        }
+                        let _ = event_tx.send(UploadEvent::ThreadProgress(ThreadStatus {
+                            worker_id,
+                            status: "paused".to_string(),
+                            file_path: String::new(),
+                            file_name: String::new(),
+                            message: "Backup paused on battery power".to_string(),
+                            bytes_uploaded: 0,
+                            bytes_total: 0,
+                            attempt: 0,
+                        })).await;
+                        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                     }
 
                     let item = {
@@ -371,6 +455,8 @@ impl UploadEngine {
                         hash_cache.as_ref(),
                         &event_tx,
                         &breaker,
+                        cancelled.clone(),
+                        paused.clone(),
                     ).await;
 
                     let mut res = res;
@@ -506,6 +592,7 @@ impl UploadEngine {
         Ok(finished_results)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn process_work_item(
         worker_id: usize,
         item: &UploadWorkItem,
@@ -514,13 +601,15 @@ impl UploadEngine {
         hash_cache: Option<&HashCache>,
         event_tx: &mpsc::Sender<UploadEvent>,
         breaker: &CircuitBreaker,
+        cancelled: Arc<AtomicBool>,
+        paused: Arc<AtomicBool>,
     ) -> FileUploadResult {
         match item {
             UploadWorkItem::Single { path, account_email } => {
-                Self::process_single_file(worker_id, path, account_email, api, opts, hash_cache, event_tx, breaker).await
+                Self::process_single_file(worker_id, path, account_email, api, opts, hash_cache, event_tx, breaker, cancelled, paused).await
             }
             UploadWorkItem::LivePhoto { pair, account_email } => {
-                Self::process_live_photo(worker_id, pair, account_email, api, opts, hash_cache, event_tx, breaker).await
+                Self::process_live_photo(worker_id, pair, account_email, api, opts, hash_cache, event_tx, breaker, cancelled, paused).await
             }
         }
     }
@@ -535,6 +624,8 @@ impl UploadEngine {
         hash_cache: Option<&HashCache>,
         event_tx: &mpsc::Sender<UploadEvent>,
         breaker: &CircuitBreaker,
+        cancelled: Arc<AtomicBool>,
+        paused: Arc<AtomicBool>,
     ) -> FileUploadResult {
         let file_name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
         let metadata = match fs::symlink_metadata(path) {
@@ -721,49 +812,102 @@ impl UploadEngine {
             }
         }
 
-        // Stage 3: Request Scotty Upload Token
-        let upload_token = match api.get_upload_token(&sha1_b64, file_size).await {
-            Ok(tok) => tok,
-            Err(e) => {
-                let err_str = e.to_string();
-                let kind = classify_error(&err_str);
-                if matches!(kind, ErrorKind::SignInRequired | ErrorKind::AccountRestricted) {
-                    breaker.trip(kind, account_email, &err_str);
+        if opts.dry_run {
+            let _ = event_tx.send(UploadEvent::ThreadProgress(ThreadStatus {
+                worker_id,
+                status: "dry-run".to_string(),
+                file_path: path.to_string_lossy().to_string(),
+                file_name: file_name.clone(),
+                message: "Dry run: would back up".to_string(),
+                bytes_uploaded: file_size,
+                bytes_total: file_size,
+                attempt: 1,
+            })).await;
+
+            return FileUploadResult {
+                media_key: "dry_run_key".to_string(),
+                is_error: false,
+                is_live_photo: false,
+                skipped: false,
+                skip_code: "dry-run".to_string(),
+                skip_reason: "Dry run: file not in Google Photos and would be backed up".to_string(),
+                error_message: String::new(),
+                path: path.to_path_buf(),
+                paths: vec![path.to_path_buf()],
+                size_bytes: file_size,
+                duration_ms: 0,
+                account_email: account_email.to_string(),
+            };
+        }
+
+        // Stage 3: Request Scotty Upload Token (or restore existing session)
+        let mut upload_token: Option<String> = None;
+        if let Some(cache) = hash_cache {
+            if let Ok(Some(cached_tok)) = cache.get_upload_session(account_email, &sha1_b64, file_size) {
+                if let Ok(Some(_)) = api.query_upload_status(&cached_tok).await {
+                    upload_token = Some(cached_tok);
+                } else {
+                    let _ = cache.remove_upload_session(account_email, &sha1_b64, file_size);
                 }
-                return FileUploadResult {
-                    media_key: String::new(),
-                    is_error: true,
-                    is_live_photo: false,
-                    skipped: false,
-                    skip_code: "upload-token-failed".to_string(),
-                    skip_reason: String::new(),
-                    error_message: err_str,
-                    path: path.to_path_buf(),
-                    paths: vec![path.to_path_buf()],
-                    size_bytes: file_size,
-                    duration_ms: 0,
-                    account_email: account_email.to_string(),
-                };
             }
+        }
+
+        let upload_token = match upload_token {
+            Some(tok) => tok,
+            None => match api.get_upload_token(&sha1_b64, file_size).await {
+                Ok(tok) => {
+                    if let Some(cache) = hash_cache {
+                        let _ = cache.save_upload_session(account_email, &sha1_b64, file_size, &tok);
+                    }
+                    tok
+                }
+                Err(e) => {
+                    let err_str = e.to_string();
+                    let kind = classify_error(&err_str);
+                    if matches!(kind, ErrorKind::SignInRequired | ErrorKind::AccountRestricted) {
+                        breaker.trip(kind, account_email, &err_str);
+                    }
+                    return FileUploadResult {
+                        media_key: String::new(),
+                        is_error: true,
+                        is_live_photo: false,
+                        skipped: false,
+                        skip_code: "upload-token-failed".to_string(),
+                        skip_reason: String::new(),
+                        error_message: err_str,
+                        path: path.to_path_buf(),
+                        paths: vec![path.to_path_buf()],
+                        size_bytes: file_size,
+                        duration_ms: 0,
+                        account_email: account_email.to_string(),
+                    };
+                }
+            },
         };
 
-        // Stage 4: Uploading
+        // Stage 4: Resumable Uploading
         let tx = event_tx.clone();
         let p_str = path.to_string_lossy().to_string();
         let fn_str = file_name.clone();
 
-        let finalize_token = match api.upload_file_stream(&upload_token, path, move |bytes_up, total, att| {
-            let _ = tx.try_send(UploadEvent::ThreadProgress(ThreadStatus {
-                worker_id,
-                status: "uploading".to_string(),
-                file_path: p_str.clone(),
-                file_name: fn_str.clone(),
-                message: if att > 1 { format!("Retrying... (attempt {})", att) } else { "Uploading...".to_string() },
-                bytes_uploaded: bytes_up,
-                bytes_total: total,
-                attempt: att,
-            }));
-        }).await {
+        let finalize_token = match api.upload_file_resumable(
+            &upload_token,
+            path,
+            Some(cancelled.clone()),
+            Some(paused.clone()),
+            move |bytes_up, total, att| {
+                let _ = tx.try_send(UploadEvent::ThreadProgress(ThreadStatus {
+                    worker_id,
+                    status: "uploading".to_string(),
+                    file_path: p_str.clone(),
+                    file_name: fn_str.clone(),
+                    message: if att > 1 { format!("Retrying... (attempt {})", att) } else { "Uploading...".to_string() },
+                    bytes_uploaded: bytes_up,
+                    bytes_total: total,
+                    attempt: att,
+                }));
+            },
+        ).await {
             Ok(tok) => tok,
             Err(e) => {
                 let err_str = e.to_string();
@@ -794,7 +938,7 @@ impl UploadEngine {
             status: "finalizing".to_string(),
             file_path: path.to_string_lossy().to_string(),
             file_name: file_name.clone(),
-            message: "Committing upload...".to_string(),
+            message: "Committing backup...".to_string(),
             bytes_uploaded: file_size,
             bytes_total: file_size,
             attempt: 1,
@@ -828,6 +972,10 @@ impl UploadEngine {
             }
         };
 
+        if let Some(cache) = hash_cache {
+            let _ = cache.remove_upload_session(account_email, &sha1_b64, file_size);
+        }
+
         if opts.use_local_hash_cache {
             if let Some(cache) = hash_cache {
                 let _ = cache.put(account_email, &sha1_b64, &media_key, file_size, timestamp);
@@ -843,7 +991,7 @@ impl UploadEngine {
             status: "completed".to_string(),
             file_path: path.to_string_lossy().to_string(),
             file_name: file_name.clone(),
-            message: "Upload completed".to_string(),
+            message: "Backup completed".to_string(),
             bytes_uploaded: file_size,
             bytes_total: file_size,
             attempt: 1,
@@ -875,6 +1023,8 @@ impl UploadEngine {
         hash_cache: Option<&HashCache>,
         event_tx: &mpsc::Sender<UploadEvent>,
         breaker: &CircuitBreaker,
+        cancelled: Arc<AtomicBool>,
+        paused: Arc<AtomicBool>,
     ) -> FileUploadResult {
         let p_name = pair.photo_path.file_name().unwrap_or_default().to_string_lossy().to_string();
         let v_name = pair.video_path.file_name().unwrap_or_default().to_string_lossy().to_string();
@@ -1037,6 +1187,34 @@ impl UploadEngine {
             }
         }
 
+        if opts.dry_run {
+            let _ = event_tx.send(UploadEvent::ThreadProgress(ThreadStatus {
+                worker_id,
+                status: "dry-run".to_string(),
+                file_path: pair.photo_path.to_string_lossy().to_string(),
+                file_name: display_name.clone(),
+                message: "Dry run: would back up Live Photo".to_string(),
+                bytes_uploaded: total_size,
+                bytes_total: total_size,
+                attempt: 1,
+            })).await;
+
+            return FileUploadResult {
+                media_key: "dry_run_key".to_string(),
+                is_error: false,
+                is_live_photo: true,
+                skipped: false,
+                skip_code: "dry-run".to_string(),
+                skip_reason: "Dry run: Live Photo not in Google Photos and would be backed up".to_string(),
+                error_message: String::new(),
+                path: pair.photo_path.clone(),
+                paths: vec![pair.photo_path.clone(), pair.video_path.clone()],
+                size_bytes: total_size,
+                duration_ms: 0,
+                account_email: account_email.to_string(),
+            };
+        }
+
         // Upload photo component
         let photo_upload_token = match api.get_upload_token(&photo_b64, p_meta.len() as i64).await {
             Ok(tok) => tok,
@@ -1066,18 +1244,24 @@ impl UploadEngine {
         let tx = event_tx.clone();
         let p_str = pair.photo_path.to_string_lossy().to_string();
         let disp_name = display_name.clone();
-        let photo_finalize_tok = match api.upload_file_stream(&photo_upload_token, &pair.photo_path, move |bytes_up, _, att| {
-            let _ = tx.try_send(UploadEvent::ThreadProgress(ThreadStatus {
-                worker_id,
-                status: "uploading".to_string(),
-                file_path: p_str.clone(),
-                file_name: disp_name.clone(),
-                message: if att > 1 { format!("Uploading photo (attempt {})...", att) } else { "Uploading photo...".to_string() },
-                bytes_uploaded: bytes_up,
-                bytes_total: total_size,
-                attempt: att,
-            }));
-        }).await {
+        let photo_finalize_tok = match api.upload_file_resumable(
+            &photo_upload_token,
+            &pair.photo_path,
+            Some(cancelled.clone()),
+            Some(paused.clone()),
+            move |bytes_up, _, att| {
+                let _ = tx.try_send(UploadEvent::ThreadProgress(ThreadStatus {
+                    worker_id,
+                    status: "uploading".to_string(),
+                    file_path: p_str.clone(),
+                    file_name: disp_name.clone(),
+                    message: if att > 1 { format!("Uploading photo (attempt {})...", att) } else { "Uploading photo...".to_string() },
+                    bytes_uploaded: bytes_up,
+                    bytes_total: total_size,
+                    attempt: att,
+                }));
+            },
+        ).await {
             Ok(tok) => tok,
             Err(e) => {
                 let err_str = e.to_string();
@@ -1132,18 +1316,24 @@ impl UploadEngine {
         let v_str = pair.video_path.to_string_lossy().to_string();
         let disp_name = display_name.clone();
         let p_size = p_meta.len() as i64;
-        let video_finalize_tok = match api.upload_file_stream(&video_upload_token, &pair.video_path, move |bytes_up, _, att| {
-            let _ = tx.try_send(UploadEvent::ThreadProgress(ThreadStatus {
-                worker_id,
-                status: "uploading".to_string(),
-                file_path: v_str.clone(),
-                file_name: disp_name.clone(),
-                message: if att > 1 { format!("Uploading video (attempt {})...", att) } else { "Uploading video...".to_string() },
-                bytes_uploaded: p_size + bytes_up,
-                bytes_total: total_size,
-                attempt: att,
-            }));
-        }).await {
+        let video_finalize_tok = match api.upload_file_resumable(
+            &video_upload_token,
+            &pair.video_path,
+            Some(cancelled.clone()),
+            Some(paused.clone()),
+            move |bytes_up, _, att| {
+                let _ = tx.try_send(UploadEvent::ThreadProgress(ThreadStatus {
+                    worker_id,
+                    status: "uploading".to_string(),
+                    file_path: v_str.clone(),
+                    file_name: disp_name.clone(),
+                    message: if att > 1 { format!("Uploading video (attempt {})...", att) } else { "Uploading video...".to_string() },
+                    bytes_uploaded: p_size + bytes_up,
+                    bytes_total: total_size,
+                    attempt: att,
+                }));
+            },
+        ).await {
             Ok(tok) => tok,
             Err(e) => {
                 let err_str = e.to_string();
@@ -1219,7 +1409,7 @@ impl UploadEngine {
             status: "completed".to_string(),
             file_path: pair.photo_path.to_string_lossy().to_string(),
             file_name: display_name.clone(),
-            message: "Upload completed".to_string(),
+            message: "Backup completed".to_string(),
             bytes_uploaded: total_size,
             bytes_total: total_size,
             attempt: 1,

@@ -1,21 +1,30 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { Ref } from 'vue'
 import type { UploadResults } from '../utils/uploadResults'
+import { formatErrorMessage, formatSkipReason } from '../utils/statusTranslation'
 import M3Button from './ui/M3Button.vue'
 import M3Icon from './ui/M3Icon.vue'
 
-const props = defineProps<{
+const { t } = useI18n()
+
+const props = withDefaults(defineProps<{
   results: UploadResults
-}>()
+  isDryRun?: boolean
+}>(), {
+  isDryRun: false,
+})
 
 const emit = defineEmits<{
   (e: 'copy'): void
   (e: 'clear'): void
   (e: 'retryAll'): void
   (e: 'retryItem', path: string): void
+  (e: 'startUpload'): void
 }>()
 
+const showCandidateList = ref(true)
 const showFailedList = ref(false)
 const showSkippedList = ref(false)
 const copied = ref(false)
@@ -96,41 +105,49 @@ function onCopyClick() {
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 flex-wrap">
       <div class="flex flex-col min-w-0">
         <h2 class="m3-headline-small text-[var(--md-sys-color-on-surface)] truncate">
-          Upload Batch Results
+          {{ isDryRun ? t('results.dryRunTitle') : t('results.backedUpTitle') }}
         </h2>
         <span class="m3-body-medium">
-          Summary of recent upload operations
+          {{ isDryRun ? t('results.dryRunDesc') : t('results.backedUpDesc') }}
         </span>
       </div>
 
-      <!-- Connected Action Button Group (M3 Expressive) -->
-      <md-button-group
-        variant="connected"
-        aria-label="Upload results actions"
-        class="shrink-0 self-start sm:self-auto"
-      >
+      <!-- Action Button Group -->
+      <div class="flex items-center gap-2 shrink-0 self-start sm:self-auto flex-wrap">
+        <!-- In Dry Run: Primary Start Backup Button -->
+        <M3Button
+          v-if="isDryRun && results.success.length > 0"
+          variant="filled"
+          size="s"
+          icon="cloud_upload"
+          :aria-label="t('results.startBackupAria')"
+          @click="emit('startUpload')"
+        >
+          <span>{{ t('results.startBackup', { count: results.success.length }) }}</span>
+        </M3Button>
+
         <!-- Tonal Copy as JSON Button -->
         <M3Button
           variant="tonal"
           size="s"
           :icon="copied ? 'check' : 'content_copy'"
-          aria-label="Copy results as JSON"
+          :aria-label="t('results.copyJsonAria')"
           @click="onCopyClick"
         >
-          <span>{{ copied ? 'Copied JSON!' : 'Copy as JSON' }}</span>
+          <span>{{ copied ? t('results.copiedJson') : t('results.copyJson') }}</span>
         </M3Button>
 
-        <!-- Clear / New Upload button -->
+        <!-- Clear / Back Up More button -->
         <M3Button
           variant="outlined"
           size="s"
-          icon="replay"
-          aria-label="Dismiss results and start new upload"
+          :icon="isDryRun ? 'close' : 'replay'"
+          :aria-label="isDryRun ? 'Dismiss dry run preview' : 'Dismiss results and back up more photos'"
           @click="emit('clear')"
         >
-          <span>New Upload</span>
+          <span>{{ isDryRun ? t('results.cancel') : t('results.backUpMore') }}</span>
         </M3Button>
-      </md-button-group>
+      </div>
     </div>
 
     <!-- Stat Cards Side by Side (Tonal Containers) -->
@@ -142,7 +159,7 @@ function onCopyClick() {
       <div class="m3-stat-card-1 flex items-center gap-4 rounded-[24px] border border-[var(--md-sys-color-tertiary)]/30 bg-[var(--md-sys-color-tertiary-container)] p-5 text-[var(--md-sys-color-on-tertiary-container)] shadow-xs">
         <div class="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--md-sys-color-on-tertiary-container)]/15">
           <M3Icon
-            name="check_circle"
+            :name="isDryRun ? 'cloud_upload' : 'check_circle'"
             :filled="true"
             :size="24"
             class="text-[var(--md-sys-color-on-tertiary-container)]"
@@ -153,7 +170,7 @@ function onCopyClick() {
             {{ displaySuccess }}
           </span>
           <span class="m3-label-large opacity-90 leading-tight">
-            Successful Uploads
+            {{ isDryRun ? t('results.readyToUpload') : t('results.completed') }}
           </span>
         </div>
       </div>
@@ -176,7 +193,7 @@ function onCopyClick() {
             {{ displaySkipped }}
           </span>
           <span class="m3-label-large opacity-90 leading-tight">
-            Already in Google Photos
+            {{ t('results.alreadyInPhotos') }}
           </span>
         </div>
       </div>
@@ -208,7 +225,7 @@ function onCopyClick() {
             {{ displayFail }}
           </span>
           <span class="m3-label-large opacity-90 leading-tight">
-            {{ results.fail.length > 0 ? 'Failed Uploads' : 'No Failures' }}
+            {{ results.fail.length > 0 ? t('results.failed') : t('results.noFailures') }}
           </span>
         </div>
       </div>
@@ -217,11 +234,65 @@ function onCopyClick() {
     <!-- Secondary stats chips (Skipped & Warnings) -->
     <div class="flex flex-wrap items-center gap-2 pt-1 m3-body-medium">
       <span class="inline-flex items-center rounded-full bg-[var(--md-sys-color-surface-container-high)] px-3 py-1 m3-label-large text-[var(--md-sys-color-on-surface-variant)]">
-        Already in Google Photos: <strong class="ml-1 text-[var(--md-sys-color-on-surface)] tabular-nums">{{ results.skipped.length }}</strong>
+        {{ t('results.alreadyInPhotosCount', { count: results.skipped.length }) }}
       </span>
       <span class="inline-flex items-center rounded-full bg-[var(--md-sys-color-surface-container-high)] px-3 py-1 m3-label-large text-[var(--md-sys-color-on-surface-variant)]">
-        Warnings: <strong class="ml-1 text-[var(--md-sys-color-on-surface)] tabular-nums">{{ results.warnings.length }}</strong>
+        {{ t('results.warningsCount', { count: results.warnings.length }) }}
       </span>
+    </div>
+
+    <!-- Expandable Candidate / Ready to Upload List (Dry Run) -->
+    <div
+      v-if="isDryRun && results.success.length > 0"
+      class="flex flex-col rounded-[24px] border border-[var(--md-sys-color-primary)]/30 bg-[var(--md-sys-color-surface-container-low)] overflow-hidden"
+    >
+      <div class="flex items-center justify-between p-4 bg-[var(--md-sys-color-primary-container)]/20">
+        <button
+          type="button"
+          class="flex flex-1 cursor-pointer items-center justify-between m3-title-medium text-[var(--md-sys-color-on-surface)] transition-colors pr-2"
+          :aria-label="t('results.toggleCandidatesAria')"
+          @click="showCandidateList = !showCandidateList"
+        >
+          <div class="flex items-center gap-2">
+            <M3Icon
+              name="cloud_upload"
+              :filled="true"
+              :size="16"
+              class="text-[var(--md-sys-color-primary)]"
+            />
+            <span>{{ t('results.readyCount', { count: results.success.length }) }}</span>
+          </div>
+          <M3Icon
+            name="expand_more"
+            :size="18"
+            class="text-[var(--md-sys-color-outline)] transition-transform duration-200"
+            :class="{ 'rotate-180': showCandidateList }"
+          />
+        </button>
+      </div>
+
+      <div
+        v-if="showCandidateList"
+        class="flex flex-col divide-y divide-[var(--md-sys-color-outline-variant)]/20 max-h-60 overflow-y-auto"
+      >
+        <div
+          v-for="(item, idx) in results.success"
+          :key="idx"
+          class="flex items-center justify-between p-3.5 hover:bg-[var(--md-sys-color-surface-container-high)]/30 transition-colors"
+        >
+          <div class="flex flex-col min-w-0 pr-3">
+            <span class="m3-label-large text-[var(--md-sys-color-on-surface)] truncate font-mono">
+              {{ item.path?.split(/[/\\]/).pop() || t('results.mediaFile') }}
+            </span>
+            <span class="m3-body-small text-[var(--md-sys-color-outline)] truncate">
+              {{ item.path }}
+            </span>
+          </div>
+          <span class="m3-label-small text-[var(--md-sys-color-primary)] bg-[var(--md-sys-color-primary-container)] px-2 py-0.5 rounded-full shrink-0">
+            {{ t('results.willUpload') }}
+          </span>
+        </div>
+      </div>
     </div>
 
     <!-- Expandable Skipped / Duplicate List -->
@@ -233,7 +304,7 @@ function onCopyClick() {
         <button
           type="button"
           class="flex flex-1 cursor-pointer items-center justify-between m3-title-medium text-[var(--md-sys-color-on-surface)] transition-colors pr-2"
-          aria-label="Toggle skipped items list"
+          :aria-label="t('results.toggleSkippedAria')"
           @click="showSkippedList = !showSkippedList"
         >
           <div class="flex items-center gap-2">
@@ -243,7 +314,7 @@ function onCopyClick() {
               :size="16"
               class="text-[var(--md-sys-color-primary)]"
             />
-            <span>Already in Google Photos ({{ results.skipped.length }})</span>
+            <span>{{ t('results.skippedCount', { count: results.skipped.length }) }}</span>
           </div>
           <M3Icon
             name="expand_more"
@@ -275,19 +346,19 @@ function onCopyClick() {
                 <div class="flex flex-col min-w-0">
                   <span
                     class="m3-mono m3-body-medium text-[var(--md-sys-color-on-surface)] truncate"
-                    :title="skipItem.paths?.[0] || 'Unknown file'"
+                    :title="skipItem.paths?.[0] || t('upload.unknownFile')"
                   >
-                    {{ (skipItem.paths?.[0] || 'Unknown file').split(/[/\\]/).pop() }}
+                    {{ (skipItem.paths?.[0] || t('upload.unknownFile')).split(/[/\\]/).pop() }}
                   </span>
                   <span
                     class="m3-body-medium mt-0.5 leading-relaxed"
                   >
-                    {{ skipItem.reason || 'Already in Google Photos' }}
+                    {{ formatSkipReason(skipItem.reason, skipItem.code, t) }}
                   </span>
                 </div>
               </div>
               <span class="px-2 py-0.5 rounded-full bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)] m3-label-small shrink-0">
-                Already in library
+                {{ t('results.alreadyInLibrary') }}
               </span>
             </div>
           </div>
@@ -304,7 +375,7 @@ function onCopyClick() {
         <button
           type="button"
           class="flex flex-1 cursor-pointer items-center justify-between m3-title-medium text-[var(--md-sys-color-error)] transition-colors pr-2"
-          aria-label="Toggle failed items list"
+          :aria-label="t('results.toggleFailedAria')"
           @click="showFailedList = !showFailedList"
         >
           <div class="flex items-center gap-2">
@@ -313,7 +384,7 @@ function onCopyClick() {
               :filled="true"
               :size="16"
             />
-            <span>View Failed Items ({{ results.fail.length }})</span>
+            <span>{{ t('results.failedItemsCount', { count: results.fail.length }) }}</span>
           </div>
           <M3Icon
             name="expand_more"
@@ -329,10 +400,10 @@ function onCopyClick() {
           size="xs"
           icon="replay"
           class="shrink-0"
-          aria-label="Retry all failed uploads"
+          :aria-label="t('results.retryFailedAria')"
           @click="emit('retryAll')"
         >
-          <span>Retry All</span>
+          <span>{{ t('results.retryFailed') }}</span>
         </M3Button>
       </div>
 
@@ -365,7 +436,7 @@ function onCopyClick() {
                     v-if="typeof failItem !== 'string' && failItem.error"
                     class="m3-body-medium text-[var(--md-sys-color-error)] mt-0.5 leading-relaxed"
                   >
-                    {{ failItem.error }}
+                    {{ formatErrorMessage(failItem.error, t) }}
                   </span>
                 </div>
               </div>
@@ -374,8 +445,8 @@ function onCopyClick() {
               <md-icon-button
                 icon="replay"
                 size="xs"
-                title="Retry this file"
-                :aria-label="`Retry upload for ${typeof failItem === 'string' ? failItem : failItem.path}`"
+                :title="t('results.retryFile')"
+                :aria-label="t('status.retryItemAria', { path: typeof failItem === 'string' ? failItem : failItem.path })"
                 @click="emit('retryItem', typeof failItem === 'string' ? failItem : failItem.path)"
               />
             </div>

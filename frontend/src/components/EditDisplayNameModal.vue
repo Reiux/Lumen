@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import M3Button from './ui/M3Button.vue'
 import M3Icon from './ui/M3Icon.vue'
 import M3TextField from './ui/M3TextField.vue'
 import { displayNameFromEmail, getCustomDisplayName, saveCustomDisplayName } from '../utils/avatar'
+
+const { t } = useI18n()
 
 const props = defineProps<{
   modelValue: boolean
@@ -75,10 +78,10 @@ function handleReset() {
               id="edit-display-name-title"
               class="m3-headline-small text-[var(--md-sys-color-on-surface)] select-none"
             >
-              Change Display Name
+              {{ t('dialogs.editName.title') }}
             </h2>
             <p class="m3-body-medium select-none">
-              For account <strong class="text-[var(--md-sys-color-on-surface)]">{{ accountEmail }}</strong>
+              {{ t('dialogs.editName.forAccount', { email: accountEmail }) }}
             </p>
           </div>
 
@@ -86,15 +89,15 @@ function handleReset() {
             <M3TextField
               id="edit-display-name-input"
               v-model="localDisplayName"
-              label="Display Name"
-              placeholder="e.g. Alex"
+              :label="t('dialogs.editName.label')"
+              :placeholder="t('dialogs.editName.placeholder')"
               variant="outlined"
               leading-icon="person"
               autofocus
               @keydown.enter="handleSave"
             />
             <span class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)] px-1">
-              Saved locally on this device since login credentials only include an OAuth token.
+              {{ t('dialogs.editName.subtitle') }}
             </span>
           </div>
 
@@ -105,7 +108,7 @@ function handleReset() {
               destructive
               @click="handleReset"
             >
-              Reset to default
+              {{ t('dialogs.editName.reset') }}
             </M3Button>
             <div class="flex items-center gap-2">
               <M3Button
@@ -113,14 +116,14 @@ function handleReset() {
                 size="s"
                 @click="close"
               >
-                Cancel
+                {{ t('dialogs.editName.cancel') }}
               </M3Button>
               <M3Button
                 variant="filled"
                 size="s"
                 @click="handleSave"
               >
-                Save
+                {{ t('dialogs.editName.save') }}
               </M3Button>
             </div>
           </div>

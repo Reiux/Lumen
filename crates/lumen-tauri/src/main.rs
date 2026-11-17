@@ -62,6 +62,7 @@ fn main() {
         album_registry,
         logs: Arc::new(std::sync::RwLock::new(Vec::new())),
         upload_cancel: Arc::new(AtomicBool::new(false)),
+        upload_pause: Arc::new(AtomicBool::new(false)),
         scan_cancel: Arc::new(AtomicBool::new(false)),
         is_uploading: Arc::new(AtomicBool::new(false)),
         pending_watch_files: Arc::new(std::sync::Mutex::new(Vec::new())),
@@ -134,6 +135,7 @@ fn main() {
             commands::clear_hash_cache,
             commands::get_log_entries,
             commands::get_problem_logs,
+            commands::clear_problem_logs,
             commands::clear_log_entries,
             commands::export_logs,
             commands::check_for_updates,
@@ -157,6 +159,15 @@ fn main() {
             commands::pick_watched_folder,
             commands::start_upload,
             commands::cancel_upload,
+            commands::pause_upload,
+            commands::resume_upload,
+            commands::is_upload_paused,
+            commands::set_schedule_enabled,
+            commands::set_schedule_hours,
+            commands::set_pause_on_battery,
+            commands::set_locale,
+            commands::set_dry_run,
+            commands::scan_for_review,
             commands::cancel_scan,
             commands::app_ready,
             commands::test_notification,
@@ -204,6 +215,9 @@ fn main() {
                                 drop_zone: String::new(),
                             },
                         );
+                    }
+                    tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Leave) => {
+                        let _ = ah.emit("file-drag-cancelled", ());
                     }
                     _ => {}
                 });
@@ -281,6 +295,25 @@ fn main() {
                         return;
                     }
 
+                    if cfg.preferences.schedule_enabled
+                        && !lumen_core::safety::is_within_schedule(
+                            cfg.preferences.schedule_start_hour,
+                            cfg.preferences.schedule_end_hour,
+                        )
+                    {
+                        tracing::info!("Folder watcher: holding {} files outside scheduled quiet hours", string_paths.len());
+                        let mut pending = state.pending_watch_files.lock().unwrap();
+                        pending.extend(string_paths);
+                        return;
+                    }
+
+                    if cfg.preferences.pause_on_battery && lumen_core::safety::is_running_on_battery() {
+                        tracing::info!("Folder watcher: holding {} files while on battery", string_paths.len());
+                        let mut pending = state.pending_watch_files.lock().unwrap();
+                        pending.extend(string_paths);
+                        return;
+                    }
+
                     let _ = ah_event.emit(
                         "folder-watch:detected",
                         serde_json::json!({
@@ -289,7 +322,7 @@ fn main() {
                         }),
                     );
 
-                    let _ = commands::execute_upload(string_paths, ah_event.clone(), (*state).clone(), true);
+                    let _ = commands::execute_upload(string_paths, ah_event.clone(), (*state).clone(), true, None, None);
                 });
 
                 let watcher_arc = state.watcher.clone();

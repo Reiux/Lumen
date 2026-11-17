@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ConfigManager } from '../bindings/app/core'
+import { setLocale } from './i18n'
 import M3Switch from './components/ui/M3Switch.vue'
 import M3Slider from './components/ui/M3Slider.vue'
 import M3Button from './components/ui/M3Button.vue'
@@ -21,6 +23,8 @@ import {
   setMatugenEnabled,
 } from './utils/theme'
 import { preferencesState, setUseQuota, setSaver } from './utils/configStore'
+
+const { t } = useI18n()
 
 const _emit = defineEmits<{
   (e: 'uploadFolder', path: string): void
@@ -47,6 +51,11 @@ interface Settings {
   uploadSpeedLimitKBps: number
   watchFoldersEnabled: boolean
   watchedFolders: string[]
+  scheduleEnabled: boolean
+  scheduleStartHour: number
+  scheduleEndHour: number
+  pauseOnBattery: boolean
+  dryRun: boolean
 }
 
 const settings = ref<Settings>({
@@ -69,6 +78,11 @@ const settings = ref<Settings>({
   uploadSpeedLimitKBps: 0,
   watchFoldersEnabled: false,
   watchedFolders: [],
+  scheduleEnabled: false,
+  scheduleStartHour: 1,
+  scheduleEndHour: 7,
+  pauseOnBattery: false,
+  dryRun: false,
 })
 
 const isHydrating = ref(true)
@@ -79,25 +93,62 @@ const isTrayAvailable = ref(true)
 const activeAccountEmail = ref('')
 
 // Sticky Navigation Sections matching Mockup A
-const sections = [
-  { id: 'section-appearance', label: 'Appearance', icon: 'palette' },
-  { id: 'section-uploads', label: 'Uploads', icon: 'cloud_upload' },
-  { id: 'section-performance', label: 'Performance', icon: 'speed' },
-  { id: 'section-background', label: 'Background', icon: 'notifications' },
-  { id: 'section-danger', label: 'Danger zone', icon: 'local_fire_department' },
-] as const
+const sections = computed(() => [
+  { id: 'section-appearance', label: t('settings.appearance'), icon: 'palette' },
+  { id: 'section-uploads', label: t('settings.backup'), icon: 'cloud_upload' },
+  { id: 'section-performance', label: t('settings.performance'), icon: 'speed' },
+  { id: 'section-background', label: t('settings.background'), icon: 'notifications' },
+  { id: 'section-danger', label: t('settings.dangerZone'), icon: 'local_fire_department' },
+])
 
 const activeSectionId = ref<string>('section-appearance')
+let isProgrammaticScroll = false
+let scrollResetTimer: ReturnType<typeof setTimeout> | null = null
+let scrollContainerEl: HTMLElement | null = null
 
 function scrollToSection(id: string) {
   activeSectionId.value = id
+  isProgrammaticScroll = true
+  if (scrollResetTimer) clearTimeout(scrollResetTimer)
+
+  const container = (scrollContainerEl || document.querySelector('[data-tab="settings"]')) as HTMLElement | null
   const el = document.getElementById(id)
-  if (el) {
+  if (container && el) {
+    const containerTop = container.getBoundingClientRect().top
+    const elTop = el.getBoundingClientRect().top
+    const offset = Math.max(0, elTop - containerTop + container.scrollTop - 16)
+    container.scrollTo({ top: offset, behavior: 'smooth' })
+  } else if (el) {
     el.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
+
+  scrollResetTimer = setTimeout(() => {
+    isProgrammaticScroll = false
+  }, 850)
 }
 
-let observer: IntersectionObserver | null = null
+function handleScroll() {
+  if (isProgrammaticScroll || !scrollContainerEl) return
+
+  // If scrolled near the bottom, select the last section
+  if (scrollContainerEl.scrollTop + scrollContainerEl.clientHeight >= scrollContainerEl.scrollHeight - 30) {
+    activeSectionId.value = sections.value[sections.value.length - 1].id
+    return
+  }
+
+  const containerTop = scrollContainerEl.getBoundingClientRect().top
+  let currentId = sections.value[0].id
+  for (const s of sections.value) {
+    const el = document.getElementById(s.id)
+    if (el) {
+      const top = el.getBoundingClientRect().top - containerTop
+      if (top <= 90) {
+        currentId = s.id
+      }
+    }
+  }
+  activeSectionId.value = currentId
+}
 
 async function refreshActiveAccount() {
   try {
@@ -132,7 +183,7 @@ const speedStepIndex = computed({
 
 const speedLimitDisplay = computed(() => {
   const kbps = settings.value.uploadSpeedLimitKBps
-  if (!kbps || kbps <= 0) return 'Unlimited'
+  if (!kbps || kbps <= 0) return t('settings.unlimited')
   if (kbps >= 1024) {
     const mb = (kbps / 1024).toFixed(1).replace(/\.0$/, '')
     return `${mb} MB/s`
@@ -196,6 +247,11 @@ onMounted(async () => {
       uploadSpeedLimitKBps: config.uploadSpeedLimitKBps || 0,
       watchFoldersEnabled: config.watchFoldersEnabled || false,
       watchedFolders: config.watchedFolders || [],
+      scheduleEnabled: config.scheduleEnabled ?? false,
+      scheduleStartHour: config.scheduleStartHour ?? 1,
+      scheduleEndHour: config.scheduleEndHour ?? 7,
+      pauseOnBattery: config.pauseOnBattery ?? false,
+      dryRun: config.dryRun ?? false,
     }
     hashCacheCount.value = hashCount
     isTrayAvailable.value = trayAvail
@@ -209,38 +265,19 @@ onMounted(async () => {
     isHydrating.value = false
   }
 
-  // Setup scroll-spy inside the tab pane container with rAF throttle
-  const scrollRoot = document.querySelector('[data-tab="settings"]') || null
-  let scrollTicking = false
-  observer = new IntersectionObserver(
-    (entries) => {
-      for (const entry of entries) {
-        if (entry.isIntersecting && activeSectionId.value !== entry.target.id) {
-          if (!scrollTicking) {
-            scrollTicking = true
-            requestAnimationFrame(() => {
-              activeSectionId.value = entry.target.id
-              scrollTicking = false
-            })
-          }
-          break
-        }
-      }
-    },
-    { root: scrollRoot, threshold: 0.2 }
-  )
-
-  for (const s of sections) {
-    const el = document.getElementById(s.id)
-    if (el) observer.observe(el)
+  // Setup scroll-spy inside the tab pane container
+  scrollContainerEl = document.querySelector('[data-tab="settings"]') as HTMLElement | null
+  if (scrollContainerEl) {
+    scrollContainerEl.addEventListener('scroll', handleScroll, { passive: true })
   }
 })
 
 onUnmounted(() => {
-  if (observer) {
-    observer.disconnect()
-    observer = null
+  if (scrollContainerEl) {
+    scrollContainerEl.removeEventListener('scroll', handleScroll)
+    scrollContainerEl = null
   }
+  if (scrollResetTimer) clearTimeout(scrollResetTimer)
 })
 
 watch(() => settings.value.proxy, async (newValue) => {
@@ -348,6 +385,52 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
   if (isHydrating.value) return
   await ConfigManager.SetWatchFoldersEnabled(newValue)
 })
+
+const savedLang = typeof localStorage !== 'undefined' ? localStorage.getItem('lumen_locale') || 'en' : 'en'
+const currentLanguage = ref(savedLang)
+const showLanguageDialog = ref(false)
+
+const availableLanguages = [
+  { code: 'en', nativeName: 'English', englishName: 'English' },
+  { code: 'es', nativeName: 'Español', englishName: 'Spanish' },
+  { code: 'id', nativeName: 'Bahasa Indonesia', englishName: 'Indonesian' },
+  { code: 'ja', nativeName: '日本語', englishName: 'Japanese' },
+]
+
+const currentLanguageLabel = computed(() => {
+  const match = availableLanguages.find(l => l.code === currentLanguage.value)
+  return match ? match.nativeName : 'English'
+})
+
+function selectLanguage(lang: string) {
+  currentLanguage.value = lang
+  try {
+    setLocale(lang)
+  } catch (err) {
+    console.error('Failed to change language:', err)
+  }
+  showLanguageDialog.value = false
+}
+
+watch(() => settings.value.scheduleEnabled, async (newValue) => {
+  if (isHydrating.value) return
+  await ConfigManager.SetScheduleEnabled(newValue)
+})
+
+watch([() => settings.value.scheduleStartHour, () => settings.value.scheduleEndHour], async ([start, end]) => {
+  if (isHydrating.value) return
+  await ConfigManager.SetScheduleHours(Number(start), Number(end))
+})
+
+watch(() => settings.value.pauseOnBattery, async (newValue) => {
+  if (isHydrating.value) return
+  await ConfigManager.SetPauseOnBattery(newValue)
+})
+
+watch(() => settings.value.dryRun, async (newValue) => {
+  if (isHydrating.value) return
+  await ConfigManager.SetDryRun(newValue)
+})
 </script>
 
 <template>
@@ -355,10 +438,10 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
     <!-- Header with friendly, complete sentence -->
     <div class="flex flex-col gap-1">
       <h1 class="m3-headline-large text-[var(--md-sys-color-on-surface)]">
-        Settings
+        {{ t('settings.title') }}
       </h1>
       <p class="m3-body-medium">
-        Change how Lumen uploads, how fast it runs, and how it looks.
+        {{ t('settings.subtitle') }}
       </p>
     </div>
 
@@ -366,11 +449,11 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
     <div class="flex items-start gap-8 w-full">
       <!-- Sticky section list (Mockup A) -->
       <nav
-        aria-label="Settings section navigation"
+        :aria-label="t('settings.sectionNavAria')"
         class="hidden min-[1100px]:flex flex-col w-52 shrink-0 sticky top-2 gap-1 self-start"
       >
         <span class="m3-label-small text-[var(--md-sys-color-on-surface-variant)] px-3 mb-1">
-          Sections
+          {{ t('settings.sections') }}
         </span>
         <M3Button
           v-for="sec in sections"
@@ -394,7 +477,7 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
           <div class="flex items-center gap-2 px-1 text-[var(--md-sys-color-primary)]">
             <M3Icon name="palette" :size="20" />
             <h2 class="m3-headline-small text-[var(--md-sys-color-on-surface)]">
-              Appearance
+              {{ t('settings.appearance') }}
             </h2>
           </div>
 
@@ -403,10 +486,10 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5">
               <div class="flex flex-col pr-2">
                 <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
-                  Palette style
+                  {{ t('settings.paletteStyle') }}
                 </span>
                 <span class="m3-body-medium mt-0.5">
-                  Select how colorful or vibrant your theme appears.
+                  {{ t('settings.paletteStyleSubtitle') }}
                 </span>
               </div>
               <M3ButtonGroup :connected="true" class="shrink-0 self-start sm:self-auto">
@@ -429,10 +512,10 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5">
               <div class="flex flex-col pr-2">
                 <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
-                  Theme color
+                  {{ t('settings.themeColor') }}
                 </span>
                 <span class="m3-body-medium mt-0.5">
-                  Choose a primary accent color for the interface.
+                  {{ t('settings.themeColorSubtitle') }}
                 </span>
               </div>
               <div class="flex items-center gap-2 shrink-0 flex-wrap">
@@ -442,8 +525,8 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                   type="button"
                   role="radio"
                   :aria-checked="isMatugenActive"
-                  aria-label="System wallpaper dynamic theme"
-                  title="System Matugen Dynamic Theme"
+                  :aria-label="t('settings.matugenThemeAria')"
+                  :title="t('settings.matugenThemeTitle')"
                   class="no-state-layer relative flex size-9 items-center justify-center rounded-full p-0.5 focus:outline-none cursor-pointer transition-transform duration-150 hover:scale-105"
                   @click="setMatugenEnabled(true)"
                 >
@@ -474,7 +557,7 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                   type="button"
                   role="radio"
                   :aria-checked="!isMatugenActive && currentThemeSeed.toLowerCase() === preset.seed.toLowerCase()"
-                  :aria-label="`${preset.name} theme color`"
+                  :aria-label="t('settings.presetThemeColor', { name: preset.name })"
                   :title="preset.name"
                   class="no-state-layer relative flex size-9 items-center justify-center rounded-full p-0.5 focus:outline-none cursor-pointer transition-transform duration-150 hover:scale-105"
                   @click="setThemeSeed(preset.seed)"
@@ -501,15 +584,44 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                 </button>
               </div>
             </div>
+
+            <!-- Row: Language Selector (M3 Selection Dialog Trigger) -->
+            <div
+              class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 hover:bg-[var(--md-sys-color-surface-container-high)]/40 transition-colors cursor-pointer group"
+              role="button"
+              tabindex="0"
+              :aria-label="t('settings.selectLanguage')"
+              @click="showLanguageDialog = true"
+              @keydown.enter="showLanguageDialog = true"
+              @keydown.space.prevent="showLanguageDialog = true"
+            >
+              <div class="flex flex-col pr-2">
+                <span class="m3-title-medium text-[var(--md-sys-color-on-surface)] group-hover:text-[var(--md-sys-color-primary)] transition-colors">
+                  {{ t('settings.language') }}
+                </span>
+                <span class="m3-body-medium mt-0.5">
+                  {{ t('settings.languageSubtitle') }}
+                </span>
+              </div>
+              <div class="flex items-center gap-2 shrink-0 self-start sm:self-auto">
+                <div class="inline-flex items-center gap-2.5 rounded-full bg-[var(--md-sys-color-surface-container-high)] border border-[var(--md-sys-color-outline-variant)]/40 px-3.5 py-1.5 transition-all group-hover:border-[var(--md-sys-color-primary)]/60 group-hover:bg-[var(--md-sys-color-surface-container-highest)] shadow-xs">
+                  <M3Icon name="language" :size="18" class="text-[var(--md-sys-color-primary)]" />
+                  <span class="m3-label-large text-[var(--md-sys-color-on-surface)] font-medium">
+                    {{ currentLanguageLabel }}
+                  </span>
+                  <M3Icon name="chevron_right" :size="18" class="text-[var(--md-sys-color-on-surface-variant)] opacity-70 group-hover:opacity-100 group-hover:translate-x-0.5 transition-all" />
+                </div>
+              </div>
+            </div>
           </div>
         </div>
 
-        <!-- 2. Section: Uploads -->
+        <!-- 2. Section: Backup -->
         <div id="section-uploads" class="m3-settings-section flex flex-col gap-2.5 scroll-mt-6">
           <div class="flex items-center gap-2 px-1 text-[var(--md-sys-color-primary)]">
             <M3Icon name="cloud_upload" :size="20" />
             <h2 class="m3-headline-small text-[var(--md-sys-color-on-surface)]">
-              Uploads
+              {{ t('settings.backup') }}
             </h2>
           </div>
 
@@ -521,16 +633,16 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                   for="use-quota-switch"
                   class="m3-title-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
                 >
-                  Use quota
+                  {{ t('settings.useQuota') }}
                 </label>
                 <span class="m3-body-medium mt-0.5">
-                  Uploads in original quality count against your Google storage limit.
+                  {{ t('settings.useQuotaSubtitle') }}
                 </span>
               </div>
               <M3Switch
                 id="use-quota-switch"
                 v-model="settings.useQuota"
-                aria-label="Use quota toggle"
+                :aria-label="t('settings.useQuota')"
               />
             </div>
 
@@ -541,16 +653,16 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                   for="saver-mode-switch"
                   class="m3-title-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
                 >
-                  Storage saver quality
+                  {{ t('settings.saver') }}
                 </label>
                 <span class="m3-body-medium mt-0.5">
-                  Compress photos and videos slightly so they take up less storage.
+                  {{ t('settings.saverSubtitle') }}
                 </span>
               </div>
               <M3Switch
                 id="saver-mode-switch"
                 v-model="settings.saver"
-                aria-label="Storage saver quality toggle"
+                :aria-label="t('settings.saver')"
               />
             </div>
 
@@ -562,16 +674,16 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                     for="local-hash-cache-switch"
                     class="m3-title-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
                   >
-                    Local deduplication cache
+                    {{ t('settings.localHashCache') }}
                   </label>
                   <span class="m3-body-medium mt-0.5">
-                    Remember what you already uploaded so Lumen does not ask Google Photos about those files again.
+                    {{ t('settings.localHashCacheSubtitle') }}
                   </span>
                 </div>
                 <M3Switch
                   id="local-hash-cache-switch"
                   v-model="settings.useLocalHashCache"
-                  aria-label="Local deduplication cache toggle"
+                  :aria-label="t('settings.localHashCache')"
                 />
               </div>
 
@@ -581,7 +693,7 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                 class="flex items-center justify-between rounded-xl bg-[var(--md-sys-color-surface-container-high)]/70 px-3.5 py-2 border border-[var(--md-sys-color-outline-variant)]/30 mt-1"
               >
                 <span class="m3-label-large text-[var(--md-sys-color-on-surface)]">
-                  {{ hashCacheCount.toLocaleString() }} files cached
+                  {{ t('settings.filesCached', { count: hashCacheCount.toLocaleString() }) }}
                 </span>
                 <M3Button
                   variant="outlined"
@@ -590,9 +702,29 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                   :disabled="isClearingCache || hashCacheCount === 0"
                   @click="clearHashCache"
                 >
-                  <span>{{ isClearingCache ? 'Clearing...' : 'Clear cache' }}</span>
+                  <span>{{ isClearingCache ? t('settings.clearing') : t('settings.clearCache') }}</span>
                 </M3Button>
               </div>
+            </div>
+
+            <!-- Review before upload (formerly Dry Run Mode) -->
+            <div class="flex items-center justify-between gap-4 p-5">
+              <div class="flex flex-col pr-2">
+                <label
+                  for="dry-run-switch"
+                  class="m3-title-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
+                >
+                  {{ t('settings.reviewBeforeUpload') }}
+                </label>
+                <span class="m3-body-medium mt-0.5">
+                  {{ t('settings.reviewBeforeUploadSubtitle') }}
+                </span>
+              </div>
+              <M3Switch
+                id="dry-run-switch"
+                v-model="settings.dryRun"
+                :aria-label="t('settings.reviewBeforeUpload')"
+              />
             </div>
 
             <!-- Force Upload -->
@@ -602,16 +734,16 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                   for="force-upload-switch"
                   class="m3-title-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
                 >
-                  Force upload
+                  {{ t('settings.forceBackup') }}
                 </label>
                 <span class="m3-body-medium mt-0.5">
-                  Upload every file even if Lumen thinks it was uploaded before.
+                  {{ t('settings.forceBackupSubtitle') }}
                 </span>
               </div>
               <M3Switch
                 id="force-upload-switch"
                 v-model="settings.forceUpload"
-                aria-label="Force upload toggle"
+                :aria-label="t('settings.forceBackup')"
               />
             </div>
 
@@ -622,16 +754,16 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                   for="filter-unsupported-switch"
                   class="m3-title-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
                 >
-                  Try unsupported formats
+                  {{ t('settings.tryUnsupported') }}
                 </label>
                 <span class="m3-body-medium mt-0.5">
-                  Attempt to upload files that have uncommon or unrecognized extensions.
+                  {{ t('settings.tryUnsupportedSubtitle') }}
                 </span>
               </div>
               <M3Switch
                 id="filter-unsupported-switch"
                 v-model="settings.disableUnsupportedFilesFilter"
-                aria-label="Try unsupported formats toggle"
+                :aria-label="t('settings.tryUnsupported')"
               />
             </div>
 
@@ -643,16 +775,16 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                     for="pair-live-photos-switch"
                     class="m3-title-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
                   >
-                    Pair Apple Live Photos
+                    {{ t('settings.pairLivePhotos') }}
                   </label>
                   <span class="m3-body-medium mt-0.5">
-                    Group matching still photos and short videos together as Live Photos.
+                    {{ t('settings.pairLivePhotosSubtitle') }}
                   </span>
                 </div>
                 <M3Switch
                   id="pair-live-photos-switch"
                   v-model="settings.pairLivePhotos"
-                  aria-label="Pair Apple Live Photos toggle"
+                  :aria-label="t('settings.pairLivePhotos')"
                 />
               </div>
 
@@ -663,20 +795,20 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
               >
                 <div class="flex items-center justify-between gap-3">
                   <span class="m3-body-large text-[var(--md-sys-color-on-surface)]">
-                    Skip incomplete pairs
+                    {{ t('settings.skipIncomplete') }}
                   </span>
                   <M3Switch
                     v-model="settings.skipIncompleteLivePhotos"
-                    aria-label="Skip incomplete pairs toggle"
+                    :aria-label="t('settings.skipIncomplete')"
                   />
                 </div>
                 <div class="flex items-center justify-between gap-3">
                   <span class="m3-body-large text-[var(--md-sys-color-on-surface)]">
-                    Update existing photos
+                    {{ t('settings.updateExistingPhotos') }}
                   </span>
                   <M3Switch
                     v-model="settings.updateExistingPhotosToLive"
-                    aria-label="Update existing photos toggle"
+                    :aria-label="t('settings.updateExistingPhotos')"
                   />
                 </div>
               </div>
@@ -689,16 +821,16 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                   for="set-date-switch"
                   class="m3-title-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
                 >
-                  Date from filename
+                  {{ t('settings.dateFromFilename') }}
                 </label>
                 <span class="m3-body-medium mt-0.5">
-                  Use dates written in file names when camera metadata is missing.
+                  {{ t('settings.dateFromFilenameSubtitle') }}
                 </span>
               </div>
               <M3Switch
                 id="set-date-switch"
                 v-model="settings.setDateFromFilename"
-                aria-label="Date from filename toggle"
+                :aria-label="t('settings.dateFromFilename')"
               />
             </div>
           </div>
@@ -709,7 +841,7 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
           <div class="flex items-center gap-2 px-1 text-[var(--md-sys-color-primary)]">
             <M3Icon name="speed" :size="20" />
             <h2 class="m3-headline-small text-[var(--md-sys-color-on-surface)]">
-              Performance
+              {{ t('settings.performance') }}
             </h2>
           </div>
 
@@ -718,10 +850,10 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5">
               <div class="flex flex-col pr-2">
                 <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
-                  Upload threads
+                  {{ t('settings.backupThreads') }}
                 </span>
                 <span class="m3-body-medium mt-0.5">
-                  Set how many files upload at the same time.
+                  {{ t('settings.backupThreadsSubtitle') }}
                 </span>
               </div>
               <div class="flex items-center gap-3 w-64 shrink-0 self-start sm:self-auto">
@@ -730,11 +862,12 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                   :min="1"
                   :max="20"
                   :stops="false"
-                  aria-label="Upload threads slider"
+                  :labeled="false"
+                  :aria-label="t('settings.backupThreads')"
                   class="flex-1"
                 />
                 <span class="shrink-0 m3-label-large text-[var(--md-sys-color-primary)] w-24 text-right">
-                  {{ settings.uploadThreads }} {{ settings.uploadThreads === 1 ? 'worker' : 'workers' }}
+                  {{ settings.uploadThreads }} {{ settings.uploadThreads === 1 ? t('settings.worker') : t('settings.workers') }}
                 </span>
               </div>
             </div>
@@ -743,10 +876,10 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5">
               <div class="flex flex-col pr-2">
                 <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
-                  Bandwidth limit
+                  {{ t('settings.speedLimit') }}
                 </span>
                 <span class="m3-body-medium mt-0.5">
-                  Limit upload speed so other devices on your network stay fast.
+                  {{ t('settings.speedLimitSubtitle') }}
                 </span>
               </div>
               <div class="flex items-center gap-3 w-64 shrink-0 self-start sm:self-auto">
@@ -756,7 +889,8 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                   :max="SPEED_STEPS.length - 1"
                   :step="1"
                   :stops="false"
-                  aria-label="Bandwidth limit slider"
+                  :labeled="false"
+                  :aria-label="t('settings.speedLimit')"
                   class="flex-1"
                 />
                 <span class="shrink-0 m3-label-large text-[var(--md-sys-color-primary)] w-24 text-right">
@@ -769,10 +903,10 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5">
               <div class="flex flex-col pr-2">
                 <label for="proxy-input" class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
-                  Proxy URL
+                  {{ t('settings.proxyUrl') }}
                 </label>
                 <span class="m3-body-medium mt-0.5">
-                  Route your uploads through an HTTP or SOCKS5 proxy server.
+                  {{ t('settings.proxyUrlSubtitle') }}
                 </span>
               </div>
               <div class="w-64 shrink-0 self-start sm:self-auto">
@@ -793,7 +927,7 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
           <div class="flex items-center gap-2 px-1 text-[var(--md-sys-color-primary)]">
             <M3Icon name="notifications" :size="20" />
             <h2 class="m3-headline-small text-[var(--md-sys-color-on-surface)]">
-              Background
+              {{ t('settings.background') }}
             </h2>
           </div>
 
@@ -806,17 +940,17 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                   class="m3-title-medium text-[var(--md-sys-color-on-surface)]"
                   :class="{ 'opacity-50 cursor-not-allowed': !isTrayAvailable, 'cursor-pointer': isTrayAvailable }"
                 >
-                  Minimize to tray on close
+                  {{ t('settings.minimizeToTray') }}
                 </label>
                 <span class="m3-body-medium mt-0.5">
-                  {{ isTrayAvailable ? 'Keep Lumen running in the system tray when you close the window.' : 'System tray is not supported on this desktop.' }}
+                  {{ isTrayAvailable ? t('settings.minimizeToTraySubtitle') : t('settings.trayNotSupported') }}
                 </span>
               </div>
               <M3Switch
                 id="tray-minimize-switch"
                 v-model="settings.minimizeToTray"
                 :disabled="!isTrayAvailable"
-                aria-label="Minimize to tray toggle"
+                :aria-label="t('settings.minimizeToTray')"
               />
             </div>
 
@@ -827,16 +961,16 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                   for="startup-switch"
                   class="m3-title-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
                 >
-                  Launch on system startup
+                  {{ t('settings.launchOnStartup') }}
                 </label>
                 <span class="m3-body-medium mt-0.5">
-                  Automatically start Lumen in the background when your computer turns on.
+                  {{ t('settings.launchOnStartupSubtitle') }}
                 </span>
               </div>
               <M3Switch
                 id="startup-switch"
                 v-model="settings.launchOnStartup"
-                aria-label="Launch on system startup toggle"
+                :aria-label="t('settings.launchOnStartup')"
               />
             </div>
 
@@ -847,16 +981,114 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                   for="desktop-notifications-switch"
                   class="m3-title-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
                 >
-                  Desktop notifications
+                  {{ t('settings.desktopNotifications') }}
                 </label>
                 <span class="m3-body-medium mt-0.5">
-                  Get a notification on your desktop when all uploads finish.
+                  {{ t('settings.desktopNotificationsSubtitle') }}
                 </span>
               </div>
               <M3Switch
                 id="desktop-notifications-switch"
                 v-model="settings.notifyOnComplete"
-                aria-label="Desktop notifications toggle"
+                :aria-label="t('settings.desktopNotifications')"
+              />
+            </div>
+
+            <!-- Upload schedule / Quiet hours -->
+            <div class="flex flex-col gap-2.5 p-5">
+              <div class="flex items-center justify-between gap-4">
+                <div class="flex flex-col pr-2">
+                  <label
+                    for="schedule-switch"
+                    class="m3-title-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
+                  >
+                    {{ t('settings.quietHoursSchedule') }}
+                  </label>
+                  <span class="m3-body-medium mt-0.5">
+                    {{ t('settings.quietHoursScheduleSubtitle') }}
+                  </span>
+                </div>
+                <M3Switch
+                  id="schedule-switch"
+                  v-model="settings.scheduleEnabled"
+                  :aria-label="t('settings.quietHoursSchedule')"
+                />
+              </div>
+
+              <!-- Time window range when enabled -->
+              <div
+                v-if="settings.scheduleEnabled"
+                class="flex flex-col sm:flex-row items-center gap-3 rounded-xl bg-[var(--md-sys-color-surface-container-high)]/70 p-3 border border-[var(--md-sys-color-outline-variant)]/30 mt-1"
+              >
+                <div class="flex items-center gap-2">
+                  <span class="m3-body-medium text-[var(--md-sys-color-on-surface)]">{{ t('settings.from') }}</span>
+                  <div class="relative inline-flex items-center shrink-0">
+                    <select
+                      v-model.number="settings.scheduleStartHour"
+                      class="appearance-none rounded-full bg-[var(--md-sys-color-surface-container-high)] pl-3.5 pr-8 py-1.5 m3-label-large text-[var(--md-sys-color-on-surface)] border border-[var(--md-sys-color-outline-variant)]/40 hover:border-[var(--md-sys-color-on-surface)]/60 focus:outline-none focus:border-[var(--md-sys-color-primary)] focus:ring-1 focus:ring-[var(--md-sys-color-primary)] cursor-pointer transition-colors shadow-xs"
+                    >
+                      <option
+                        v-for="h in 24"
+                        :key="h - 1"
+                        :value="h - 1"
+                        class="bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-on-surface)]"
+                      >
+                        {{ String(h - 1).padStart(2, '0') }}:00
+                      </option>
+                    </select>
+                    <M3Icon
+                      name="arrow_drop_down"
+                      :size="18"
+                      class="pointer-events-none absolute right-2 text-[var(--md-sys-color-on-surface-variant)]"
+                    />
+                  </div>
+                </div>
+                <div class="flex items-center gap-2">
+                  <span class="m3-body-medium text-[var(--md-sys-color-on-surface)]">{{ t('settings.to') }}</span>
+                  <div class="relative inline-flex items-center shrink-0">
+                    <select
+                      v-model.number="settings.scheduleEndHour"
+                      class="appearance-none rounded-full bg-[var(--md-sys-color-surface-container-high)] pl-3.5 pr-8 py-1.5 m3-label-large text-[var(--md-sys-color-on-surface)] border border-[var(--md-sys-color-outline-variant)]/40 hover:border-[var(--md-sys-color-on-surface)]/60 focus:outline-none focus:border-[var(--md-sys-color-primary)] focus:ring-1 focus:ring-[var(--md-sys-color-primary)] cursor-pointer transition-colors shadow-xs"
+                    >
+                      <option
+                        v-for="h in 24"
+                        :key="h - 1"
+                        :value="h - 1"
+                        class="bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-on-surface)]"
+                      >
+                        {{ String(h - 1).padStart(2, '0') }}:00
+                      </option>
+                    </select>
+                    <M3Icon
+                      name="arrow_drop_down"
+                      :size="18"
+                      class="pointer-events-none absolute right-2 text-[var(--md-sys-color-on-surface-variant)]"
+                    />
+                  </div>
+                </div>
+                <span class="m3-body-small text-[var(--md-sys-color-outline)] sm:ml-auto">
+                  {{ t('settings.pauseOutside') }}
+                </span>
+              </div>
+            </div>
+
+            <!-- Pause on Battery Power -->
+            <div class="flex items-center justify-between gap-4 p-5">
+              <div class="flex flex-col pr-2">
+                <label
+                  for="battery-pause-switch"
+                  class="m3-title-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
+                >
+                  {{ t('settings.pauseOnBattery') }}
+                </label>
+                <span class="m3-body-medium mt-0.5">
+                  {{ t('settings.pauseOnBatterySubtitle') }}
+                </span>
+              </div>
+              <M3Switch
+                id="battery-pause-switch"
+                v-model="settings.pauseOnBattery"
+                :aria-label="t('settings.pauseOnBattery')"
               />
             </div>
           </div>
@@ -867,7 +1099,7 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
           <div class="flex items-center gap-2 px-1 text-[var(--md-sys-color-error)]">
             <M3Icon name="local_fire_department" :size="20" />
             <h2 class="m3-headline-small text-[var(--md-sys-color-error)]">
-              Danger zone
+              {{ t('settings.dangerZone') }}
             </h2>
           </div>
 
@@ -878,17 +1110,17 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                   for="delete-host-switch"
                   class="m3-title-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
                 >
-                  Delete files after upload
+                  {{ t('settings.deleteFromHost') }}
                 </label>
                 <span class="m3-body-medium mt-0.5">
-                  Delete local photos from your computer once they're uploaded.
+                  {{ t('settings.deleteFromHostSubtitle') }}
                 </span>
               </div>
               <M3Switch
                 id="delete-host-switch"
                 :model-value="settings.deleteFromHost"
                 variant="danger"
-                aria-label="Delete files after upload toggle"
+                :aria-label="t('settings.deleteFromHost')"
                 @update:model-value="onToggleDelete"
               />
             </div>
@@ -924,16 +1156,16 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                 id="delete-confirm-title"
                 class="m3-headline-small text-[var(--md-sys-color-on-surface)]"
               >
-                Delete local files after upload?
+                {{ t('settings.deleteConfirmTitle') }}
               </h3>
             </div>
 
             <div class="flex flex-col gap-3 text-[var(--md-sys-color-on-surface-variant)] m3-body-medium leading-relaxed">
               <p>
-                Once a photo or video finishes uploading, Lumen will delete the copy on this computer to save space.
+                {{ t('settings.deleteConfirmP1') }}
               </p>
               <p>
-                This won't touch anything you uploaded previously, and your photos in Google Photos stay safe. You won't be able to recover the deleted files from your computer.
+                {{ t('settings.deleteConfirmP2') }}
               </p>
             </div>
 
@@ -943,7 +1175,7 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                 size="s"
                 @click="cancelDeleteFromHost"
               >
-                <span>Cancel</span>
+                <span>{{ t('settings.cancel') }}</span>
               </M3Button>
               <M3Button
                 variant="filled"
@@ -952,7 +1184,98 @@ watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
                 icon="delete_forever"
                 @click="confirmDeleteFromHost"
               >
-                <span>Enable deletion</span>
+                <span>{{ t('settings.enableDeletion') }}</span>
+              </M3Button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- Language Selection Modal Dialog (M3 Selection Dialog) -->
+    <Teleport to="body">
+      <Transition name="m3-dialog-modal">
+        <div
+          v-if="showLanguageDialog"
+          class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 select-none backdrop-blur-xs"
+          style="--wails-draggable: none"
+          @click.self="showLanguageDialog = false"
+        >
+          <div
+            class="m3-dialog-card relative flex w-full max-w-sm flex-col gap-4 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="language-dialog-title"
+          >
+            <!-- Dialog Header -->
+            <div class="flex items-center gap-3.5">
+              <div class="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-primary)]">
+                <M3Icon
+                  name="language"
+                  :size="24"
+                />
+              </div>
+              <div class="flex flex-col min-w-0">
+                <h3
+                  id="language-dialog-title"
+                  class="m3-headline-small text-[var(--md-sys-color-on-surface)]"
+                >
+                  {{ t('settings.selectLanguage') }}
+                </h3>
+                <span class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)] leading-snug">
+                  {{ t('settings.selectLanguageSubtitle') }}
+                </span>
+              </div>
+            </div>
+
+            <!-- Scrollable Language List with M3 Selection Tiles -->
+            <div class="flex flex-col gap-1.5 max-h-72 overflow-y-auto py-1 pr-0.5">
+              <button
+                v-for="lang in availableLanguages"
+                :key="lang.code"
+                type="button"
+                class="flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left transition-all cursor-pointer border"
+                :class="currentLanguage === lang.code
+                  ? 'border-[var(--md-sys-color-primary)]/50 bg-[var(--md-sys-color-primary-container)]/30 text-[var(--md-sys-color-on-surface)] shadow-xs'
+                  : 'border-transparent hover:bg-[var(--md-sys-color-surface-container-highest)]/60 text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'"
+                @click="selectLanguage(lang.code)"
+              >
+                <div class="flex flex-col min-w-0">
+                  <span class="m3-title-medium leading-tight text-[var(--md-sys-color-on-surface)]">
+                    {{ lang.nativeName }}
+                  </span>
+                  <span
+                    v-if="lang.englishName !== lang.nativeName"
+                    class="m3-body-small opacity-70 mt-0.5"
+                  >
+                    {{ lang.englishName }}
+                  </span>
+                </div>
+
+                <!-- Radio Check Indicator -->
+                <div
+                  class="flex size-5 shrink-0 items-center justify-center rounded-full border transition-all"
+                  :class="currentLanguage === lang.code
+                    ? 'border-[var(--md-sys-color-primary)] bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)]'
+                    : 'border-[var(--md-sys-color-outline)] bg-transparent'"
+                >
+                  <M3Icon
+                    v-if="currentLanguage === lang.code"
+                    name="check"
+                    :size="14"
+                  />
+                </div>
+              </button>
+            </div>
+
+            <!-- Dialog Actions -->
+            <div class="flex items-center justify-end gap-2 pt-2 border-t border-[var(--md-sys-color-outline-variant)]/20">
+              <M3Button
+                variant="text"
+                size="s"
+                @click="showLanguageDialog = false"
+              >
+                <span>{{ t('settings.cancel') }}</span>
               </M3Button>
             </div>
           </div>

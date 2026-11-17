@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { toast } from 'vue-sonner'
+
+const { t } = useI18n()
 import { ConfigManager } from '../bindings/app/core'
 import { WatchedFolderConfig } from '../bindings/app/core/models'
 import BacklogConfirmModal from './components/BacklogConfirmModal.vue'
@@ -104,10 +107,10 @@ async function onToggleMasterSwitch(enabled: boolean) {
   watchFoldersEnabled.value = enabled
   try {
     await ConfigManager.SetWatchFoldersEnabled(enabled)
-    toast.success(enabled ? 'Folder watcher active' : 'Folder watcher disabled')
+    toast.success(enabled ? t('folders.toastWatcherActive') : t('folders.toastWatcherDisabled'))
   } catch (err) {
     console.error('Failed to toggle folder watcher:', err)
-    toast.error('Failed to update folder watcher state')
+    toast.error(t('folders.toastWatcherError'))
   }
 }
 
@@ -121,7 +124,7 @@ async function addFolder() {
     // Check if already added
     const alreadyExists = watchedConfigs.value.some((c) => c.path === folder)
     if (alreadyExists) {
-      toast.info('Folder is already in the list')
+      toast.info(t('folders.toastFolderExists'))
       return
     }
 
@@ -136,11 +139,11 @@ async function addFolder() {
     } else {
       await ConfigManager.AddWatchedFolderWithAccount(folder, activeAccount)
       await loadData()
-      toast.success(`Added folder: ${folderBasename(folder)}`)
+      toast.success(t('folders.toastFolderAdded', { name: folderBasename(folder) }))
     }
   } catch (err) {
     console.error('Failed to add watched folder:', err)
-    toast.error('Failed to add folder')
+    toast.error(t('folders.toastFolderAddError'))
   } finally {
     isAddingFolder.value = false
   }
@@ -154,13 +157,13 @@ async function confirmBacklog(uploadBacklog: boolean) {
     await loadData()
     if (uploadBacklog) {
       emit('uploadFolder', folder)
-      toast.success(`Starting upload for ${folderBasename(folder)}...`)
+      toast.success(t('folders.toastFolderBackupStarted', { name: folderBasename(folder) }))
     } else {
-      toast.success(`Watching folder: ${folderBasename(folder)}`)
+      toast.success(t('folders.toastFolderWatched', { name: folderBasename(folder) }))
     }
   } catch (err) {
     console.error('Failed to add watched folder with backlog:', err)
-    toast.error('Failed to add watched folder')
+    toast.error(t('folders.toastFolderWatchError'))
   } finally {
     pendingBacklog.value = null
   }
@@ -208,7 +211,7 @@ async function saveFolderConfig(cfg: WatchedFolderConfig) {
     inotifyError.value = (await ConfigManager.GetInotifyError()) || ''
   } catch (err) {
     console.error('Failed to update folder configuration:', err)
-    toast.error('Failed to update folder settings')
+    toast.error(t('folders.toastSettingsError'))
   }
 }
 
@@ -218,16 +221,16 @@ async function removeFolder(cfg: WatchedFolderConfig) {
     watchedConfigs.value = watchedConfigs.value.filter((c) => c.path !== cfg.path)
     delete expandedFolders.value[cfg.path]
     inotifyError.value = (await ConfigManager.GetInotifyError()) || ''
-    toast.success(`Removed ${folderBasename(cfg.path)}`)
+    toast.success(t('folders.toastFolderRemoved', { name: folderBasename(cfg.path) }))
   } catch (err) {
     console.error('Failed to remove watched folder:', err)
-    toast.error('Failed to remove folder')
+    toast.error(t('folders.toastFolderRemoveError'))
   }
 }
 
 function onUploadNow(cfg: WatchedFolderConfig) {
   emit('uploadFolder', cfg.path)
-  toast.success(`Queued upload for ${folderBasename(cfg.path)}`)
+  toast.success(t('folders.toastBackupQueued', { name: folderBasename(cfg.path) }))
 }
 
 async function saveAlbumNickname(key: string, nickname: string) {
@@ -235,7 +238,7 @@ async function saveAlbumNickname(key: string, nickname: string) {
   try {
     await ConfigManager.SetAlbumNickname(selectedAccount.value, key.trim(), nickname.trim())
     albumNicknames.value = (await ConfigManager.GetAlbumNicknames(selectedAccount.value)) || {}
-    toast.success('Album nickname saved')
+    toast.success(t('folders.toastNicknameSaved'))
   } catch (err) {
     console.error('Failed to save album nickname:', err)
   }
@@ -252,10 +255,10 @@ onMounted(() => {
     <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
       <div>
         <h1 class="m3-headline-large text-[var(--md-sys-color-on-surface)] leading-tight">
-          Backup Folders
+          {{ t('folders.title') }}
         </h1>
         <p class="m3-body-medium mt-0.5">
-          Photos and videos in enabled folders will be backed up automatically
+          {{ t('folders.subtitle') }}
         </p>
       </div>
 
@@ -266,7 +269,7 @@ onMounted(() => {
         :disabled="isAddingFolder"
         @click="addFolder"
       >
-        <span>{{ isAddingFolder ? 'Selecting...' : 'Add folder' }}</span>
+        <span>{{ isAddingFolder ? 'Selecting...' : t('folders.addFolder') }}</span>
       </M3Button>
     </div>
 
@@ -278,16 +281,16 @@ onMounted(() => {
             for="master-watch-folders-switch"
             class="m3-title-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
           >
-            Auto-watch folders
+            {{ t('folders.autoWatch') }}
           </label>
           <span class="m3-body-medium mt-0.5 leading-relaxed">
-            Continuously monitor local folders and back up new photos and videos when they arrive
+            {{ t('folders.autoWatchSubtitle') }}
           </span>
         </div>
         <M3Switch
           id="master-watch-folders-switch"
           :model-value="watchFoldersEnabled"
-          aria-label="Auto-watch folders master toggle"
+          :aria-label="t('folders.autoWatchToggleAria')"
           @update:model-value="onToggleMasterSwitch"
         />
       </div>
@@ -299,7 +302,7 @@ onMounted(() => {
       >
         <M3Icon name="error" :size="18" class="shrink-0 mt-0.5 text-[var(--md-sys-color-error)]" />
         <div class="flex flex-col gap-1 leading-relaxed">
-          <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">Filesystem Watcher Warning</span>
+          <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">{{ t('folders.watcherWarning') }}</span>
           <span>{{ inotifyError }}</span>
         </div>
       </div>
@@ -309,7 +312,7 @@ onMounted(() => {
     <div class="flex flex-col gap-3">
       <div class="flex items-center justify-between px-1">
         <span class="m3-label-small text-[var(--md-sys-color-on-surface-variant)]">
-          Watched Directories ({{ watchedConfigs.length }})
+          {{ t('folders.watchedDirs', { count: watchedConfigs.length }) }}
         </span>
       </div>
 
@@ -323,10 +326,10 @@ onMounted(() => {
         </div>
         <div class="flex flex-col gap-1 max-w-sm">
           <h3 class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
-            No folders added yet
+            {{ t('folders.noFolders') }}
           </h3>
           <p class="m3-body-medium leading-relaxed">
-            Choose camera, download, or screenshot folders on your computer to back them up automatically.
+            {{ t('folders.noFoldersSubtitle') }}
           </p>
         </div>
         <M3Button
@@ -337,7 +340,7 @@ onMounted(() => {
           :disabled="isAddingFolder"
           @click="addFolder"
         >
-          Choose a folder
+          {{ t('folders.chooseFolder') }}
         </M3Button>
       </div>
 
@@ -377,7 +380,7 @@ onMounted(() => {
                     v-if="cfg.includeSubfolders && cfg.enabled"
                     class="rounded-full bg-[var(--md-sys-color-primary-container)] px-2 py-0.5 m3-label-small normal-case text-[var(--md-sys-color-on-primary-container)]"
                   >
-                    subfolders
+                    {{ t('folders.subfolders') }}
                   </span>
 
                   <!-- Album Mode Badge -->
@@ -385,7 +388,7 @@ onMounted(() => {
                     v-if="cfg.albumMode === 'auto' && cfg.enabled"
                     class="rounded-full bg-[var(--md-sys-color-secondary-container)] px-2 py-0.5 m3-label-small normal-case text-[var(--md-sys-color-on-secondary-container)]"
                   >
-                    Auto album
+                    {{ t('folders.autoAlbum') }}
                   </span>
                   <span
                     v-else-if="cfg.albumMode === 'custom' && cfg.albumNameOrKey && cfg.enabled"
@@ -407,15 +410,15 @@ onMounted(() => {
 
             <!-- Header Controls -->
             <div class="flex items-center gap-2 shrink-0">
-              <!-- Upload Now Button -->
+              <!-- Back Up Now Button -->
               <button
                 type="button"
                 class="flex size-8 cursor-pointer items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-primary)] transition-colors"
-                title="Upload this folder now"
-                aria-label="Upload folder now"
+                :title="t('folders.backupFolderAria')"
+                :aria-label="t('folders.backupFolderAria')"
                 @click="onUploadNow(cfg)"
               >
-                <M3Icon name="upload" :size="18" />
+                <M3Icon name="backup" :size="18" />
               </button>
 
               <!-- Enable/Disable Switch -->
@@ -429,8 +432,8 @@ onMounted(() => {
               <button
                 type="button"
                 class="flex size-8 cursor-pointer items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-error-container)] hover:text-[var(--md-sys-color-error)] transition-colors"
-                title="Remove folder"
-                aria-label="Remove watched folder"
+                :title="t('folders.removeFolderAria')"
+                :aria-label="t('folders.removeFolderAria')"
                 @click="removeFolder(cfg)"
               >
                 <M3Icon name="delete" :size="18" />
@@ -441,7 +444,7 @@ onMounted(() => {
                 type="button"
                 class="flex size-8 cursor-pointer items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)] transition-transform duration-200"
                 :class="expandedFolders[cfg.path] ? 'rotate-180' : ''"
-                aria-label="Toggle folder options"
+                :aria-label="t('folders.toggleOptionsAria')"
                 @click="toggleExpand(cfg.path)"
               >
                 <M3Icon name="expand_more" :size="20" />
@@ -460,10 +463,10 @@ onMounted(() => {
                 <div class="flex items-center justify-between gap-4 rounded-2xl bg-[var(--md-sys-color-surface-container-lowest)] p-3.5 border border-[var(--md-sys-color-outline-variant)]/20">
                   <div class="flex flex-col pr-2">
                     <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
-                      Include subfolders
+                      {{ t('folders.includeSubfolders') }}
                     </span>
                     <span class="m3-body-medium mt-0.5">
-                      Also back up photos and videos in folders inside this one
+                      {{ t('folders.subfoldersDesc') }}
                     </span>
                   </div>
                   <M3Switch
@@ -477,10 +480,10 @@ onMounted(() => {
                 <div class="flex flex-col gap-3 rounded-2xl bg-[var(--md-sys-color-surface-container-lowest)] p-3.5 border border-[var(--md-sys-color-outline-variant)]/20">
                   <div class="flex flex-col">
                     <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
-                      Destination Album
+                      {{ t('folders.destAlbum') }}
                     </span>
                     <span class="m3-body-medium mt-0.5">
-                      Organize uploads from this folder into a Google Photos album
+                      {{ t('folders.destAlbumDesc') }}
                     </span>
                   </div>
 
@@ -493,7 +496,7 @@ onMounted(() => {
                       :variant="cfg.albumMode === 'none' || !cfg.albumMode ? 'filled' : 'outlined'"
                       @click="cfg.albumMode = 'none'; saveFolderConfig(cfg)"
                     >
-                      None (Library only)
+                      {{ t('folders.modeNone') }}
                     </M3Button>
                     <M3Button
                       size="xs"
@@ -502,7 +505,7 @@ onMounted(() => {
                       :variant="cfg.albumMode === 'auto' ? 'filled' : 'outlined'"
                       @click="cfg.albumMode = 'auto'; saveFolderConfig(cfg)"
                     >
-                      Auto by folder name
+                      {{ t('folders.modeAuto') }}
                     </M3Button>
                     <M3Button
                       size="xs"
@@ -511,7 +514,7 @@ onMounted(() => {
                       :variant="cfg.albumMode === 'custom' ? 'filled' : 'outlined'"
                       @click="cfg.albumMode = 'custom'; saveFolderConfig(cfg)"
                     >
-                      Specific album
+                      {{ t('folders.modeCustom') }}
                     </M3Button>
                   </div>
 
@@ -523,8 +526,8 @@ onMounted(() => {
                     <M3TextField
                       :id="`album-input-${cfg.path}`"
                       v-model="cfg.albumNameOrKey"
-                      label="Album name or album key (AF1Qip...)"
-                      placeholder="e.g. Vacation or AF1Qip..."
+                      :label="t('folders.albumInputLabel')"
+                      :placeholder="t('folders.albumInputPlaceholder')"
                       variant="outlined"
                       leading-icon="folder"
                       @change="saveFolderConfig(cfg)"
@@ -537,18 +540,18 @@ onMounted(() => {
                     >
                       <div class="flex flex-col gap-0.5">
                         <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
-                          Album Nickname (optional)
+                          {{ t('dialogs.album.nickname') }}
                         </span>
                         <span class="m3-body-medium leading-relaxed">
-                          Set a friendly display name for this album key so the 50-character code doesn't clutter your app.
+                          {{ t('folders.albumNicknameDesc') }}
                         </span>
                       </div>
                       <div class="pt-2">
                         <M3TextField
                           :id="`album-nickname-${cfg.path}`"
                           :model-value="albumNicknames[cfg.albumNameOrKey.trim()] || ''"
-                          label="Friendly nickname"
-                          placeholder="e.g. Vacation 2026"
+                          :label="t('dialogs.album.nicknameLabel')"
+                          :placeholder="t('dialogs.album.nicknamePlaceholder')"
                           variant="outlined"
                           leading-icon="label"
                           @change="(val: string) => saveAlbumNickname(cfg.albumNameOrKey, val)"
@@ -562,7 +565,7 @@ onMounted(() => {
                       class="flex flex-col gap-1.5 pt-1"
                     >
                       <span class="m3-label-small text-[var(--md-sys-color-on-surface-variant)]">
-                        Recent Albums
+                        {{ t('dialogs.album.recentAlbums') }}
                       </span>
                       <div class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
                         <M3Button
@@ -589,10 +592,10 @@ onMounted(() => {
                 >
                   <div class="flex flex-col pr-2">
                     <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
-                      Account
+                      {{ t('folders.account') }}
                     </span>
                     <span class="m3-body-medium mt-0.5">
-                      Route uploads from this folder to a specific Google account
+                      {{ t('folders.accountDesc') }}
                     </span>
                   </div>
                   <div class="relative inline-flex items-center shrink-0">
@@ -605,7 +608,7 @@ onMounted(() => {
                         value=""
                         class="bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-on-surface)]"
                       >
-                        Default ({{ selectedAccount || 'Active' }})
+                        {{ t('folders.defaultAccount', { account: selectedAccount || t('about.active') }) }}
                       </option>
                       <option
                         v-for="acc in accountsList"
@@ -653,21 +656,21 @@ onMounted(() => {
                 <M3Icon name="warning" :filled="true" :size="22" />
               </div>
               <h3 class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
-                Broad Directory Warning
+                {{ t('folders.broadWarningTitle') }}
               </h3>
             </div>
             <p class="m3-body-medium leading-relaxed">
-              Enabling recursive subfolders on a root directory such as <code class="rounded bg-black/20 px-1 py-0.5 m3-mono text-[var(--md-sys-color-on-surface)]">{{ pendingBroadFolder?.path }}</code> can watch thousands of subdirectories and may exhaust system inotify limits.
+              {{ t('folders.broadWarningP1', { path: pendingBroadFolder?.path }) }}
             </p>
             <p class="m3-body-medium leading-relaxed">
-              Are you sure you want to watch all subdirectories in this path?
+              {{ t('folders.broadWarningP2') }}
             </p>
             <div class="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2">
               <M3Button variant="text" size="s" @click="cancelBroadFolder">
-                Cancel
+                {{ t('settings.cancel') }}
               </M3Button>
               <M3Button variant="filled" size="s" @click="confirmBroadFolder">
-                Enable Subfolders
+                {{ t('folders.enableSubfolders') }}
               </M3Button>
             </div>
           </div>

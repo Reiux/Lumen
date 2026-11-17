@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Browser } from '@wailsio/runtime'
+
+const { t } = useI18n()
 import { ConfigManager } from '../bindings/app/core'
 import type { UpdateInfo } from '../bindings/app/core/models'
 import M3Button from './components/ui/M3Button.vue'
@@ -29,6 +32,59 @@ const tapCount = ref(0)
 let tapTimer: ReturnType<typeof setTimeout> | null = null
 const logoRotation = ref(0)
 
+const wordmarkScale = ref(1.0)
+const wordmarkWeight = computed(() => {
+  const progress = Math.min(Math.max((wordmarkScale.value - 1.0) / 0.26, 0), 1)
+  return Math.round(800 + progress * 150)
+})
+
+let punchAnimId: number | null = null
+
+function triggerWordmarkPunch() {
+  if (punchAnimId) cancelAnimationFrame(punchAnimId)
+  const startTime = performance.now()
+  function frame(now: number) {
+    const elapsed = now - startTime
+    if (elapsed < 340) {
+      // Ease out cubic to 1.26 (tweens in 340ms)
+      const t = elapsed / 340
+      const ease = 1 - Math.pow(1 - t, 3)
+      wordmarkScale.value = 1.0 + 0.26 * ease
+      punchAnimId = requestAnimationFrame(frame)
+    } else if (elapsed < 750) {
+      // Spring oscillation around 1.0 (damping ~0.58, stiffness ~240)
+      const t = (elapsed - 340) / 410
+      const decay = Math.exp(-t * 5.0)
+      const osc = Math.cos(t * Math.PI * 3.2)
+      wordmarkScale.value = 1.0 + 0.26 * decay * osc
+      punchAnimId = requestAnimationFrame(frame)
+    } else {
+      wordmarkScale.value = 1.0
+      punchAnimId = null
+    }
+  }
+  punchAnimId = requestAnimationFrame(frame)
+}
+
+let holdInterval: ReturnType<typeof setInterval> | null = null
+let holdStartTime = 0
+
+function onLogoMouseDown() {
+  holdStartTime = Date.now()
+  holdInterval = setInterval(() => {
+    const elapsed = Date.now() - holdStartTime
+    const speedFactor = Math.min(1 + Math.pow(elapsed / 500, 2), 10)
+    logoRotation.value += 6 * speedFactor
+  }, 16)
+}
+
+function onLogoMouseUp() {
+  if (holdInterval) {
+    clearInterval(holdInterval)
+    holdInterval = null
+  }
+}
+
 const lastChecked = ref<Date | null>(null)
 if (typeof localStorage !== 'undefined') {
   const stored = localStorage.getItem('lumen_last_check')
@@ -43,12 +99,15 @@ if (typeof localStorage !== 'undefined') {
 
 const lastCheckedFormatted = computed(() => {
   if (!lastChecked.value) {
-    return 'Never checked in this session'
+    return t('about.neverChecked')
   }
   return lastChecked.value.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + ' · ' + lastChecked.value.toLocaleDateString()
 })
 
 onMounted(async () => {
+  setTimeout(() => {
+    triggerWordmarkPunch()
+  }, 220)
   try {
     const v = await ConfigManager.GetAppVersion()
     if (v) appVersion.value = v
@@ -98,26 +157,27 @@ async function checkForUpdates() {
     const info = await ConfigManager.CheckForUpdates(true)
     updateResult.value = info
     if (info.error) {
-      toast.error(`Update check: ${info.error}`)
+      toast.error(t('about.toastUpdateCheckError', { error: info.error }))
     } else if (info.hasUpdate) {
       showUpdateModal.value = true
-      toast.info(`New version v${info.latestVersion} is available!`)
+      toast.info(t('about.toastUpdateAvailable', { version: info.latestVersion }))
     } else {
-      toast.success(`You're on the latest version (v${info.currentVersion || appVersion.value})`)
+      toast.success(t('about.toastLatestVersion', { version: info.currentVersion || appVersion.value }))
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
-    toast.error(`Update check: ${msg || 'Could not check for updates'}`)
+    toast.error(t('about.toastUpdateCheckError', { error: msg || t('about.toastCouldNotCheck') }))
   } finally {
     isCheckingUpdates.value = false
   }
 }
 
-function onLogoTap() {
+function onBrandTap() {
   logoRotation.value += 360
+  triggerWordmarkPunch()
 
   if (devOptionsState.unlocked) {
-    toast.info('Developer options are already active')
+    toast.info(t('about.toastDevOptionsActive'))
     return
   }
 
@@ -129,17 +189,17 @@ function onLogoTap() {
 
   const remaining = 7 - tapCount.value
   if (remaining > 0 && remaining <= 3) {
-    toast.info(`${remaining} more tap${remaining > 1 ? 's' : ''} to enable developer options`)
+    toast.info(t('about.toastDevOptionsRemaining', { count: remaining }))
   } else if (remaining <= 0) {
     setDevOptionsUnlocked(true)
     tapCount.value = 0
-    toast.success('Developer options enabled')
+    toast.success(t('about.toastDevOptionsEnabled'))
   }
 }
 
 function disableDevOptions() {
   setDevOptionsUnlocked(false)
-  toast.info('Developer options disabled')
+  toast.info(t('about.toastDevOptionsDisabled'))
 }
 </script>
 
@@ -151,13 +211,16 @@ function disableDevOptions() {
     <!-- Header: Large transparent logo, app name, version, short description -->
     <div class="flex flex-col items-center text-center pt-8">
       <div
-        class="inline-flex items-center justify-center size-24 cursor-pointer select-none rounded-full origin-center"
+        class="inline-flex items-center justify-center size-24 cursor-pointer select-none rounded-full origin-center active:scale-95 transition-transform"
         :style="{
           transform: `rotate(${logoRotation}deg)`,
-          transition: 'transform 600ms cubic-bezier(0.38, 1.21, 0.22, 1.00)',
+          transition: holdInterval ? 'none' : 'transform 600ms cubic-bezier(0.38, 1.21, 0.22, 1.00)',
         }"
-        title="Tap 7 times for developer options"
-        @click="onLogoTap"
+        :title="t('about.tapForDevOptions')"
+        @mousedown="onLogoMouseDown"
+        @mouseup="onLogoMouseUp"
+        @mouseleave="onLogoMouseUp"
+        @click="onBrandTap"
       >
         <LumenLogo
           :size="96"
@@ -165,7 +228,16 @@ function disableDevOptions() {
         />
       </div>
 
-      <h1 class="m3-headline-large text-[var(--md-sys-color-on-surface)] mt-1">
+      <h1
+        class="m3-headline-large text-[var(--md-sys-color-primary)] mt-1 cursor-pointer select-none origin-center"
+        :style="{
+          transform: `scale(${wordmarkScale})`,
+          fontWeight: wordmarkWeight,
+          letterSpacing: '-0.5px',
+          fontVariationSettings: `'ROND' 100, 'wght' ${wordmarkWeight}`,
+        }"
+        @click="onBrandTap"
+      >
         Lumen
       </h1>
 
@@ -174,7 +246,7 @@ function disableDevOptions() {
       </span>
 
       <p class="m3-body-medium mt-2.5 max-w-sm leading-relaxed">
-        Fast, privacy-focused desktop companion for Google Photos.
+        {{ t('about.tagline') }}
       </p>
 
       <!-- Action buttons: Source code, Check for updates & Open source licenses -->
@@ -183,10 +255,10 @@ function disableDevOptions() {
           variant="tonal"
           size="m"
           icon="open_in_new"
-          aria-label="View source code on GitHub"
+          :aria-label="t('about.viewSourceGithub')"
           @click="openRepo"
         >
-          <span>Source code</span>
+          <span>{{ t('about.sourceCode') }}</span>
         </M3Button>
 
         <M3Button
@@ -195,20 +267,20 @@ function disableDevOptions() {
           icon="refresh"
           :disabled="isCheckingUpdates"
           :loading="isCheckingUpdates"
-          aria-label="Check for updates"
+          :aria-label="t('about.checkForUpdatesAria')"
           @click="checkForUpdates"
         >
-          <span>{{ isCheckingUpdates ? 'Checking...' : 'Check for updates' }}</span>
+          <span>{{ isCheckingUpdates ? t('about.checking') : t('about.checkForUpdates') }}</span>
         </M3Button>
 
         <M3Button
           variant="tonal"
           size="m"
           icon="policy"
-          aria-label="View open source licenses"
+          :aria-label="t('about.viewLicensesAria')"
           @click="showLicensesModal = true"
         >
-          <span>Open source licenses</span>
+          <span>{{ t('about.openSourceLicenses') }}</span>
         </M3Button>
       </div>
     </div>
@@ -221,7 +293,7 @@ function disableDevOptions() {
           :size="20"
         />
         <h2 class="m3-headline-small text-[var(--md-sys-color-on-surface)]">
-          Updates
+          {{ t('about.updates') }}
         </h2>
       </div>
 
@@ -232,22 +304,22 @@ function disableDevOptions() {
               for="auto-updates-toggle"
               class="m3-title-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
             >
-              Check for updates automatically
+              {{ t('about.autoCheckUpdates') }}
             </label>
             <span class="m3-body-medium mt-0.5 leading-relaxed">
-              Periodically check GitHub Releases for new versions.
+              {{ t('about.autoCheckUpdatesDesc') }}
             </span>
           </div>
           <M3Switch
             id="auto-updates-toggle"
             :model-value="preferencesState.autoCheckUpdates"
-            aria-label="Check for updates automatically toggle"
+            :aria-label="t('about.autoUpdatesAria')"
             @update:model-value="setAutoCheckUpdates"
           />
         </div>
 
         <div class="flex items-center justify-between rounded-[18px] bg-[var(--md-sys-color-surface-container-low)] px-4 py-3 m3-body-medium">
-          <span class="text-[var(--md-sys-color-on-surface)]">Last checked:</span>
+          <span class="text-[var(--md-sys-color-on-surface)]">{{ t('about.lastChecked') }}</span>
           <span class="tabular-nums text-[var(--md-sys-color-on-surface)]">{{ lastCheckedFormatted }}</span>
         </div>
       </div>
@@ -265,11 +337,11 @@ function disableDevOptions() {
             :size="20"
           />
           <h2 class="m3-headline-small text-[var(--md-sys-color-on-surface)]">
-            Developer options
+            {{ t('about.devOptions') }}
           </h2>
         </div>
         <span class="rounded-full bg-[var(--md-sys-color-primary-container)] px-2.5 py-0.5 m3-label-small text-[var(--md-sys-color-on-primary-container)]">
-          Active
+          {{ t('about.active') }}
         </span>
       </div>
 
@@ -284,16 +356,16 @@ function disableDevOptions() {
               for="mock-mode-toggle"
               class="m3-title-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
             >
-              Mock mode
+              {{ t('about.mockMode') }}
             </label>
             <span class="m3-body-medium mt-0.5 leading-relaxed">
-              Simulate upload batches, states, error scenarios, and activity logs.
+              {{ t('about.mockModeDesc') }}
             </span>
           </div>
           <M3Switch
             id="mock-mode-toggle"
             :model-value="mockState.enabled"
-            aria-label="Mock mode toggle"
+            :aria-label="t('about.mockModeAria')"
             @update:model-value="toggleMockMode"
           />
         </div>
@@ -302,20 +374,20 @@ function disableDevOptions() {
         <div class="flex items-center justify-between rounded-[18px] bg-[var(--md-sys-color-surface-container-low)] p-4">
           <div class="flex flex-col min-w-0 pr-2">
             <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
-              Lock developer options
+              {{ t('about.lockDevOptions') }}
             </span>
             <span class="m3-body-medium mt-0.5 leading-relaxed">
-              Hide developer options until tapped 7 times again.
+              {{ t('about.lockDevOptionsDesc') }}
             </span>
           </div>
           <M3Button
             variant="tonal"
             size="s"
             destructive
-            aria-label="Disable developer options"
+            :aria-label="t('about.lockDevOptionsAria')"
             @click="disableDevOptions"
           >
-            <span>Lock</span>
+            <span>{{ t('about.lock') }}</span>
           </M3Button>
         </div>
       </div>
@@ -329,7 +401,7 @@ function disableDevOptions() {
           :size="20"
         />
         <h2 class="m3-headline-small text-[var(--md-sys-color-on-surface)]">
-          Credits
+          {{ t('about.credits') }}
         </h2>
       </div>
 
@@ -342,7 +414,7 @@ function disableDevOptions() {
               <img
                 v-if="!reiuxAvatarError"
                 :src="reiuxAvatar"
-                alt="Reiux profile avatar"
+                :alt="t('about.reiuxAvatarAlt')"
                 class="size-full object-cover"
                 @error="reiuxAvatarError = true"
               >
@@ -359,7 +431,7 @@ function disableDevOptions() {
                 Reiux
               </span>
               <span class="m3-body-medium mt-0.5">
-                Creator and developer of Lumen
+                {{ t('about.reiuxDesc') }}
               </span>
             </div>
           </div>
@@ -367,7 +439,7 @@ function disableDevOptions() {
             variant="tonal"
             size="s"
             icon="open_in_new"
-            aria-label="Open Reiux's GitHub profile"
+            :aria-label="t('about.reiuxGithubAria')"
             @click="openDevProfile"
           >
             <span>GitHub</span>
@@ -382,7 +454,7 @@ function disableDevOptions() {
               <img
                 v-if="!xob0tAvatarError"
                 :src="xob0tAvatar"
-                alt="xob0t profile avatar"
+                :alt="t('about.xob0tAvatarAlt')"
                 class="size-full object-cover"
                 @error="xob0tAvatarError = true"
               >
@@ -399,7 +471,7 @@ function disableDevOptions() {
                 xob0t
               </span>
               <span class="m3-body-medium mt-0.5">
-                gotohp • Google Photos upload protocol and session reverse engineering
+                {{ t('about.xob0tDesc') }}
               </span>
             </div>
           </div>
@@ -407,16 +479,16 @@ function disableDevOptions() {
             variant="tonal"
             size="s"
             icon="open_in_new"
-            aria-label="Open gotohp repository on GitHub"
+            :aria-label="t('about.gotohpRepoAria')"
             @click="openGotohpRepo"
           >
-            <span>Repository</span>
+            <span>{{ t('about.repository') }}</span>
           </M3Button>
         </div>
       </div>
 
       <p class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)]/80 leading-relaxed border-t border-[var(--md-sys-color-outline-variant)]/20 pt-2.5 px-1">
-        Lumen is an independent open-source project and is not affiliated with Google or Google Photos.
+        {{ t('about.disclaimer') }}
       </p>
     </div>
 

@@ -135,16 +135,30 @@ export const Events = {
 
     if (hasTauri()) {
       if (eventName === 'startUpload') {
-        return tauriInvoke('start_upload', { files: data?.files || [] });
+        return tauriInvoke('start_upload', {
+          files: data?.files || [],
+          dryRun: data?.dryRun,
+          recursive: data?.recursive,
+        });
       }
       if (eventName === 'uploadCancel') {
         return tauriInvoke('cancel_upload');
+      }
+      if (eventName === 'uploadPause') {
+        return tauriInvoke('pause_upload');
+      }
+      if (eventName === 'uploadResume') {
+        return tauriInvoke('resume_upload');
       }
       if (eventName === 'app:ready') {
         return tauriInvoke('app_ready');
       }
       if (eventName === 'dev:test-notification') {
-        return tauriInvoke('test_notification');
+        const payload = (data || {}) as { title?: string; body?: string };
+        return tauriInvoke('test_notification', {
+          title: payload.title,
+          body: payload.body,
+        });
       }
 
       const w = window as any;
@@ -169,29 +183,41 @@ export const Browser = {
 
 export const Clipboard = {
   async SetText(text: string): Promise<void> {
+    if (hasTauri()) {
+      try {
+        await tauriInvoke('clipboard_set_text', { text });
+        return;
+      } catch {
+        // Fallback to navigator
+      }
+    }
     if (navigator.clipboard && navigator.clipboard.writeText) {
       try {
         await navigator.clipboard.writeText(text);
         return;
       } catch {
-        // Fallback to tauri
+        // Fallback
       }
-    }
-    if (hasTauri()) {
-      return tauriInvoke('clipboard_set_text', { text });
     }
   },
 
   async Text(): Promise<string> {
+    if (hasTauri()) {
+      try {
+        const text = await tauriInvoke<string>('clipboard_get_text');
+        if (typeof text === 'string') {
+          return text;
+        }
+      } catch {
+        // Fallback to navigator
+      }
+    }
     if (navigator.clipboard && navigator.clipboard.readText) {
       try {
         return await navigator.clipboard.readText();
       } catch {
-        // Fallback to tauri
+        // Fallback
       }
-    }
-    if (hasTauri()) {
-      return (await tauriInvoke('clipboard_get_text')) || '';
     }
     return '';
   },

@@ -29,6 +29,7 @@ anyhow = "1.0"
 url = "2.5"
 tauri-plugin-single-instance = "2"
 notify = "8.0"
+arboard = { version = "3.7.0", features = ["wayland-data-control"] }
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.56.0"

@@ -12,7 +12,7 @@ on:
         default: ""
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -126,7 +126,7 @@ jobs:
           mkdir -p dist
 
           # 1. Universal DMG installer (styled using dmgbuild to write .DS_Store directly on headless CI)
-          python3 -m pip install --break-system-packages dmgbuild biplist ds_store mac_alias || python3 -m pip install dmgbuild biplist ds_store mac_alias
+          python3 -m pip install --break-system-packages --require-hashes -r scripts/dmg-requirements.txt || python3 -m pip install --require-hashes -r scripts/dmg-requirements.txt
           APP_PATH="target/universal-apple-darwin/release/bundle/macos/Lumen.app"
           OUT_DMG="dist/lumen_${V}_macos_universal.dmg"
 
@@ -395,6 +395,8 @@ jobs:
 
   publish:
     name: Publish GitHub Release
+    permissions:
+      contents: write
     needs: [get-version, build-macos, build-linux, build-windows-x64, build-windows-arm64]
     runs-on: ubuntu-latest
     steps:
@@ -416,7 +418,7 @@ jobs:
       - name: Prepare Release Notes Footer
         shell: bash
         run: |
-          printf '\n\n---\n> **Dev Builds**: Bleeding-edge development builds can be downloaded directly from the [CI Artifacts page](https://github.com/Reiux/Lumen/actions/workflows/ci.yml).\n' > release_footer.md
+          printf '\n\n---\n> **Release Builds**: Please download official builds directly from [GitHub Releases](https://github.com/Reiux/Lumen/releases).\n' > release_footer.md
 
       - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v2

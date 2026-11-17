@@ -125,6 +125,7 @@ async fn test_cli_upload_sample_directory_3_files() {
         speed_limit: None,
         account: Some("cli-user@example.com".to_string()),
         endpoint_base: Some(base_url),
+        dry_run: false,
     };
 
     let result = lumen_cli::handle_upload(upload_args, cfg_mgr, &cfg_path).await;

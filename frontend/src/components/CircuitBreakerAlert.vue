@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Browser } from '@wailsio/runtime'
 import { toast } from 'vue-sonner'
 import { ConfigManager } from '../../bindings/app/core'
@@ -7,6 +8,8 @@ import { uploadManager } from '../utils/UploadManager'
 import M3Button from './ui/M3Button.vue'
 import M3Icon from './ui/M3Icon.vue'
 import RemoveAccountModal from './RemoveAccountModal.vue'
+
+const { t } = useI18n()
 
 const emit = defineEmits<{
   (event: 'open-sign-in'): void
@@ -20,12 +23,12 @@ const showRemoveModal = ref(false)
 const isRemoving = ref(false)
 
 const resumeTimeFormatted = computed(() => {
-  if (!blockedState.value.resumeAt) return '15 minutes'
+  if (!blockedState.value.resumeAt) return '15m'
   try {
     const d = new Date(blockedState.value.resumeAt)
     return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
   } catch {
-    return '15 minutes'
+    return '15m'
   }
 })
 
@@ -42,7 +45,7 @@ async function openAccountDetails() {
   try {
     await Browser.OpenURL('https://myaccount.google.com/security')
   } catch (error) {
-    toast.error('Could not open browser', {
+    toast.error(t('circuitBreaker.toastBrowserError'), {
       description: error instanceof Error ? error.message : String(error),
     })
   }
@@ -59,12 +62,12 @@ async function removeAccount() {
     await ConfigManager.RemoveCredentials(email)
     uploadManager.clearAccountBlocked()
     emit('account-removed')
-    toast.success('Account removed', {
+    toast.success(t('circuitBreaker.toastAccountRemoved'), {
       description: email,
     })
     showRemoveModal.value = false
   } catch (error) {
-    toast.error('Failed to remove account', {
+    toast.error(t('circuitBreaker.toastRemoveFailed'), {
       description: error instanceof Error ? error.message : String(error),
     })
   } finally {
@@ -101,19 +104,19 @@ async function removeAccount() {
           <div class="flex items-center justify-between gap-2">
             <h4 class="m3-title-medium">
               <template v-if="blockedState.reason === 'SIGN_IN_REQUIRED'">
-                Sign in required
+                {{ t('circuitBreaker.signInRequired') }}
               </template>
               <template v-else-if="blockedState.reason === 'ACCOUNT_RESTRICTED'">
-                Account restricted
+                {{ t('circuitBreaker.accountRestricted') }}
               </template>
               <template v-else>
-                Uploads paused
+                {{ t('circuitBreaker.rateLimited') }}
               </template>
             </h4>
             <button
               type="button"
               class="flex size-7 items-center justify-center rounded-full opacity-70 hover:opacity-100 hover:bg-black/10 dark:hover:bg-white/10 transition cursor-pointer"
-              aria-label="Dismiss alert"
+              :aria-label="t('circuitBreaker.dismissAria')"
               @click="dismiss"
             >
               <M3Icon name="close" :size="16" />
@@ -127,13 +130,13 @@ async function removeAccount() {
               : '!text-[var(--md-sys-color-on-tertiary-container)]'"
           >
             <template v-if="blockedState.reason === 'SIGN_IN_REQUIRED'">
-              Google is asking you to sign in again. Uploads are paused to protect your account from security lockouts.
+              {{ t('circuitBreaker.signInRequiredDesc') }}
             </template>
             <template v-else-if="blockedState.reason === 'ACCOUNT_RESTRICTED'">
-              Google has restricted this account. Uploads are stopped to prevent further action on your account. Check your Google account directly; do not keep retrying.
+              {{ t('circuitBreaker.accountRestrictedDesc') }}
             </template>
             <template v-else>
-              Google asked Lumen to slow down. Automatic backoff is active; uploads will resume automatically at {{ resumeTimeFormatted }}.
+              {{ t('circuitBreaker.rateLimitedDesc', { time: resumeTimeFormatted }) }}
             </template>
           </p>
 
@@ -145,7 +148,7 @@ async function removeAccount() {
               icon="shield"
               @click="showSafetyDialog = true"
             >
-              <span>Account safety</span>
+              <span>{{ t('circuitBreaker.accountSafety') }}</span>
             </M3Button>
 
             <template v-if="blockedState.reason === 'SIGN_IN_REQUIRED'">
@@ -155,7 +158,7 @@ async function removeAccount() {
                 icon="login"
                 @click="onSignInAgain"
               >
-                <span>Sign in again</span>
+                <span>{{ t('circuitBreaker.signInAgain') }}</span>
               </M3Button>
             </template>
 
@@ -166,7 +169,7 @@ async function removeAccount() {
                 icon="open_in_new"
                 @click="openAccountDetails"
               >
-                <span>Account details</span>
+                <span>{{ t('circuitBreaker.accountDetails') }}</span>
               </M3Button>
               <M3Button
                 variant="filled"
@@ -175,7 +178,7 @@ async function removeAccount() {
                 :destructive="true"
                 @click="showRemoveModal = true"
               >
-                <span>Remove account</span>
+                <span>{{ t('circuitBreaker.removeAccount') }}</span>
               </M3Button>
             </template>
 
@@ -186,7 +189,7 @@ async function removeAccount() {
                 icon="check"
                 @click="dismiss"
               >
-                <span>Dismiss</span>
+                <span>{{ t('circuitBreaker.dismiss') }}</span>
               </M3Button>
             </template>
           </div>
@@ -217,21 +220,21 @@ async function removeAccount() {
               id="safety-notice-title"
               class="m3-headline-small text-[var(--md-sys-color-on-surface)]"
             >
-              Account Safety Notice
+              {{ t('circuitBreaker.safetyModalTitle') }}
             </h3>
           </div>
 
           <div class="flex flex-col gap-2.5 m3-body-medium leading-relaxed">
             <p>
-              Lumen is an unofficial client for Google Photos that uses authenticated session tokens.
+              {{ t('circuitBreaker.safetyModalP1') }}
             </p>
             <p>
-              To protect your Google account from automated abuse restrictions, Lumen includes a built-in safety circuit breaker that detects rate limits and authorization changes.
+              {{ t('circuitBreaker.safetyModalP2') }}
             </p>
             <ul class="list-disc pl-4 space-y-1">
-              <li>Uploads pause immediately when rate limits are approached.</li>
-              <li>Repeated failures back off automatically to avoid account flagging.</li>
-              <li>Always keep your original photo files saved safely.</li>
+              <li>{{ t('circuitBreaker.safetyModalL1') }}</li>
+              <li>{{ t('circuitBreaker.safetyModalL2') }}</li>
+              <li>{{ t('circuitBreaker.safetyModalL3') }}</li>
             </ul>
           </div>
 
@@ -242,7 +245,7 @@ async function removeAccount() {
               icon="check"
               @click="showSafetyDialog = false"
             >
-              <span>Got it</span>
+              <span>{{ t('circuitBreaker.gotIt') }}</span>
             </M3Button>
           </div>
         </div>

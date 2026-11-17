@@ -1,6 +1,9 @@
 <script setup lang="ts">
+import { useI18n } from 'vue-i18n'
 import M3Button from './ui/M3Button.vue'
 import M3Icon from './ui/M3Icon.vue'
+
+const { t } = useI18n()
 
 defineProps<{
   pendingBacklog: { folder: string; count: number; account: string } | null
@@ -38,17 +41,17 @@ const emit = defineEmits<{
               id="backlog-confirm-title"
               class="m3-headline-small text-[var(--md-sys-color-on-surface)]"
             >
-              Upload Existing Backlog?
+              {{ t('dialogs.backlog.title') }}
             </h3>
           </div>
           <p class="m3-body-medium leading-relaxed">
-            Found <strong class="text-[var(--md-sys-color-on-surface)] m3-title-medium">{{ pendingBacklog.count }}</strong> existing photo and video files in:
+            {{ t('dialogs.backlog.found', { count: pendingBacklog.count }) }}
           </p>
           <div class="rounded-xl bg-[var(--md-sys-color-surface-container)] p-3 m3-mono m3-body-medium break-all border border-[var(--md-sys-color-outline-variant)]/30 text-[var(--md-sys-color-on-surface)]">
             {{ pendingBacklog.folder }}
           </div>
           <p class="m3-body-medium leading-relaxed">
-            Would you like to upload existing files now, or only monitor this folder for newly added files in the future?
+            {{ t('dialogs.backlog.prompt') }}
           </p>
           <div class="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2">
             <M3Button
@@ -57,7 +60,7 @@ const emit = defineEmits<{
               class="w-full sm:w-auto"
               @click="emit('cancel')"
             >
-              Cancel
+              {{ t('dialogs.backlog.cancel') }}
             </M3Button>
             <M3Button
               variant="tonal"
@@ -65,7 +68,7 @@ const emit = defineEmits<{
               class="w-full sm:w-auto"
               @click="emit('confirm', false)"
             >
-              Watch Only
+              {{ t('dialogs.backlog.watchOnly') }}
             </M3Button>
             <M3Button
               variant="filled"
@@ -73,7 +76,7 @@ const emit = defineEmits<{
               class="w-full sm:w-auto"
               @click="emit('confirm', true)"
             >
-              Upload Backlog & Watch
+              {{ t('dialogs.backlog.backupAndWatch') }}
             </M3Button>
           </div>
         </div>

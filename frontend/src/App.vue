@@ -1,10 +1,15 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useColorMode, useWindowSize } from '@vueuse/core'
+import { useI18n } from 'vue-i18n'
+import { setLocale } from './i18n'
+import { formatErrorMessage } from './utils/statusTranslation'
 import { toast } from 'vue-sonner'
 import { Events } from '@wailsio/runtime'
 import { ConfigManager } from '../bindings/app/core'
 import type { LogEntry } from '../bindings/app/core/models'
+import UploadReviewModal, { type ReviewSummary } from './components/UploadReviewModal.vue'
+import { tauriInvoke } from './tauri-compat/wails-runtime'
 import M3Button from './components/ui/M3Button.vue'
 import M3ButtonGroup from './components/ui/M3ButtonGroup.vue'
 import M3TextField from './components/ui/M3TextField.vue'
@@ -43,6 +48,8 @@ import './index.css'
 
 useColorMode().value = 'dark'
 
+const { t } = useI18n()
+
 const { state: uploadState } = uploadManager
 const copyButtonText = ref('Copy as JSON')
 const isAppReady = ref(false)
@@ -54,6 +61,170 @@ function handleResetToEmpty() {
   uploadManager.state.totalFiles = 0
   if (mockState.enabled) {
     setMockView('drop')
+  }
+}
+
+const isDryRunEnabled = ref(false)
+const showReviewModal = ref(false)
+const isScanningForReview = ref(false)
+const isRescanningReview = ref(false)
+const reviewIncludeSubfolders = ref(false)
+const pendingReviewSummary = ref<ReviewSummary | null>(null)
+const pendingReviewFiles = ref<string[]>([])
+
+async function runReviewScan(files: string[], isRescan = false): Promise<ReviewSummary | null> {
+  const summary = await tauriInvoke<ReviewSummary>('scan_for_review', {
+    files,
+    recursive: reviewIncludeSubfolders.value,
+  })
+  if (isRescan) {
+    // Preserve identity so the modal stays mounted and animates the update.
+    if (summary) {
+      pendingReviewSummary.value = summary
+    }
+  }
+  return summary
+}
+
+async function handleReviewToggleSubfolders(value: boolean) {
+  if (isRescanningReview.value) return
+  reviewIncludeSubfolders.value = value
+  isRescanningReview.value = true
+  try {
+    await runReviewScan(pendingReviewFiles.value, true)
+  } catch (err) {
+    console.error('Failed to rescan with subfolder toggle:', err)
+  } finally {
+    isRescanningReview.value = false
+  }
+}
+
+async function handleConfirmReview() {
+  showReviewModal.value = false
+  const files = pendingReviewFiles.value
+  pendingReviewFiles.value = []
+  pendingReviewSummary.value = null
+
+  if (!files || files.length === 0) return
+
+  uploadManager.resetUploadResults()
+  uploadManager.beginPreparation()
+  if (uploadState.isUploading) {
+    toast.info(t('backup.toastAddedToQueue'))
+  }
+  try {
+    if (albumTargetMode.value === 'auto') {
+      await ConfigManager.SetAlbumName('')
+      await ConfigManager.SetAlbumAutoMode(true)
+    } else if (albumTargetMode.value === 'custom') {
+      await ConfigManager.SetAlbumName(customAlbumName.value)
+      await ConfigManager.SetAlbumAutoMode(false)
+    } else {
+      await ConfigManager.SetAlbumName('')
+      await ConfigManager.SetAlbumAutoMode(false)
+    }
+    await Events.Emit('startUpload', { files, dryRun: false, recursive: reviewIncludeSubfolders.value })
+  } catch (error) {
+    uploadManager.endPreparation()
+    console.error('Failed to start backup:', error)
+    toast.error(t('backup.toastStartFailed'), {
+      description: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
+function handleCancelReview() {
+  showReviewModal.value = false
+  pendingReviewFiles.value = []
+  pendingReviewSummary.value = null
+}
+
+async function initiateUpload(files: string[]) {
+  if (!files || files.length === 0) return
+
+  let cfg: Awaited<ReturnType<typeof ConfigManager.GetSettings>> | null = null
+  try {
+    cfg = await ConfigManager.GetSettings()
+    isDryRunEnabled.value = !!cfg.dryRun
+  } catch {}
+
+  if (isDryRunEnabled.value) {
+    let toastId: string | number | undefined
+    try {
+      isScanningForReview.value = true
+      toastId = toast.loading(t('backup.toastCheckingFiles'))
+      // Seed the dialog toggle from the current global preference.
+      reviewIncludeSubfolders.value = !!cfg?.recursive
+      const summary = await runReviewScan(files)
+      if (!summary || summary.totalCount === 0) {
+        toast.info(t('backup.toastNoMediaFound'))
+        return
+      }
+      pendingReviewSummary.value = summary
+      pendingReviewFiles.value = files
+      showReviewModal.value = true
+    } catch (err) {
+      console.error('Failed to scan files for review:', err)
+      toast.error(t('backup.toastScanFailed'), {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      if (toastId) toast.dismiss(toastId)
+      isScanningForReview.value = false
+    }
+    return
+  }
+
+  // Direct upload when dry run is disabled
+  uploadManager.resetUploadResults()
+  // Show the indexing/preparation screen immediately — the backend scan,
+  // classification and hashing can take several seconds for large batches.
+  uploadManager.beginPreparation()
+  if (uploadState.isUploading) {
+    toast.info(t('backup.toastAddedToQueue'))
+  }
+  try {
+    if (albumTargetMode.value === 'auto') {
+      await ConfigManager.SetAlbumName('')
+      await ConfigManager.SetAlbumAutoMode(true)
+    } else if (albumTargetMode.value === 'custom') {
+      await ConfigManager.SetAlbumName(customAlbumName.value)
+      await ConfigManager.SetAlbumAutoMode(false)
+    } else {
+      await ConfigManager.SetAlbumName('')
+      await ConfigManager.SetAlbumAutoMode(false)
+    }
+    await Events.Emit('startUpload', { files, dryRun: false })
+  } catch (error) {
+    uploadManager.endPreparation()
+    console.error('Failed to start backup:', error)
+    toast.error(t('backup.toastStartFailed'), {
+      description: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
+async function handleStartRealUpload() {
+  const candidatePaths = uploadState.results.success.map(item =>
+    typeof item === 'string' ? item : item.path
+  ).filter(Boolean)
+
+  if (candidatePaths.length === 0) {
+    toast.info(t('backup.toastNoNewFiles'))
+    handleResetToEmpty()
+    return
+  }
+
+  uploadManager.resetUploadResults()
+  uploadManager.beginPreparation()
+  try {
+    await Events.Emit('startUpload', { files: candidatePaths, dryRun: false })
+  } catch (error) {
+    uploadManager.endPreparation()
+    console.error('Failed to start real backup:', error)
+    toast.error(t('backup.toastStartFailed'), {
+      description: error instanceof Error ? error.message : String(error),
+    })
   }
 }
 
@@ -155,7 +326,7 @@ watch(albumNameOrKey, (val) => {
 
 const albumDisplayLabel = computed(() => {
   if (albumTargetMode.value === 'auto') {
-    return 'Auto by folder'
+    return t('dialogs.album.autoByFolder')
   }
   if (albumTargetMode.value === 'custom' && customAlbumName.value) {
     if (albumNicknames.value[customAlbumName.value]) {
@@ -163,7 +334,7 @@ const albumDisplayLabel = computed(() => {
     }
     return customAlbumName.value
   }
-  return 'None'
+  return t('dialogs.album.none')
 })
 
 function openAlbumPrompt() {
@@ -179,12 +350,12 @@ function openAlbumPrompt() {
 // Quality indicator state (Task 1)
 const qualityModeLabel = computed(() => {
   if (preferencesState.useQuota) {
-    return 'Counts to quota'
+    return t('backup.countsToQuota')
   }
   if (preferencesState.saver) {
-    return 'Storage saver'
+    return t('backup.storageSaver')
   }
-  return 'Unlimited'
+  return t('backup.originalQuality')
 })
 
 // Activity page state (Task 4)
@@ -255,6 +426,47 @@ const displayProblems = computed(() => {
   return activityProblems.value
 })
 
+function formatBatchName(name: string): string {
+  if (name === 'Camera Roll 2026') return t('activity.mock.batchCameraRoll')
+  if (name === 'Family Vacation') return t('activity.mock.batchVacation')
+  return name
+}
+
+function formatBatchTimestamp(ts: string): string {
+  if (ts === '10 mins ago') return t('activity.mock.tenMinsAgo')
+  if (ts === '2 hours ago') return t('activity.mock.twoHoursAgo')
+  return ts
+}
+
+function formatProblemMessage(prob: LogEntry): string {
+  if (prob.reasonCode === 'FILE_UNREADABLE' || prob.userMessage?.includes('codec header')) {
+    return t('activity.mock.problem1Message')
+  }
+  if (prob.reasonCode === 'RATE_LIMITED' || prob.userMessage?.includes('quota exceeded')) {
+    return t('activity.mock.problem2Message')
+  }
+  if (prob.reasonCode === 'NETWORK_TIMEOUT' || prob.userMessage?.includes('locked by') || prob.userMessage?.includes('os error 11')) {
+    return t('activity.mock.problem3Message')
+  }
+  if (prob.userMessage) {
+    return formatErrorMessage(prob.userMessage, t)
+  }
+  return t('activity.issueRecorded')
+}
+
+function formatProblemAction(prob: LogEntry): string {
+  if (prob.reasonCode === 'FILE_UNREADABLE' || prob.suggestedAction?.includes('RAW file')) {
+    return t('activity.mock.problem1Action')
+  }
+  if (prob.reasonCode === 'RATE_LIMITED' || prob.suggestedAction?.includes('Storage Saver')) {
+    return t('activity.mock.problem2Action')
+  }
+  if (prob.reasonCode === 'NETWORK_TIMEOUT' || prob.suggestedAction?.includes('Close other applications')) {
+    return t('activity.mock.problem3Action')
+  }
+  return prob.suggestedAction || ''
+}
+
 const _displayLogs = computed(() => {
   let list = activityLogs.value
   if (mockState.enabled && list.length === 0) {
@@ -308,6 +520,33 @@ async function loadActivityData() {
     console.debug('Failed to load activity data:', err)
   }
 }
+
+async function clearProblems() {
+  try {
+    await ConfigManager.ClearProblemLogs()
+  } catch (err) {
+    console.warn('Failed to clear problems:', err)
+  }
+  activityProblems.value = []
+  logProblemCount.value = 0
+  if (mockState.enabled) {
+    mockProblems.splice(0, mockProblems.length)
+  }
+}
+
+async function clearBackupHistory() {
+  try {
+    await ConfigManager.ClearLogEntries()
+  } catch (err) {
+    console.warn('Failed to clear backup history:', err)
+  }
+  activityBatches.value = []
+  activityLogs.value = []
+  if (mockState.enabled) {
+    mockBatches.splice(0, mockBatches.length)
+  }
+}
+
 const removingAccount = ref('')
 const showRemoveAccountConfirm = ref(false)
 const accountToRemove = ref('')
@@ -409,7 +648,7 @@ watch(selectedOption, async (newValue) => {
       console.log('Successfully updated selected value:', newValue)
     } catch (error) {
       console.error('Failed to update selected value:', error)
-      toast.error('Failed to update selected account.')
+      toast.error(t('accounts.toastSelectError'))
     }
   } else {
     tokenBindingEmail.value = ''
@@ -479,7 +718,7 @@ async function refreshCredentials() {
     }
   } catch (error) {
     console.error('Failed to refresh Google accounts:', error)
-    toast.error('Could not refresh Google accounts', {
+    toast.error(t('accounts.toastRefreshError'), {
       description: error instanceof Error ? error.message : String(error),
     })
   }
@@ -488,7 +727,7 @@ async function refreshCredentials() {
 async function addTokenBindingAliasFromADB() {
   if (!tokenBindingEmail.value) return
   if (isDevMode() && mockState.enabled) {
-    toast.success('Token binding key added.')
+    toast.success(t('accounts.toastTokenKeyAdded'))
     tokenBindingEmail.value = ''
     return
   }
@@ -498,10 +737,10 @@ async function addTokenBindingAliasFromADB() {
     await ConfigManager.AddTokenBindingAliasFromADB(tokenBindingEmail.value)
     await refreshCredentials()
     tokenBindingEmail.value = ''
-    toast.success('Token binding key added.')
+    toast.success(t('accounts.toastTokenKeyAdded'))
   } catch (error) {
     console.error('Failed to add token binding key:', error)
-    toast.error('Failed to add token binding key', {
+    toast.error(t('accounts.toastTokenKeyError'), {
       description: error instanceof Error ? error.message : String(error),
     })
   } finally {
@@ -519,7 +758,7 @@ const removeCredentials = async (email: string) => {
     if (mockState.account === email) {
       mockState.account = mockState.accounts[0] || ''
     }
-    toast.success('Credentials removed (Mock Mode).')
+    toast.success(t('accounts.toastCredentialsRemovedMock'))
     return true
   }
 
@@ -532,11 +771,11 @@ const removeCredentials = async (email: string) => {
     if (removedSelectedAccount && options.value.length > 0 && !selectedOption.value) {
       selectedOption.value = options.value[0]
     }
-    toast.success('Credentials removed.')
+    toast.success(t('accounts.toastCredentialsRemoved'))
     return true
   } catch (error) {
     console.error('Failed to remove credentials:', error)
-    toast.error('Failed to remove credentials.')
+    toast.error(t('accounts.toastCredentialsRemoveError'))
     return false
   } finally {
     removingAccount.value = ''
@@ -544,7 +783,10 @@ const removeCredentials = async (email: string) => {
 }
 
 function openAccountSetup() {
-  isAccountSetupOpen.value = true
+  isAccountSetupOpen.value = false
+  nextTick(() => {
+    isAccountSetupOpen.value = true
+  })
 }
 
 const handleCopyClick = () => {
@@ -558,6 +800,7 @@ const dropZoneRef = ref<HTMLElement | null>(null)
 let dropObserver: MutationObserver | null = null
 let dragCounter = 0
 let isNativeDragging = false
+let dragWatchdogTimer: ReturnType<typeof setTimeout> | null = null
 
 function hasDragFiles(e: DragEvent): boolean {
   if (!e.dataTransfer) return false
@@ -572,12 +815,32 @@ function hasDragFiles(e: DragEvent): boolean {
   return false
 }
 
+function clearDragState() {
+  if (dragWatchdogTimer) {
+    clearTimeout(dragWatchdogTimer)
+    dragWatchdogTimer = null
+  }
+  dragCounter = 0
+  isNativeDragging = false
+  isDraggingFiles.value = false
+}
+
+function touchDragWatchdog() {
+  if (dragWatchdogTimer) clearTimeout(dragWatchdogTimer)
+  dragWatchdogTimer = setTimeout(() => {
+    if (isDraggingFiles.value) {
+      clearDragState()
+    }
+  }, 700)
+}
+
 const onDragEnter = (e: DragEvent) => {
   if (!hasDragFiles(e)) return
   e.preventDefault()
   dragCounter++
   isNativeDragging = true
   isDraggingFiles.value = true
+  touchDragWatchdog()
 }
 
 const onDragOver = (e: DragEvent) => {
@@ -588,26 +851,25 @@ const onDragOver = (e: DragEvent) => {
   }
   isNativeDragging = true
   isDraggingFiles.value = true
+  touchDragWatchdog()
 }
 
 const onDragLeave = (e: DragEvent) => {
   if (!hasDragFiles(e)) return
   e.preventDefault()
   dragCounter--
-  if (dragCounter <= 0) {
-    dragCounter = 0
-    isNativeDragging = false
-    if (!dropZoneRef.value?.classList.contains('file-drop-target-active')) {
-      isDraggingFiles.value = false
-    }
+
+  const leftWindow = !e.relatedTarget ||
+    (e.clientX <= 0 || e.clientY <= 0 || e.clientX >= window.innerWidth || e.clientY >= window.innerHeight)
+
+  if (dragCounter <= 0 || leftWindow) {
+    clearDragState()
   }
 }
 
 const onDrop = (e?: DragEvent) => {
   if (e) e.preventDefault()
-  dragCounter = 0
-  isNativeDragging = false
-  isDraggingFiles.value = false
+  clearDragState()
 }
 
 const onDropZoneDragEnter = (e: DragEvent) => {
@@ -615,6 +877,7 @@ const onDropZoneDragEnter = (e: DragEvent) => {
   e.preventDefault()
   isNativeDragging = true
   isDraggingFiles.value = true
+  touchDragWatchdog()
 }
 
 const onDropZoneDragOver = (e: DragEvent) => {
@@ -625,14 +888,19 @@ const onDropZoneDragOver = (e: DragEvent) => {
   }
   isNativeDragging = true
   isDraggingFiles.value = true
+  touchDragWatchdog()
 }
 
 const onDropZoneDragLeave = (e: DragEvent) => {
   e.preventDefault()
-  if (!dropZoneRef.value?.classList.contains('file-drop-target-active')) {
-    if (dragCounter <= 0) {
-      isDraggingFiles.value = false
-    }
+  if (dragCounter <= 0) {
+    clearDragState()
+  }
+}
+
+const onWindowMouseMove = (e: MouseEvent) => {
+  if (isDraggingFiles.value && e.buttons === 0) {
+    clearDragState()
   }
 }
 
@@ -655,24 +923,7 @@ async function handleFilesDropped(files: string[], dropZone = 'regular') {
     pendingFileCount.value = files.length
     showAlbumInput.value = true
   } else {
-    try {
-      if (dropZone === 'auto-album' || albumTargetMode.value === 'auto') {
-        await ConfigManager.SetAlbumName('')
-        await ConfigManager.SetAlbumAutoMode(true)
-      } else if (albumTargetMode.value === 'custom') {
-        await ConfigManager.SetAlbumName(customAlbumName.value)
-        await ConfigManager.SetAlbumAutoMode(false)
-      } else {
-        await ConfigManager.SetAlbumName('')
-        await ConfigManager.SetAlbumAutoMode(false)
-      }
-      await Events.Emit('startUpload', { files })
-    } catch (error) {
-      console.error('Failed to start upload:', error)
-      toast.error('Failed to start upload', {
-        description: error instanceof Error ? error.message : String(error),
-      })
-    }
+    await initiateUpload(files)
   }
 }
 
@@ -815,19 +1066,20 @@ const confirmAlbumUpload = async () => {
       mockState.currentView = 'uploading'
       uploadManager.state.isUploading = true
     } else {
-      toast.success(`Target album set: ${albumDisplayLabel.value}`)
+      toast.success(t('backup.toastTargetAlbumSet', { name: albumDisplayLabel.value }))
     }
     return
   }
 
   if (pendingFiles.value.length > 0) {
-    Events.Emit('startUpload', { files: pendingFiles.value })
+    const toUpload = pendingFiles.value
     pendingFiles.value = []
     pendingFileCount.value = 0
     albumNameOrKey.value = ''
     albumNickname.value = ''
+    await initiateUpload(toUpload)
   } else {
-    toast.success(`Target album set: ${albumDisplayLabel.value}`)
+    toast.success(t('backup.toastTargetAlbumSet', { name: albumDisplayLabel.value }))
   }
 }
 
@@ -842,8 +1094,7 @@ const cancelAlbumUpload = () => {
 
 async function onUploadFolderFromSettings(folderPath: string) {
   activeTab.value = 'upload'
-  uploadManager.resetUploadResults()
-  await Events.Emit('startUpload', { files: [folderPath] })
+  await initiateUpload([folderPath])
 }
 
 const isPickingMedia = ref(false)
@@ -859,18 +1110,7 @@ async function handlePickFiles() {
     }
     const files = await ConfigManager.PickUploadFiles()
     if (files && files.length > 0) {
-      uploadManager.resetUploadResults()
-      if (albumTargetMode.value === 'auto') {
-        await ConfigManager.SetAlbumName('')
-        await ConfigManager.SetAlbumAutoMode(true)
-      } else if (albumTargetMode.value === 'custom') {
-        await ConfigManager.SetAlbumName(customAlbumName.value)
-        await ConfigManager.SetAlbumAutoMode(false)
-      } else {
-        await ConfigManager.SetAlbumName('')
-        await ConfigManager.SetAlbumAutoMode(false)
-      }
-      await Events.Emit('startUpload', { files })
+      await initiateUpload(files)
     }
   } catch (err) {
     console.error('Failed to pick files:', err)
@@ -890,18 +1130,7 @@ async function handlePickFolder() {
     }
     const folder = await ConfigManager.PickUploadFolder()
     if (folder) {
-      uploadManager.resetUploadResults()
-      if (albumTargetMode.value === 'auto') {
-        await ConfigManager.SetAlbumName('')
-        await ConfigManager.SetAlbumAutoMode(true)
-      } else if (albumTargetMode.value === 'custom') {
-        await ConfigManager.SetAlbumName(customAlbumName.value)
-        await ConfigManager.SetAlbumAutoMode(false)
-      } else {
-        await ConfigManager.SetAlbumName('')
-        await ConfigManager.SetAlbumAutoMode(false)
-      }
-      await Events.Emit('startUpload', { files: [folder] })
+      await initiateUpload([folder])
     }
   } catch (err) {
     console.error('Failed to pick folder:', err)
@@ -932,11 +1161,11 @@ const albumErrorHandler = (e: Event) => {
   const event = e as CustomEvent<{ AlbumName: string; Error: string }>
   const { AlbumName, Error } = event.detail
   if (Error.includes('404')) {
-    toast.error('Album not found', {
-      description: `The album key "${AlbumName}" does not exist or is invalid.`,
+    toast.error(t('backup.toastAlbumNotFound'), {
+      description: t('backup.toastAlbumNotFoundDesc', { name: AlbumName }),
     })
   } else {
-    toast.error('Failed to create album', {
+    toast.error(t('backup.toastAlbumCreateError'), {
       description: `Album "${AlbumName}": ${Error}`,
     })
   }
@@ -946,7 +1175,7 @@ const uploadErrorHandler = (e: Event) => {
   const event = e as CustomEvent<{ FileName: string; Message: string }>
   const { FileName, Message } = event.detail
   const errorMessage = Message.replace(/^Error:\s*/, '')
-  toast.error(FileName ? `Upload failed: ${FileName}` : 'Upload failed', {
+  toast.error(FileName ? t('backup.toastBackupFailedFile', { name: FileName }) : t('backup.toastBackupFailed'), {
     description: errorMessage,
     duration: 10000,
     important: true,
@@ -968,10 +1197,10 @@ async function onAvatarFileSelected(event: Event) {
     const resizedDataUrl = await processImageFile(file)
     saveCustomAvatar(displaySelectedOption.value, resizedDataUrl)
     customAvatar.value = resizedDataUrl
-    toast.success('Profile photo updated.')
+    toast.success(t('accounts.toastPhotoUpdated'))
   } catch (err) {
     console.error('Failed to update avatar:', err)
-    toast.error('Could not update profile photo.')
+    toast.error(t('accounts.toastPhotoError'))
   } finally {
     target.value = ''
   }
@@ -994,6 +1223,10 @@ onMounted(async () => {
     const cfg = await ConfigManager.GetSettings()
     if (cfg) {
       isSaverMode.value = !!cfg.saver
+      isDryRunEnabled.value = !!cfg.dryRun
+      if (cfg.locale) {
+        setLocale(cfg.locale)
+      }
     }
   } catch {
     // Ignore in test/mock environment
@@ -1009,12 +1242,16 @@ onMounted(async () => {
   document.addEventListener('dragleave', onDragLeave)
   document.addEventListener('dragover', onDragOver)
   document.addEventListener('drop', onDrop)
+  window.addEventListener('dragend', clearDragState)
+  window.addEventListener('blur', clearDragState)
+  window.addEventListener('mousemove', onWindowMouseMove)
+  window.addEventListener('pointerdown', clearDragState)
   window.addEventListener('albumError', albumErrorHandler)
   window.addEventListener('uploadError', uploadErrorHandler)
 
   Events.On('folder-watch:detected', (data: any) => {
     const count = data?.count || (Array.isArray(data?.files) ? data.files.length : 1)
-    toast.info(`Auto-watch detected ${count} new file${count === 1 ? '' : 's'}. Uploading...`)
+    toast.info(t('backup.toastAutoWatchDetected', { count }))
   })
 
   onGlobalKeydown = (e: KeyboardEvent) => {
@@ -1024,6 +1261,11 @@ onMounted(async () => {
       return
     }
     if (e.key === 'Escape') {
+      if (isDraggingFiles.value) {
+        e.stopPropagation()
+        clearDragState()
+        return
+      }
       if (isAccountMenuOpen.value) {
         e.stopPropagation()
         isAccountMenuOpen.value = false
@@ -1094,6 +1336,10 @@ onMounted(async () => {
     isNativeDragging = false
     await handleFilesDropped(event.data.files, event.data.dropZone)
   })
+
+  Events.On('file-drag-cancelled', () => {
+    clearDragState()
+  })
 })
 
 onUnmounted(() => {
@@ -1101,6 +1347,10 @@ onUnmounted(() => {
   document.removeEventListener('dragleave', onDragLeave)
   document.removeEventListener('dragover', onDragOver)
   document.removeEventListener('drop', onDrop)
+  window.removeEventListener('dragend', clearDragState)
+  window.removeEventListener('blur', clearDragState)
+  window.removeEventListener('mousemove', onWindowMouseMove)
+  window.removeEventListener('pointerdown', clearDragState)
   window.removeEventListener('albumError', albumErrorHandler)
   window.removeEventListener('uploadError', uploadErrorHandler)
   if (onGlobalKeydown) {
@@ -1118,192 +1368,248 @@ onUnmounted(() => {
     class="relative flex h-full w-full overflow-hidden select-none bg-[var(--md-sys-color-surface)] text-[var(--md-sys-color-on-surface)]"
     style="--wails-draggable: drag"
   >
-    <!-- Navigation Rail (M3 Expressive Style, ~80px w-20) -->
+    <!-- Navigation Rail (M3 Expressive Style, 96px w-24 matching Android) -->
     <nav
-      class="flex h-full w-20 shrink-0 flex-col items-center justify-between border-r border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface)] py-4 select-none z-20"
+      class="flex h-full w-24 shrink-0 flex-col items-center justify-between border-r border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface)] py-4 px-2 select-none z-20"
       style="contain: layout style; --wails-draggable: drag"
-      aria-label="Application Navigation Rail"
+      :aria-label="t('nav.ariaLabel')"
     >
       <!-- Top App Mark & Rail Items -->
       <div
         class="flex w-full flex-col items-center gap-3"
         style="--wails-draggable: none"
       >
-        <!-- Lumen Brand Mark (No background box or container) -->
+        <!-- Lumen Brand Mark -->
         <div
           id="rail-app-logo"
-          class="flex size-10 shrink-0 items-center justify-center cursor-pointer mb-1 bg-transparent select-none transition-transform duration-700 ease-out"
+          class="flex size-11 shrink-0 items-center justify-center cursor-pointer mb-1 bg-transparent select-none transition-transform duration-700 ease-out"
           :class="isSplashActive ? 'opacity-0' : 'opacity-100'"
           :style="{
             transform: `rotate(${railLogoRotation}deg)`,
             transformOrigin: 'center center',
           }"
           title="Lumen • Google Photos Desktop"
-          aria-label="Lumen application"
+          :aria-label="t('nav.appAriaLabel')"
           @click="handleRailLogoClick"
         >
-          <LumenLogo :size="40" />
+          <LumenLogo :size="44" />
         </div>
 
-        <!-- 1. Upload Item -->
+        <!-- 1. Backup Item -->
         <button
           type="button"
-          class="nav-rail-item group relative flex flex-col items-center justify-center w-16 py-1.5 rounded-2xl transition-colors cursor-pointer text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)]/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)]"
-          :class="activeTab === 'upload' ? 'text-[var(--md-sys-color-on-surface)]' : ''"
-          title="Upload photos"
-          aria-label="Upload view"
+          class="nav-rail-item group relative flex flex-col items-center justify-center w-full py-1.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)] rounded-xl transition-all duration-200"
+          :title="t('nav.backup')"
+          :aria-label="t('nav.backup')"
           @click="activeTab = 'upload'"
         >
           <div
-            class="indicator w-12 h-7 rounded-2xl flex items-center justify-center transition-colors"
-            :class="activeTab === 'upload' ? 'bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]' : 'text-[var(--md-sys-color-on-surface-variant)]'"
+            class="flex items-center justify-center w-14 h-8 rounded-full transition-all duration-200"
+            :class="activeTab === 'upload'
+              ? 'bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]'
+              : 'text-[var(--md-sys-color-on-surface-variant)] group-hover:bg-[var(--md-sys-color-surface-container-high)]/50 group-hover:text-[var(--md-sys-color-on-surface)]'"
           >
             <M3Icon
               name="cloud_upload"
               :filled="activeTab === 'upload'"
-              :size="20"
+              :size="24"
             />
           </div>
-          <span class="m3-rail-label mt-1">Upload</span>
+          <div
+            class="overflow-hidden transition-all duration-200 flex justify-center items-center"
+            :class="activeTab === 'upload' ? 'max-h-6 opacity-100 mt-1' : 'max-h-0 opacity-0 mt-0 pointer-events-none'"
+          >
+            <span class="m3-rail-label text-center whitespace-nowrap text-xs font-bold text-[var(--md-sys-color-on-surface)]">
+              {{ t('nav.backup') }}
+            </span>
+          </div>
         </button>
 
         <!-- 2. Folders Item -->
         <button
           type="button"
-          class="nav-rail-item group relative flex flex-col items-center justify-center w-16 py-1.5 rounded-2xl transition-colors cursor-pointer text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)]/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)]"
-          :class="activeTab === 'folders' ? 'text-[var(--md-sys-color-on-surface)]' : ''"
-          title="Backup folders"
-          aria-label="Backup folders view"
+          class="nav-rail-item group relative flex flex-col items-center justify-center w-full py-1.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)] rounded-xl transition-all duration-200"
+          :title="t('nav.folders')"
+          :aria-label="t('nav.folders')"
           @click="activeTab = 'folders'"
         >
           <div
-            class="indicator w-12 h-7 rounded-2xl flex items-center justify-center transition-colors"
-            :class="activeTab === 'folders' ? 'bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]' : 'text-[var(--md-sys-color-on-surface-variant)]'"
+            class="flex items-center justify-center w-14 h-8 rounded-full transition-all duration-200"
+            :class="activeTab === 'folders'
+              ? 'bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]'
+              : 'text-[var(--md-sys-color-on-surface-variant)] group-hover:bg-[var(--md-sys-color-surface-container-high)]/50 group-hover:text-[var(--md-sys-color-on-surface)]'"
           >
             <M3Icon
               name="folder"
               :filled="activeTab === 'folders'"
-              :size="20"
+              :size="24"
             />
           </div>
-          <span class="m3-rail-label mt-1">Folders</span>
+          <div
+            class="overflow-hidden transition-all duration-200 flex justify-center items-center"
+            :class="activeTab === 'folders' ? 'max-h-6 opacity-100 mt-1' : 'max-h-0 opacity-0 mt-0 pointer-events-none'"
+          >
+            <span class="m3-rail-label text-center whitespace-nowrap text-xs font-bold text-[var(--md-sys-color-on-surface)]">
+              {{ t('nav.folders') }}
+            </span>
+          </div>
         </button>
 
-        <!-- 2. Activity Item -->
+        <!-- 3. Activity Item -->
         <button
           type="button"
-          class="nav-rail-item group relative flex flex-col items-center justify-center w-16 py-1.5 rounded-2xl transition-colors cursor-pointer text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)]/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)]"
-          :class="activeTab === 'activity' ? 'text-[var(--md-sys-color-on-surface)]' : ''"
-          title="Activity & problem logs"
-          aria-label="Activity logs view"
+          class="nav-rail-item group relative flex flex-col items-center justify-center w-full py-1.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)] rounded-xl transition-all duration-200"
+          :title="t('nav.activity')"
+          :aria-label="t('nav.activity')"
           @click="activeTab = 'activity'"
         >
           <div
-            class="indicator relative w-12 h-7 rounded-2xl flex items-center justify-center transition-colors"
-            :class="activeTab === 'activity' ? 'bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]' : 'text-[var(--md-sys-color-on-surface-variant)]'"
+            class="relative flex items-center justify-center w-14 h-8 rounded-full transition-all duration-200"
+            :class="activeTab === 'activity'
+              ? 'bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]'
+              : 'text-[var(--md-sys-color-on-surface-variant)] group-hover:bg-[var(--md-sys-color-surface-container-high)]/50 group-hover:text-[var(--md-sys-color-on-surface)]'"
           >
             <M3Icon
               name="list_alt"
               :filled="activeTab === 'activity'"
-              :size="20"
+              :size="24"
             />
             <span
               v-if="logProblemCount > 0"
-              class="absolute -top-0.5 -right-0.5 flex size-3.5 items-center justify-center rounded-full bg-[var(--md-sys-color-error)] m3-badge-label text-[var(--md-sys-color-on-error)] shadow-xs"
+              class="absolute -top-0.5 right-2 flex size-3.5 items-center justify-center rounded-full bg-[var(--md-sys-color-error)] m3-badge-label text-[var(--md-sys-color-on-error)] shadow-xs"
             >
               {{ logProblemCount > 9 ? '9+' : logProblemCount }}
             </span>
           </div>
-          <span class="m3-rail-label mt-1">Activity</span>
+          <div
+            class="overflow-hidden transition-all duration-200 flex justify-center items-center"
+            :class="activeTab === 'activity' ? 'max-h-6 opacity-100 mt-1' : 'max-h-0 opacity-0 mt-0 pointer-events-none'"
+          >
+            <span class="m3-rail-label text-center whitespace-nowrap text-xs font-bold text-[var(--md-sys-color-on-surface)]">
+              {{ t('nav.activity') }}
+            </span>
+          </div>
         </button>
 
-        <!-- 3. Accounts Item -->
+        <!-- 4. Accounts Item -->
         <button
           type="button"
-          class="nav-rail-item group relative flex flex-col items-center justify-center w-16 py-1.5 rounded-2xl transition-colors cursor-pointer text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)]/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)]"
-          :class="activeTab === 'accounts' ? 'text-[var(--md-sys-color-on-surface)]' : ''"
-          title="Google accounts"
-          aria-label="Accounts view"
+          class="nav-rail-item group relative flex flex-col items-center justify-center w-full py-1.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)] rounded-xl transition-all duration-200"
+          :title="t('nav.accounts')"
+          :aria-label="t('nav.accounts')"
           @click="activeTab = 'accounts'"
         >
           <div
-            class="indicator w-12 h-7 rounded-2xl flex items-center justify-center transition-colors"
-            :class="activeTab === 'accounts' ? 'bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]' : 'text-[var(--md-sys-color-on-surface-variant)]'"
+            class="flex items-center justify-center w-14 h-8 rounded-full transition-all duration-200"
+            :class="activeTab === 'accounts'
+              ? 'bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]'
+              : 'text-[var(--md-sys-color-on-surface-variant)] group-hover:bg-[var(--md-sys-color-surface-container-high)]/50 group-hover:text-[var(--md-sys-color-on-surface)]'"
           >
             <M3Icon
               name="manage_accounts"
               :filled="activeTab === 'accounts'"
-              :size="20"
+              :size="24"
             />
           </div>
-          <span class="m3-rail-label mt-1">Accounts</span>
+          <div
+            class="overflow-hidden transition-all duration-200 flex justify-center items-center"
+            :class="activeTab === 'accounts' ? 'max-h-6 opacity-100 mt-1' : 'max-h-0 opacity-0 mt-0 pointer-events-none'"
+          >
+            <span class="m3-rail-label text-center whitespace-nowrap text-xs font-bold text-[var(--md-sys-color-on-surface)]">
+              {{ t('nav.accounts') }}
+            </span>
+          </div>
         </button>
 
-        <!-- 4. Settings Item -->
+        <!-- 5. Settings Item -->
         <button
           type="button"
-          class="nav-rail-item group relative flex flex-col items-center justify-center w-16 py-1.5 rounded-2xl transition-colors cursor-pointer text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)]/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)]"
-          :class="activeTab === 'settings' ? 'text-[var(--md-sys-color-on-surface)]' : ''"
-          title="Settings"
-          aria-label="Settings view"
+          class="nav-rail-item group relative flex flex-col items-center justify-center w-full py-1.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)] rounded-xl transition-all duration-200"
+          :title="t('nav.settings')"
+          :aria-label="t('nav.settings')"
           @click="activeTab = 'settings'"
         >
           <div
-            class="indicator w-12 h-7 rounded-2xl flex items-center justify-center transition-colors"
-            :class="activeTab === 'settings' ? 'bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]' : 'text-[var(--md-sys-color-on-surface-variant)]'"
+            class="flex items-center justify-center w-14 h-8 rounded-full transition-all duration-200"
+            :class="activeTab === 'settings'
+              ? 'bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]'
+              : 'text-[var(--md-sys-color-on-surface-variant)] group-hover:bg-[var(--md-sys-color-surface-container-high)]/50 group-hover:text-[var(--md-sys-color-on-surface)]'"
           >
             <M3Icon
               name="settings"
               :filled="activeTab === 'settings'"
-              :size="20"
+              :size="24"
             />
           </div>
-          <span class="m3-rail-label mt-1">Settings</span>
+          <div
+            class="overflow-hidden transition-all duration-200 flex justify-center items-center"
+            :class="activeTab === 'settings' ? 'max-h-6 opacity-100 mt-1' : 'max-h-0 opacity-0 mt-0 pointer-events-none'"
+          >
+            <span class="m3-rail-label text-center whitespace-nowrap text-xs font-bold text-[var(--md-sys-color-on-surface)]">
+              {{ t('nav.settings') }}
+            </span>
+          </div>
         </button>
 
-        <!-- 5. About Item -->
+        <!-- 6. About Item -->
         <button
           type="button"
-          class="nav-rail-item group relative flex flex-col items-center justify-center w-16 py-1.5 rounded-2xl transition-colors cursor-pointer text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)]/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)]"
-          :class="activeTab === 'about' ? 'text-[var(--md-sys-color-on-surface)]' : ''"
-          title="About Lumen"
-          aria-label="About view"
+          class="nav-rail-item group relative flex flex-col items-center justify-center w-full py-1.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)] rounded-xl transition-all duration-200"
+          :title="t('nav.about')"
+          :aria-label="t('nav.about')"
           @click="activeTab = 'about'"
         >
           <div
-            class="indicator w-12 h-7 rounded-2xl flex items-center justify-center transition-colors"
-            :class="activeTab === 'about' ? 'bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]' : 'text-[var(--md-sys-color-on-surface-variant)]'"
+            class="flex items-center justify-center w-14 h-8 rounded-full transition-all duration-200"
+            :class="activeTab === 'about'
+              ? 'bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]'
+              : 'text-[var(--md-sys-color-on-surface-variant)] group-hover:bg-[var(--md-sys-color-surface-container-high)]/50 group-hover:text-[var(--md-sys-color-on-surface)]'"
           >
             <M3Icon
               name="info"
               :filled="activeTab === 'about'"
-              :size="20"
+              :size="24"
             />
           </div>
-          <span class="m3-rail-label mt-1">About</span>
+          <div
+            class="overflow-hidden transition-all duration-200 flex justify-center items-center"
+            :class="activeTab === 'about' ? 'max-h-6 opacity-100 mt-1' : 'max-h-0 opacity-0 mt-0 pointer-events-none'"
+          >
+            <span class="m3-rail-label text-center whitespace-nowrap text-xs font-bold text-[var(--md-sys-color-on-surface)]">
+              {{ t('nav.about') }}
+            </span>
+          </div>
         </button>
 
-        <!-- 6. Developer Item (Visible only when unlocked) -->
+        <!-- 7. Developer Item (Visible only when unlocked) -->
         <button
           v-if="devOptionsState.unlocked"
           type="button"
-          class="nav-rail-item group relative flex flex-col items-center justify-center w-16 py-1.5 rounded-2xl transition-colors cursor-pointer text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)]/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)]"
-          :class="activeTab === 'developer' ? 'text-[var(--md-sys-color-on-surface)]' : ''"
-          title="Developer options"
-          aria-label="Developer view"
+          class="nav-rail-item group relative flex flex-col items-center justify-center w-full py-1.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)] rounded-xl transition-all duration-200"
+          :title="t('nav.developer')"
+          :aria-label="t('nav.developer')"
           @click="activeTab = 'developer'"
         >
           <div
-            class="indicator w-12 h-7 rounded-2xl flex items-center justify-center transition-colors"
-            :class="activeTab === 'developer' ? 'bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]' : 'text-[var(--md-sys-color-on-surface-variant)]'"
+            class="flex items-center justify-center w-14 h-8 rounded-full transition-all duration-200"
+            :class="activeTab === 'developer'
+              ? 'bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]'
+              : 'text-[var(--md-sys-color-on-surface-variant)] group-hover:bg-[var(--md-sys-color-surface-container-high)]/50 group-hover:text-[var(--md-sys-color-on-surface)]'"
           >
             <M3Icon
               name="terminal"
               :filled="activeTab === 'developer'"
-              :size="20"
+              :size="24"
             />
           </div>
-          <span class="m3-rail-label mt-1">Developer</span>
+          <div
+            class="overflow-hidden transition-all duration-200 flex justify-center items-center"
+            :class="activeTab === 'developer' ? 'max-h-6 opacity-100 mt-1' : 'max-h-0 opacity-0 mt-0 pointer-events-none'"
+          >
+            <span class="m3-rail-label text-center whitespace-nowrap text-xs font-bold text-[var(--md-sys-color-on-surface)]">
+              {{ t('nav.developer') }}
+            </span>
+          </div>
         </button>
       </div>
 
@@ -1319,7 +1625,7 @@ onUnmounted(() => {
           type="file"
           accept="image/*"
           class="hidden"
-          aria-label="Upload custom profile photo"
+          :aria-label="t('accounts.uploadPhotoAria')"
           @change="onAvatarFileSelected"
         >
 
@@ -1331,8 +1637,8 @@ onUnmounted(() => {
           :class="isAccountMenuOpen
             ? 'ring-2 ring-[var(--md-sys-color-primary)] ring-offset-2 ring-offset-[var(--md-sys-color-surface)] border-[var(--md-sys-color-primary)]'
             : 'border-[var(--md-sys-color-outline-variant)]'"
-          :title="displaySelectedOption ? `Signed in as ${displaySelectedOption}` : 'No account connected'"
-          aria-label="Account options"
+          :title="displaySelectedOption ? `${t('accounts.activeAccount')}: ${displaySelectedOption}` : t('accounts.noAccountSelected')"
+          :aria-label="t('accounts.accountOptionsAria')"
           aria-haspopup="menu"
           :aria-expanded="isAccountMenuOpen"
           @click="isAccountMenuOpen = !isAccountMenuOpen"
@@ -1347,7 +1653,7 @@ onUnmounted(() => {
             <img
               v-if="customAvatar"
               :src="customAvatar"
-              alt="Avatar"
+              :alt="t('accounts.avatarAlt')"
               class="size-full object-cover"
             >
             <span v-else-if="displaySelectedOption">
@@ -1390,7 +1696,7 @@ onUnmounted(() => {
           key="upload"
           data-tab="upload"
           class="m3-tab-pane flex h-full w-full flex-1 flex-col overflow-y-auto overflow-x-hidden p-6"
-          style="contain: layout style; --wails-draggable: none"
+          style="--wails-draggable: none"
         >
           <div
             class="w-full mx-auto flex flex-col h-full"
@@ -1417,11 +1723,11 @@ onUnmounted(() => {
 
               <div class="flex flex-col items-center gap-1.5 mt-1">
                 <h2 class="m3-headline-small text-[var(--md-sys-color-on-surface)]">
-                  Indexing Media Folders
+                  {{ uploadState.scanProgress.phase === 'preparing' ? t('backup.preparingTitle') : t('backup.indexingTitle') }}
                 </h2>
                 <div class="flex items-center gap-2 mt-1">
                   <span class="rounded-full bg-[var(--md-sys-color-primary-container)] px-3 py-0.5 m3-label-large text-[var(--md-sys-color-on-primary-container)] tabular-nums">
-                    {{ uploadState.scanProgress.filesFound.toLocaleString() }} {{ uploadState.scanProgress.filesFound === 1 ? 'file' : 'files' }} found
+                    {{ t('backup.filesFound', { count: uploadState.scanProgress.filesFound.toLocaleString() }) }}
                   </span>
                 </div>
                 <p
@@ -1435,7 +1741,7 @@ onUnmounted(() => {
                   v-else
                   class="m3-body-medium mt-2"
                 >
-                  Scanning enabled folders for photos and videos...
+                  {{ uploadState.scanProgress.phase === 'preparing' ? t('backup.preparingFiles') : t('backup.scanningFolders') }}
                 </p>
               </div>
 
@@ -1451,7 +1757,7 @@ onUnmounted(() => {
                   icon="close"
                   @click="handleCancelIndexing"
                 >
-                  Cancel Indexing
+                  {{ t('backup.cancelIndexing') }}
                 </M3Button>
               </div>
             </div>
@@ -1484,11 +1790,13 @@ onUnmounted(() => {
 
             <UploadResultsCard
               :results="uploadState.results"
+              :is-dry-run="uploadState.isDryRun"
               style="--wails-draggable: none"
               @copy="handleCopyClick"
               @clear="handleResetToEmpty"
               @retry-all="handleRetryAll"
               @retry-item="handleRetryItem"
+              @start-upload="handleStartRealUpload"
             />
           </div>
 
@@ -1507,20 +1815,20 @@ onUnmounted(() => {
               />
             </div>
             <h1 class="m3-headline-large text-[var(--md-sys-color-on-surface)] select-none">
-              Add Google account
+              {{ t('backup.emptyAccountTitle') }}
             </h1>
             <p class="mt-3 m3-body-medium select-none max-w-md">
-              Back up your photos and videos to Google Photos with albums and Live Photo support.
+              {{ t('backup.emptyAccountSubtitle') }}
             </p>
             <div class="mt-6 flex flex-wrap items-center justify-center gap-2">
               <span class="rounded-full bg-[var(--md-sys-color-surface-container-high)] px-3.5 py-1 m3-label-large text-[var(--md-sys-color-on-surface-variant)] select-none">
-                Fast uploads
+                {{ t('backup.featureFastBackup') }}
               </span>
               <span class="rounded-full bg-[var(--md-sys-color-surface-container-high)] px-3.5 py-1 m3-label-large text-[var(--md-sys-color-on-surface-variant)] select-none">
-                Album organization
+                {{ t('backup.featureAlbumOrg') }}
               </span>
               <span class="rounded-full bg-[var(--md-sys-color-surface-container-high)] px-3.5 py-1 m3-label-large text-[var(--md-sys-color-on-surface-variant)] select-none">
-                Original and saver quality
+                {{ t('backup.featureQualityModes') }}
               </span>
             </div>
             <M3Button
@@ -1528,13 +1836,13 @@ onUnmounted(() => {
               size="l"
               icon="person_add"
               class="mt-8"
-              aria-label="Add Google account"
+              :aria-label="t('backup.addGoogleAccount')"
               @click="openAccountSetup"
             >
-              <span>Add Google account</span>
+              <span>{{ t('backup.addGoogleAccount') }}</span>
             </M3Button>
             <p class="mt-4 m3-body-medium opacity-60 select-none">
-              Credentials stay on your computer.
+              {{ t('backup.featureCredentialsNotice') }}
             </p>
           </div>
 
@@ -1547,10 +1855,10 @@ onUnmounted(() => {
             <!-- Page Header above the card -->
             <div class="mb-6 text-left w-full">
               <h1 class="m3-headline-large text-[var(--md-sys-color-on-surface)]">
-                Upload
+                {{ t('backup.title') }}
               </h1>
               <p class="m3-body-medium mt-1">
-                Add photos and videos to back up to Google Photos.
+                {{ t('backup.subtitle') }}
               </p>
             </div>
 
@@ -1567,7 +1875,7 @@ onUnmounted(() => {
               style="--wails-draggable: none"
             >
               <p class="m3-body-medium text-amber-200">
-                This credential needs a token binding key from the rooted Android device it was captured from.
+                {{ t('backup.tokenBindingAlert') }}
               </p>
               <M3Button
                 variant="filled"
@@ -1576,7 +1884,7 @@ onUnmounted(() => {
                 :disabled="isExtractingTokenBinding"
                 @click="addTokenBindingAliasFromADB"
               >
-                {{ isExtractingTokenBinding ? 'Reading ADB...' : 'Read from ADB' }}
+                {{ isExtractingTokenBinding ? t('backup.readingAdb') : t('backup.readFromAdb') }}
               </M3Button>
             </div>
 
@@ -1592,6 +1900,7 @@ onUnmounted(() => {
               @dragover.prevent="onDropZoneDragOver"
               @dragleave.prevent="onDropZoneDragLeave"
               @drop.prevent="onDropZoneDrop"
+              @click="clearDragState"
             >
               <Transition name="fade" mode="out-in">
                 <!-- State A: Actively Dragging Files Over (Animated Drop State, buttons hidden) -->
@@ -1607,10 +1916,10 @@ onUnmounted(() => {
                     />
                   </div>
                   <h2 class="mt-6 m3-headline-small text-[var(--md-sys-color-primary)]">
-                    Drop files to upload
+                    {{ t('backup.dropFiles') }}
                   </h2>
                   <p class="mt-2 m3-body-medium">
-                    Release your photos and videos to start backing up
+                    {{ t('backup.releaseFiles') }}
                   </p>
                 </div>
 
@@ -1639,12 +1948,12 @@ onUnmounted(() => {
 
                   <!-- 24px Medium Title -->
                   <h2 class="m3-headline-small text-[var(--md-sys-color-on-surface)] select-none">
-                    Drop photos and videos here
+                    {{ t('dropzone.readyToBackup') }}
                   </h2>
 
                   <!-- 12-13px Description Line -->
                   <p class="m3-body-medium mt-1 max-w-[384px] select-none">
-                    Drag images, videos, and folders here to back them up
+                    {{ t('backup.dragPrompt') }}
                   </p>
 
                   <!-- Action buttons directly under text with 24px gap -->
@@ -1652,7 +1961,7 @@ onUnmounted(() => {
                     class="flex flex-col items-center gap-3 mt-6 z-10"
                     style="--wails-draggable: none"
                   >
-                    <!-- Connected button group (segmented) for Choose files / Choose folder -->
+                    <!-- Connected button group (segmented) for Choose from Files / Choose folder -->
                     <M3ButtonGroup :connected="true">
                       <M3Button
                         variant="filled"
@@ -1661,7 +1970,7 @@ onUnmounted(() => {
                         :disabled="isPickingMedia"
                         @click="handlePickFiles"
                       >
-                        <span>Choose files</span>
+                        <span>{{ t('backup.chooseFromFiles') }}</span>
                       </M3Button>
 
                       <M3Button
@@ -1671,7 +1980,7 @@ onUnmounted(() => {
                         :disabled="isPickingMedia"
                         @click="handlePickFolder"
                       >
-                        <span>Choose folder</span>
+                        <span>{{ t('backup.chooseFolder') }}</span>
                       </M3Button>
                     </M3ButtonGroup>
 
@@ -1680,10 +1989,10 @@ onUnmounted(() => {
                       variant="tonal"
                       size="s"
                       icon="folder_special"
-                      title="Albums made by Lumen are reused by name. To use an album you made in Google Photos, paste its link."
+                      :title="t('backup.albumButtonTitle')"
                       @click="openAlbumPrompt"
                     >
-                      <span>Album: {{ albumDisplayLabel }}</span>
+                      <span>{{ t('backup.albumPrefix', { name: albumDisplayLabel }) }}</span>
                     </M3Button>
                   </div>
                 </div>
@@ -1695,7 +2004,7 @@ onUnmounted(() => {
               <div class="flex items-center gap-2.5">
                 <span class="flex items-center space-x-1.5">
                   <span class="size-2 rounded-full bg-[var(--md-sys-color-primary)]"></span>
-                  <span class="m3-label-large text-[var(--md-sys-color-on-surface)]">{{ displaySelectedOption || 'No account selected' }}</span>
+                  <span class="m3-label-large text-[var(--md-sys-color-on-surface)]">{{ displaySelectedOption || t('backup.noAccountSelected') }}</span>
                 </span>
                 <span
                   class="rounded-full border px-2.5 py-0.5 m3-label-small transition-colors inline-flex items-center"
@@ -1710,7 +2019,7 @@ onUnmounted(() => {
                   {{ qualityModeLabel }}
                 </span>
               </div>
-              <span>Credentials stay on your computer</span>
+              <span>{{ t('backup.credentialsStay') }}</span>
             </div>
           </div>
         </div>
@@ -1722,7 +2031,7 @@ onUnmounted(() => {
           key="folders"
           data-tab="folders"
           class="m3-tab-pane flex h-full w-full flex-1 flex-col overflow-y-auto overflow-x-hidden p-6"
-          style="contain: layout style; --wails-draggable: none"
+          style="--wails-draggable: none"
         >
           <FoldersView
             :key="selectedOption + '-' + options.join(',')"
@@ -1736,16 +2045,16 @@ onUnmounted(() => {
           key="activity"
           data-tab="activity"
           class="m3-tab-pane flex h-full w-full flex-1 flex-col overflow-y-auto overflow-x-hidden p-6"
-          style="contain: layout style; --wails-draggable: none"
+          style="--wails-draggable: none"
         >
           <div class="w-full max-w-[1400px] mx-auto flex flex-col gap-6 pb-12">
             <!-- Header -->
             <div class="flex flex-col gap-1">
               <h1 class="m3-headline-large text-[var(--md-sys-color-on-surface)]">
-                Activity
+                {{ t('activity.title') }}
               </h1>
               <p class="m3-body-medium">
-                Check your upload history, overall progress, and any problems.
+                {{ t('activity.subtitle') }}
               </p>
             </div>
 
@@ -1774,10 +2083,10 @@ onUnmounted(() => {
                     </div>
                     <div class="flex flex-col min-w-0">
                       <span class="m3-title-medium">
-                        {{ logProblemCount > 0 ? `${logProblemCount} problem${logProblemCount > 1 ? 's' : ''} found` : 'No problems found.' }}
+                        {{ logProblemCount > 0 ? (logProblemCount === 1 ? t('activity.oneProblemFound') : t('activity.problemsFound', { count: logProblemCount })) : t('activity.noProblemsFound') }}
                       </span>
                       <span class="m3-body-medium">
-                        {{ logProblemCount > 0 ? 'Review the issues below to retry failed files.' : 'All services and upload workers are running.' }}
+                        {{ logProblemCount > 0 ? t('activity.reviewIssues') : t('activity.allRunning') }}
                       </span>
                     </div>
                   </div>
@@ -1788,28 +2097,28 @@ onUnmounted(() => {
                   <div class="flex flex-col gap-2 rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-5 shadow-xs">
                     <div class="flex items-center gap-2 text-[var(--md-sys-color-primary)]">
                       <M3Icon name="history" :size="20" />
-                      <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">Upload session</span>
+                      <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">{{ t('activity.backupSession') }}</span>
                     </div>
                     <p class="m3-body-medium leading-relaxed">
-                      Files transferred or queued in this session.
+                      {{ t('activity.backupSessionDesc') }}
                     </p>
                     <div class="mt-2 flex items-center justify-between m3-body-medium border-t border-[var(--md-sys-color-outline-variant)]/30 pt-3">
-                      <span>Processed this session:</span>
-                      <span class="m3-label-large tabular-nums text-[var(--md-sys-color-on-surface)]">{{ displayProcessedCount }} files</span>
+                      <span>{{ t('activity.processedThisSession') }}</span>
+                      <span class="m3-label-large tabular-nums text-[var(--md-sys-color-on-surface)]">{{ t('activity.filesCount', { count: displayProcessedCount }) }}</span>
                     </div>
                   </div>
 
                   <div class="flex flex-col gap-2 rounded-[24px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-5 shadow-xs">
                     <div class="flex items-center gap-2 text-[var(--md-sys-color-primary)]">
                       <M3Icon name="fingerprint" :size="20" />
-                      <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">Deduplication cache</span>
+                      <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">{{ t('activity.dedupCache') }}</span>
                     </div>
                     <p class="m3-body-medium leading-relaxed">
-                      Local cache skips already backed up files.
+                      {{ t('activity.dedupCacheDesc') }}
                     </p>
                     <div class="mt-2 flex items-center justify-between m3-body-medium border-t border-[var(--md-sys-color-outline-variant)]/30 pt-3">
-                      <span>Skipped duplicates:</span>
-                      <span class="m3-label-large tabular-nums text-[var(--md-sys-color-on-surface)]">{{ displaySkippedCount }} files</span>
+                      <span>{{ t('activity.skippedDuplicates') }}</span>
+                      <span class="m3-label-large tabular-nums text-[var(--md-sys-color-on-surface)]">{{ t('activity.filesCount', { count: displaySkippedCount }) }}</span>
                     </div>
                   </div>
                 </div>
@@ -1820,12 +2129,23 @@ onUnmounted(() => {
                     <div class="flex items-center gap-2 text-[var(--md-sys-color-error)]">
                       <M3Icon name="report_problem" :size="20" />
                       <h2 class="m3-headline-small text-[var(--md-sys-color-on-surface)]">
-                        Problems
+                        {{ t('activity.problems') }}
                       </h2>
                     </div>
-                    <span class="m3-body-medium">
-                      {{ displayProblems.length }} item{{ displayProblems.length === 1 ? '' : 's' }}
-                    </span>
+                    <div class="flex items-center gap-2">
+                      <span class="m3-body-medium">
+                        {{ t('activity.problemsCount', { count: displayProblems.length }) }}
+                      </span>
+                      <M3Button
+                        v-if="displayProblems.length > 0"
+                        variant="text"
+                        size="xs"
+                        class="text-[var(--md-sys-color-error)]"
+                        @click="clearProblems"
+                      >
+                        <span>{{ t('activity.clear') }}</span>
+                      </M3Button>
+                    </div>
                   </div>
 
                   <div class="flex flex-col gap-3 mt-1">
@@ -1840,7 +2160,7 @@ onUnmounted(() => {
                             {{ prob.reasonCode || prob.level }}
                           </span>
                           <span class="m3-title-medium text-[var(--md-sys-color-on-surface)] truncate">
-                            {{ prob.fileName || prob.category || 'Notice' }}
+                            {{ prob.fileName || prob.category || t('activity.notice') }}
                           </span>
                         </div>
                         <span class="m3-body-medium shrink-0">
@@ -1849,11 +2169,11 @@ onUnmounted(() => {
                       </div>
 
                       <p class="m3-body-medium text-[var(--md-sys-color-on-surface)] leading-relaxed">
-                        {{ prob.userMessage || 'An issue was recorded.' }}
+                        {{ formatProblemMessage(prob) }}
                       </p>
 
                       <div
-                        v-if="prob.suggestedAction"
+                        v-if="prob.suggestedAction || formatProblemAction(prob)"
                         class="flex items-start gap-2 rounded-xl bg-[var(--md-sys-color-surface-container-high)] p-3 m3-body-medium"
                       >
                         <M3Icon
@@ -1862,8 +2182,8 @@ onUnmounted(() => {
                           class="shrink-0 text-[var(--md-sys-color-primary)] mt-0.5"
                         />
                         <div class="leading-relaxed">
-                          <strong class="text-[var(--md-sys-color-on-surface)]">How to fix: </strong>
-                          {{ prob.suggestedAction }}
+                          <strong class="text-[var(--md-sys-color-on-surface)]">{{ t('activity.howToFix') }} </strong>
+                          {{ formatProblemAction(prob) }}
                         </div>
                       </div>
                     </div>
@@ -1873,26 +2193,36 @@ onUnmounted(() => {
                       class="flex flex-col items-center justify-center p-6 text-center m3-body-medium"
                     >
                       <M3Icon name="check_circle" :size="24" class="mb-1 text-[var(--md-sys-color-success)]" />
-                      <span>No problems recorded.</span>
+                      <span>{{ t('activity.noProblems') }}</span>
                     </div>
                   </div>
                 </div>
               </div>
 
-              <!-- Column 2: Upload history -->
+              <!-- Column 2: Backup history -->
               <div class="flex flex-col gap-6">
-                <!-- Upload History -->
+                <!-- Backup History -->
                 <div class="flex flex-col gap-3 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-6 shadow-xs">
                   <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2 text-[var(--md-sys-color-primary)]">
                       <M3Icon name="cloud_done" :size="20" />
                       <h2 class="m3-headline-small text-[var(--md-sys-color-on-surface)]">
-                        Upload history
+                        {{ t('activity.backupHistory') }}
                       </h2>
                     </div>
-                    <span class="m3-body-medium">
-                      Recent batches
-                    </span>
+                    <div class="flex items-center gap-2">
+                      <span class="m3-body-medium">
+                        {{ t('activity.recentBatches') }}
+                      </span>
+                      <M3Button
+                        v-if="displayBatches.length > 0"
+                        variant="text"
+                        size="xs"
+                        @click="clearBackupHistory"
+                      >
+                        <span>{{ t('activity.clear') }}</span>
+                      </M3Button>
+                    </div>
                   </div>
 
                   <div class="flex flex-col gap-2.5 mt-1">
@@ -1913,14 +2243,14 @@ onUnmounted(() => {
                           <div class="flex flex-col min-w-0">
                             <div class="flex items-center gap-2">
                               <span class="m3-title-medium text-[var(--md-sys-color-on-surface)] truncate">
-                                {{ batch.name }}
+                                {{ formatBatchName(batch.name) }}
                               </span>
                               <span class="m3-body-medium">
-                                {{ batch.timestamp }}
+                                {{ formatBatchTimestamp(batch.timestamp) }}
                               </span>
                             </div>
                             <span class="m3-body-medium">
-                              {{ batch.totalCount }} items &bull; {{ batch.duration }} &bull; {{ batch.sizeFormatted }}
+                              {{ t('activity.batchSummary', { count: batch.totalCount, duration: batch.duration, size: batch.sizeFormatted }) }}
                             </span>
                           </div>
                         </div>
@@ -1932,7 +2262,7 @@ onUnmounted(() => {
                               ? 'bg-[var(--md-sys-color-error-container)] text-[var(--md-sys-color-on-error-container)]'
                               : 'bg-[var(--md-sys-color-success-container)] text-[var(--md-sys-color-on-success-container)]'"
                           >
-                            {{ batch.failedCount > 0 ? `${batch.failedCount} failed` : 'All completed' }}
+                            {{ batch.failedCount > 0 ? t('activity.failedCount', { count: batch.failedCount }) : t('activity.allCompleted') }}
                           </span>
                           <M3Icon
                             name="expand_more"
@@ -1951,15 +2281,15 @@ onUnmounted(() => {
                         <div class="overflow-hidden">
                           <div class="flex flex-col border-t border-[var(--md-sys-color-outline-variant)]/20 bg-[var(--md-sys-color-surface-container)]/60 p-3.5 sm:p-4 gap-2">
                             <div class="flex items-center justify-between px-1 m3-label-small text-[var(--md-sys-color-on-surface-variant)]">
-                              <span>Files in this run ({{ getRunFiles(batch.runId).length }})</span>
-                              <span v-if="batch.uploadedCount > 0">{{ batch.uploadedCount }} uploaded</span>
+                              <span>{{ t('activity.filesInRun', { count: getRunFiles(batch.runId).length }) }}</span>
+                              <span v-if="batch.uploadedCount > 0">{{ t('activity.uploadedCount', { count: batch.uploadedCount }) }}</span>
                             </div>
 
                             <div
                               v-if="getRunFiles(batch.runId).length === 0"
                               class="py-4 text-center m3-body-medium"
                             >
-                              No individual file logs recorded for this batch.
+                              {{ t('activity.noFileLogs') }}
                             </div>
 
                             <div v-else class="flex flex-col gap-1.5 max-h-56 overflow-y-auto pr-1">
@@ -1991,7 +2321,7 @@ onUnmounted(() => {
                                         ? 'bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-on-surface-variant)]'
                                         : 'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]'"
                                   >
-                                    {{ file.outcome === 'UPLOADED' ? 'Uploaded' : file.outcome?.startsWith('SKIPPED') ? 'Skipped' : 'Failed' }}
+                                    {{ file.outcome === 'UPLOADED' ? t('upload.completed') : file.outcome?.startsWith('SKIPPED') ? t('thread.skipped') : t('upload.failed') }}
                                   </span>
                                 </div>
                               </div>
@@ -2005,7 +2335,7 @@ onUnmounted(() => {
                       v-if="displayBatches.length === 0"
                       class="p-6 text-center m3-body-medium"
                     >
-                      No recent batches found.
+                      {{ t('activity.noRecentBatches') }}
                     </div>
                   </div>
                 </div>
@@ -2020,17 +2350,17 @@ onUnmounted(() => {
           key="accounts"
           data-tab="accounts"
           class="m3-tab-pane flex h-full w-full flex-1 flex-col overflow-y-auto overflow-x-hidden p-6"
-          style="contain: layout style; --wails-draggable: none"
+          style="--wails-draggable: none"
         >
           <div class="w-full max-w-[1400px] mx-auto flex flex-col gap-6">
             <!-- Header (Task 11: plain language) -->
             <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div class="flex flex-col gap-1">
                 <h1 class="m3-headline-large text-[var(--md-sys-color-on-surface)]">
-                  Google accounts
+                  {{ t('accounts.title') }}
                 </h1>
                 <p class="m3-body-medium">
-                  Add, switch or remove the Google accounts you upload to.
+                  {{ t('accounts.subtitle') }}
                 </p>
               </div>
 
@@ -2040,7 +2370,7 @@ onUnmounted(() => {
                 icon="person_add"
                 @click="openAccountSetup"
               >
-                <span>Add account</span>
+                <span>{{ t('accounts.addAccount') }}</span>
               </M3Button>
             </div>
 
@@ -2059,10 +2389,10 @@ onUnmounted(() => {
               >
                 <div class="flex items-center justify-between border-b border-[var(--md-sys-color-outline-variant)]/30 pb-3">
                   <span class="m3-label-small text-[var(--md-sys-color-primary)]">
-                    Active account
+                    {{ t('accounts.activeAccount') }}
                   </span>
                   <span class="rounded-full bg-[var(--md-sys-color-primary-container)] px-2.5 py-0.5 m3-label-small text-[var(--md-sys-color-on-primary-container)]">
-                    Selected
+                    {{ t('accounts.selected') }}
                   </span>
                 </div>
 
@@ -2074,7 +2404,7 @@ onUnmounted(() => {
                         backgroundColor: customAvatar ? 'transparent' : getAvatarColor(displaySelectedOption).bg,
                         color: getAvatarColor(displaySelectedOption).text,
                       }"
-                      title="Click to change profile photo"
+                      :title="t('accounts.changePhotoTitle')"
                       role="button"
                       tabindex="0"
                       @click="triggerAvatarUpload"
@@ -2083,7 +2413,7 @@ onUnmounted(() => {
                       <img
                         v-if="customAvatar"
                         :src="customAvatar"
-                        alt="Profile avatar"
+                        :alt="t('accounts.avatarAlt')"
                         class="size-full object-cover"
                       >
                       <span
@@ -2120,7 +2450,7 @@ onUnmounted(() => {
                       icon="photo_camera"
                       @click="triggerAvatarUpload"
                     >
-                      <span>Change photo</span>
+                      <span>{{ t('accounts.changePhoto') }}</span>
                     </M3Button>
                     <M3Button
                       variant="tonal"
@@ -2128,7 +2458,7 @@ onUnmounted(() => {
                       icon="edit"
                       @click="openEditNameDialog"
                     >
-                      <span>Edit name</span>
+                      <span>{{ t('accounts.editName') }}</span>
                     </M3Button>
                   </div>
                 </div>
@@ -2140,14 +2470,14 @@ onUnmounted(() => {
                 class="flex flex-col items-center justify-center p-8 text-center rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)]"
               >
                 <M3Icon name="no_accounts" :size="36" class="mb-2 text-[var(--md-sys-color-outline)]" />
-                <p class="m3-title-medium text-[var(--md-sys-color-on-surface)]">No account selected</p>
-                <p class="m3-body-medium mt-1">Connect or select a Google account to start uploading.</p>
+                <p class="m3-title-medium text-[var(--md-sys-color-on-surface)]">{{ t('accounts.noAccountSelected') }}</p>
+                <p class="m3-body-medium mt-1">{{ t('accounts.signInPrompt') }}</p>
               </div>
 
               <!-- Right Column: Connected Accounts List -->
               <div class="flex flex-col gap-3 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container)] p-6 shadow-xs">
                 <h2 class="m3-headline-small text-[var(--md-sys-color-on-surface)]">
-                  Connected accounts ({{ displayOptions.length }})
+                  {{ t('accounts.connectedAccounts') }} ({{ displayOptions.length }})
                 </h2>
 
                 <div
@@ -2155,7 +2485,7 @@ onUnmounted(() => {
                   class="flex flex-col items-center justify-center p-8 text-center m3-body-medium"
                 >
                   <M3Icon name="no_accounts" :size="36" class="mb-2 text-[var(--md-sys-color-outline)]" />
-                  <p>No Google accounts connected yet.</p>
+                  <p>{{ t('accounts.noAccountsYet') }}</p>
                   <M3Button
                     variant="filled"
                     size="s"
@@ -2163,7 +2493,7 @@ onUnmounted(() => {
                     class="mt-4"
                     @click="openAccountSetup"
                   >
-                    <span>Add your first account</span>
+                    <span>{{ t('accounts.addFirstAccount') }}</span>
                   </M3Button>
                 </div>
 
@@ -2203,7 +2533,7 @@ onUnmounted(() => {
                             v-if="opt === displaySelectedOption"
                             class="rounded-full bg-[var(--md-sys-color-primary-container)] px-2 py-0.5 m3-label-small text-[var(--md-sys-color-on-primary-container)]"
                           >
-                            Active
+                            {{ t('accounts.active') }}
                           </span>
                         </div>
                         <span class="truncate m3-body-medium">
@@ -2220,7 +2550,7 @@ onUnmounted(() => {
                         icon="swap_horiz"
                         @click="displaySelectedOption = opt"
                       >
-                        <span>Switch</span>
+                        <span>{{ t('accounts.switch') }}</span>
                       </M3Button>
                       <M3Button
                         variant="tonal"
@@ -2230,7 +2560,7 @@ onUnmounted(() => {
                         :loading="removingAccount === opt"
                         @click="promptRemoveAccount(opt)"
                       >
-                        <span>Remove</span>
+                        <span>{{ t('accounts.remove') }}</span>
                       </M3Button>
                     </div>
                   </div>
@@ -2246,7 +2576,7 @@ onUnmounted(() => {
           key="settings"
           data-tab="settings"
           class="m3-tab-pane flex h-full w-full flex-1 flex-col overflow-y-auto overflow-x-hidden p-6"
-          style="contain: layout style; --wails-draggable: none"
+          style="--wails-draggable: none"
         >
           <div class="w-full max-w-[1700px] mx-auto flex flex-col">
             <TooltipProvider disable-hoverable-content>
@@ -2264,7 +2594,7 @@ onUnmounted(() => {
           key="about"
           data-tab="about"
           class="m3-tab-pane flex h-full w-full flex-1 flex-col overflow-y-auto overflow-x-hidden p-6"
-          style="contain: layout style; --wails-draggable: none"
+          style="--wails-draggable: none"
         >
           <div class="w-full max-w-[768px] mx-auto flex flex-col">
             <AboutView />
@@ -2277,7 +2607,7 @@ onUnmounted(() => {
           key="developer"
           data-tab="developer"
           class="m3-tab-pane flex h-full w-full flex-1 flex-col overflow-y-auto overflow-x-hidden p-6"
-          style="contain: layout style; --wails-draggable: none"
+          style="--wails-draggable: none"
         >
           <div class="w-full max-w-[1600px] mx-auto flex flex-col">
             <DeveloperView :live-logs="activityLogs" />
@@ -2306,6 +2636,7 @@ onUnmounted(() => {
             role="dialog"
             aria-modal="true"
             aria-labelledby="album-dialog-title"
+            @click.stop
           >
             <div class="flex size-16 items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-primary)]">
               <M3Icon
@@ -2319,10 +2650,10 @@ onUnmounted(() => {
                 id="album-dialog-title"
                 class="m3-headline-small text-[var(--md-sys-color-on-surface)] select-none"
               >
-                {{ pendingFiles.length > 0 ? 'Upload to Album' : 'Album Options' }}
+                {{ pendingFiles.length > 0 ? t('dialogs.album.titleBackup') : t('dialogs.album.titleOptions') }}
               </h2>
               <p class="m3-body-medium select-none">
-                {{ pendingFiles.length > 0 ? `${pendingFileCount} file(s) selected for upload` : 'Choose how Google Photos organizes your uploads' }}
+                {{ pendingFiles.length > 0 ? t('dialogs.album.itemsSelected', { count: pendingFileCount }) : t('dialogs.album.organizeSubtitle') }}
               </p>
             </div>
 
@@ -2335,7 +2666,7 @@ onUnmounted(() => {
                 :variant="albumTargetMode === 'none' && !albumNameOrKey ? 'filled' : 'outlined'"
                 @click="albumTargetMode = 'none'; albumNameOrKey = ''"
               >
-                None
+                {{ t('dialogs.album.none') }}
               </M3Button>
               <M3Button
                 size="xs"
@@ -2344,7 +2675,7 @@ onUnmounted(() => {
                 :variant="albumTargetMode === 'auto' ? 'filled' : 'outlined'"
                 @click="albumTargetMode = 'auto'; albumNameOrKey = ''"
               >
-                Auto by folder
+                {{ t('dialogs.album.autoByFolder') }}
               </M3Button>
               <M3Button
                 size="xs"
@@ -2353,7 +2684,7 @@ onUnmounted(() => {
                 :variant="albumTargetMode === 'custom' || !!albumNameOrKey ? 'filled' : 'outlined'"
                 @click="albumTargetMode = 'custom'"
               >
-                Named album
+                {{ t('dialogs.album.namedAlbum') }}
               </M3Button>
             </div>
 
@@ -2364,15 +2695,15 @@ onUnmounted(() => {
               <M3TextField
                 id="album-input"
                 v-model="albumNameOrKey"
-                label="Album name or album key"
-                placeholder="Vacation 2026"
+                :label="t('dialogs.album.inputLabel')"
+                :placeholder="t('dialogs.album.inputPlaceholder')"
                 variant="outlined"
                 leading-icon="folder"
                 autofocus
                 @keydown.enter="confirmAlbumUpload"
               />
               <p class="m3-body-medium px-1 whitespace-normal break-words">
-                Type a name to create an album. Lumen reuses it next time. To add to an album you already have, paste its album key, which starts with AF1Qip (for example AF1QipM9x4Kq...).
+                {{ t('dialogs.album.helpText') }}
               </p>
               <div class="px-1 text-left">
                 <button
@@ -2381,13 +2712,13 @@ onUnmounted(() => {
                   @click="showAlbumKeyHelp = !showAlbumKeyHelp"
                 >
                   <M3Icon name="help_outline" :size="13" />
-                  <span>Where do I find the key?</span>
+                  <span>{{ t('dialogs.album.whereKey') }}</span>
                 </button>
                 <div
                   v-if="showAlbumKeyHelp"
                   class="mt-1.5 p-2.5 rounded-xl bg-[var(--md-sys-color-surface-container-highest)]/70 m3-body-medium whitespace-normal break-words"
                 >
-                  Open the album in Google Photos on the web. The key is the part of the address that starts with AF1Qip.
+                  {{ t('dialogs.album.keyHelp') }}
                 </div>
               </div>
 
@@ -2398,18 +2729,18 @@ onUnmounted(() => {
               >
                 <div class="flex flex-col gap-0.5">
                   <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
-                    Album Nickname (optional)
+                    {{ t('dialogs.album.nickname') }}
                   </span>
                   <span class="m3-body-medium">
-                    Name this album so Lumen shows a clean name instead of the 50-character album key.
+                    {{ t('dialogs.album.nicknameSubtitle') }}
                   </span>
                 </div>
                 <div class="pt-2">
                   <M3TextField
                     id="album-nickname-input"
                     v-model="albumNickname"
-                    label="Friendly nickname"
-                    placeholder="e.g. Vacation 2026"
+                    :label="t('dialogs.album.nicknameLabel')"
+                    :placeholder="t('dialogs.album.nicknamePlaceholder')"
                     variant="outlined"
                     leading-icon="label"
                     @keydown.enter="confirmAlbumUpload"
@@ -2424,7 +2755,7 @@ onUnmounted(() => {
               class="flex w-full flex-col gap-1.5 text-left"
             >
               <span class="m3-label-small text-[var(--md-sys-color-on-surface-variant)]">
-                Recent Albums
+                {{ t('dialogs.album.recentAlbums') }}
               </span>
               <div class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
                 <M3Button
@@ -2440,7 +2771,7 @@ onUnmounted(() => {
                   <span class="max-w-[130px] truncate">{{ albumNicknames[recent] || recent }}</span>
                   <span
                     class="ml-0.5 rounded-full p-0.5 opacity-60 hover:opacity-100 hover:bg-black/10 dark:hover:bg-white/10"
-                    title="Remove from recents"
+                    :title="t('dialogs.album.removeRecent')"
                     @click.stop="removeRecentAlbum(recent, $event)"
                   >
                     <M3Icon
@@ -2459,7 +2790,7 @@ onUnmounted(() => {
                 size="s"
                 @click="cancelAlbumUpload"
               >
-                Cancel
+                {{ t('dialogs.album.cancel') }}
               </M3Button>
               <M3Button
                 variant="filled"
@@ -2467,7 +2798,7 @@ onUnmounted(() => {
                 :disabled="albumTargetMode === 'custom' && !albumNameOrKey.trim()"
                 @click="confirmAlbumUpload"
               >
-                {{ pendingFiles.length > 0 ? 'Start Upload' : 'Confirm' }}
+                {{ pendingFiles.length > 0 ? t('dialogs.album.startBackup') : t('dialogs.album.confirm') }}
               </M3Button>
             </div>
           </div>
@@ -2479,8 +2810,8 @@ onUnmounted(() => {
     <EditDisplayNameModal
       v-model="showEditNameDialog"
       :account-email="displaySelectedOption"
-      @saved="toast.success('Display name updated')"
-      @reset="toast.success('Display name reset to default')"
+      @saved="toast.success(t('accounts.toastNameUpdated'))"
+      @reset="toast.success(t('accounts.toastNameReset'))"
     />
 
     <!-- Remove Account Modal Dialog -->
@@ -2489,6 +2820,17 @@ onUnmounted(() => {
       :account-email="accountToRemove"
       :loading="!!removingAccount"
       @confirm="handleConfirmRemoveAccount"
+    />
+
+    <!-- Review Files Before Upload Modal Pop-up -->
+    <UploadReviewModal
+      v-if="showReviewModal && pendingReviewSummary"
+      :summary="pendingReviewSummary"
+      :include-subfolders="reviewIncludeSubfolders"
+      :is-rescanning="isRescanningReview"
+      @update:include-subfolders="handleReviewToggleSubfolders"
+      @cancel="handleCancelReview"
+      @confirm="handleConfirmReview"
     />
 
     <Teleport to="body">

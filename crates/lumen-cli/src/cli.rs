@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
@@ -51,6 +51,9 @@ pub struct Cli {
 pub enum Commands {
     /// Upload files or directories to Google Photos
     Upload(UploadArgs),
+
+    /// Watch directories and automatically back up new media files
+    Watch(WatchArgs),
 
     /// Manage account credentials
     Creds(CredsArgs),
@@ -136,6 +139,36 @@ pub struct UploadArgs {
     /// Custom API endpoint base URL (used for mock server testing)
     #[arg(long, hide = true)]
     pub endpoint_base: Option<String>,
+
+    /// Check files and show what would be uploaded without sending anything
+    #[arg(long)]
+    pub dry_run: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct WatchArgs {
+    /// Directories to watch (defaults to watched folders in config if omitted)
+    pub paths: Vec<PathBuf>,
+
+    /// Recurse into subdirectories
+    #[arg(short = 'r', long, default_value_t = true)]
+    pub recursive: bool,
+
+    /// Number of concurrent upload threads
+    #[arg(short = 't', long)]
+    pub threads: Option<usize>,
+
+    /// Use Storage Saver quality
+    #[arg(short = 's', long)]
+    pub saver: bool,
+
+    /// Account email to use (overrides active selected account)
+    #[arg(long)]
+    pub account: Option<String>,
+
+    /// Check files and simulate backup without uploading anything
+    #[arg(long)]
+    pub dry_run: bool,
 }
 
 #[derive(Args, Debug)]
@@ -197,6 +230,7 @@ pub async fn main_entry() -> Result<()> {
 
     match cli.command {
         Commands::Upload(args) => handle_upload(args, config_manager, &config_path).await,
+        Commands::Watch(args) => handle_watch(args, config_manager, &config_path).await,
         Commands::Creds(args) => handle_creds(args, config_manager).await,
         Commands::Cache(args) => handle_cache(args, &config_path),
     }
@@ -303,6 +337,11 @@ pub async fn handle_upload(
         album_name: args.album.unwrap_or_default(),
         album_auto_mode: args.album_auto,
         custom_endpoint_base: args.endpoint_base,
+        dry_run: args.dry_run,
+        schedule_enabled: cfg.preferences.schedule_enabled,
+        schedule_start_hour: cfg.preferences.schedule_start_hour,
+        schedule_end_hour: cfg.preferences.schedule_end_hour,
+        pause_on_battery: cfg.preferences.pause_on_battery,
     };
 
     // Terminal progress with indicatif
@@ -526,6 +565,153 @@ pub fn handle_cache(args: CacheArgs, config_path: &Path) -> Result<()> {
             println!("Total entries: {}", total);
         }
     }
+    Ok(())
+}
+
+pub async fn handle_watch(
+    args: WatchArgs,
+    config_manager: Arc<ConfigManager>,
+    config_path: &Path,
+) -> Result<()> {
+    let cfg = config_manager.get_config();
+
+    let selected_account = if let Some(ref acc) = args.account {
+        acc.trim().to_string()
+    } else if !cfg.account.selected.is_empty() {
+        cfg.account.selected.clone()
+    } else {
+        bail!("No account selected. Use 'lumen-cli creds add <token>' or specify '--account <email>'.");
+    };
+
+    if let Err(e) = config_manager.get_credential_for_account(Some(&selected_account)) {
+        bail!("No credentials found for account '{}': {}", selected_account, e);
+    }
+
+    let mut folders = std::collections::HashMap::new();
+    if !args.paths.is_empty() {
+        for p in &args.paths {
+            folders.insert(p.clone(), args.recursive);
+        }
+    } else if cfg.preferences.watch_folders_enabled && !cfg.preferences.watched_folder_configs.is_empty() {
+        for c in &cfg.preferences.watched_folder_configs {
+            if c.enabled {
+                folders.insert(PathBuf::from(&c.path), c.include_subfolders);
+            }
+        }
+    } else if !cfg.preferences.watched_folders.is_empty() {
+        for p in &cfg.preferences.watched_folders {
+            folders.insert(PathBuf::from(p), true);
+        }
+    } else {
+        bail!("No directories to watch. Provide paths as arguments or configure watched folders.");
+    }
+
+    println!("Lumen Watch Mode active for account: {}", selected_account);
+    for (dir, rec) in &folders {
+        println!("  Watching: {} (recursive: {})", dir.display(), rec);
+    }
+    if args.dry_run {
+        println!("  Mode: DRY RUN (files will only be checked, not uploaded)");
+    }
+    println!("Press Ctrl+C to stop.\n");
+
+    let cache_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
+    let db_path = determine_hash_cache_path(cache_dir);
+    let hash_cache = HashCache::open(&db_path).ok();
+    let album_reg_path = determine_album_registry_path(cache_dir);
+    let album_registry = AlbumRegistry::new(album_reg_path).unwrap_or_else(|_| AlbumRegistry::in_memory());
+
+    let (file_tx, mut file_rx) = tokio::sync::mpsc::channel::<Vec<PathBuf>>(100);
+
+    let mut fw = lumen_core::watcher::FolderWatcher::new(std::time::Duration::from_millis(2000));
+    fw.set_folders(folders).map_err(|e| anyhow::anyhow!("{}", e))?;
+    fw.start(move |ready_files| {
+        let _ = file_tx.blocking_send(ready_files);
+    }).map_err(|e| anyhow::anyhow!("Watcher error: {}", e))?;
+
+    let is_running = Arc::new(AtomicBool::new(true));
+    let r_sig = is_running.clone();
+    tokio::spawn(async move {
+        let _ = tokio::signal::ctrl_c().await;
+        println!("\nShutdown signal received. Exiting watch mode...");
+        r_sig.store(false, Ordering::SeqCst);
+    });
+
+    while is_running.load(Ordering::Relaxed) {
+        tokio::select! {
+            Some(ready_files) = file_rx.recv() => {
+                if ready_files.is_empty() {
+                    continue;
+                }
+                println!("[watch] Detected {} new or modified file(s).", ready_files.len());
+
+                let live_opts = LivePhotoClassificationOptions {
+                    enabled: cfg.preferences.pair_live_photos,
+                    skip_incomplete: cfg.preferences.skip_incomplete_live_photos,
+                    ignore_apple_metadata: false,
+                    default_account: selected_account.clone(),
+                };
+                let (work_items, _) = classify_upload_work(&ready_files, &live_opts);
+
+                let threads = args.threads.unwrap_or(cfg.preferences.upload_threads);
+                let upload_opts = UploadOptions {
+                    threads,
+                    saver: args.saver || cfg.preferences.saver,
+                    use_quota: cfg.preferences.use_quota,
+                    recursive: args.recursive,
+                    force_upload: cfg.preferences.force_upload,
+                    delete_from_host: cfg.preferences.delete_from_host,
+                    pair_live_photos: cfg.preferences.pair_live_photos,
+                    skip_incomplete_live_photos: cfg.preferences.skip_incomplete_live_photos,
+                    update_existing_photos_to_live: cfg.preferences.update_existing_photos_to_live,
+                    ignore_apple_metadata: false,
+                    set_date_from_filename: cfg.preferences.set_date_from_filename,
+                    disable_unsupported_files_filter: cfg.preferences.disable_unsupported_files_filter,
+                    exclude_pattern: cfg.preferences.exclude_pattern.clone(),
+                    use_local_hash_cache: true,
+                    upload_speed_limit_kbps: cfg.preferences.upload_speed_limit_kbps,
+                    album_name: String::new(),
+                    album_auto_mode: false,
+                    custom_endpoint_base: None,
+                    dry_run: args.dry_run,
+                    schedule_enabled: cfg.preferences.schedule_enabled,
+                    schedule_start_hour: cfg.preferences.schedule_start_hour,
+                    schedule_end_hour: cfg.preferences.schedule_end_hour,
+                    pause_on_battery: cfg.preferences.pause_on_battery,
+                };
+
+                let engine = UploadEngine::new(config_manager.clone(), hash_cache.clone(), album_registry.clone());
+                let (event_tx, mut event_rx) = mpsc::channel(100);
+
+                let ev_task = tokio::spawn(async move {
+                    while let Some(ev) = event_rx.recv().await {
+                        match ev {
+                            UploadEvent::FileCompleted(res) => {
+                                if res.skipped {
+                                    println!("  [skip] {} ({})", res.path.display(), res.skip_reason);
+                                } else if res.is_error {
+                                    eprintln!("  [error] {}: {}", res.path.display(), res.error_message);
+                                } else if res.skip_code == "dry-run" {
+                                    println!("  [dry-run] {} (would back up)", res.path.display());
+                                } else {
+                                    println!("  [done] {}", res.path.display());
+                                }
+                            }
+                            UploadEvent::BatchComplete { uploaded, skipped, failed } => {
+                                println!("[watch] Batch finished: {} backed up, {} skipped, {} failed.", uploaded, skipped, failed);
+                            }
+                            _ => {}
+                        }
+                    }
+                });
+
+                let _ = engine.run_upload(work_items, upload_opts, event_tx).await;
+                let _ = ev_task.await;
+            }
+            _ = tokio::time::sleep(tokio::time::Duration::from_millis(500)) => {}
+        }
+    }
+
     Ok(())
 }
 

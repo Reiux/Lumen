@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   THEME_PRESETS,
   PALETTE_VARIANTS,
@@ -12,6 +13,8 @@ import {
 } from '../../utils/theme'
 import M3Icon from './M3Icon.vue'
 import M3Button from './M3Button.vue'
+
+const { t } = useI18n()
 
 const currentPreset = computed(() => {
   return THEME_PRESETS.find(p => p.seed.toLowerCase() === currentThemeSeed.value.toLowerCase()) || THEME_PRESETS[0]
@@ -36,10 +39,10 @@ function selectVariant(variant: M3PaletteVariant) {
     <div class="flex items-center justify-between px-0.5">
       <div class="flex flex-col">
         <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
-          Color Palette
+          {{ t('settings.colorPalette') }}
         </span>
         <span class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)]">
-          Active: <strong class="text-[var(--md-sys-color-primary)]">{{ currentPreset.name }}</strong> ({{ activeVariantMeta.label }})
+          {{ t('settings.active') }} <strong class="text-[var(--md-sys-color-primary)]">{{ currentPreset.name }}</strong> ({{ activeVariantMeta.label }})
         </span>
       </div>
       <span class="rounded-full bg-[var(--md-sys-color-primary-container)] px-2.5 py-0.5 m3-label-small text-[var(--md-sys-color-on-primary-container)]">
@@ -51,7 +54,7 @@ function selectVariant(variant: M3PaletteVariant) {
     <div class="flex flex-col gap-1.5">
       <div class="flex items-center justify-between px-0.5">
         <span class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)]">
-          Palette Style
+          {{ t('settings.paletteStyle') }}
         </span>
         <span class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)]/80 italic">
           {{ activeVariantMeta.description }}
@@ -60,7 +63,7 @@ function selectVariant(variant: M3PaletteVariant) {
       <div
         class="grid grid-cols-3 gap-1 rounded-full bg-[var(--md-sys-color-surface-container)] p-1 border border-[var(--md-sys-color-outline-variant)]/40"
         role="tablist"
-        aria-label="Palette variant options"
+        :aria-label="t('settings.paletteVariantOptions')"
       >
         <M3Button
           v-for="variant in PALETTE_VARIANTS"
@@ -83,7 +86,7 @@ function selectVariant(variant: M3PaletteVariant) {
     <div
       class="grid grid-cols-4 gap-x-2 gap-y-3 p-2 overflow-visible"
       role="radiogroup"
-      aria-label="Material You Color Palette Options"
+      :aria-label="t('settings.paletteColorOptions')"
     >
       <button
         v-for="preset in THEME_PRESETS"
@@ -91,7 +94,7 @@ function selectVariant(variant: M3PaletteVariant) {
         type="button"
         role="radio"
         :aria-checked="currentThemeSeed.toLowerCase() === preset.seed.toLowerCase()"
-        :aria-label="`${preset.name} theme color`"
+        :aria-label="t('settings.presetThemeColor', { name: preset.name })"
         :title="preset.name"
         class="no-state-layer group relative flex flex-col items-center gap-1 p-2 rounded-[20px] focus:outline-none cursor-pointer transition-colors duration-200 hover:bg-[var(--md-sys-color-surface-container-high)]/60"
         style="overflow: visible !important;"
