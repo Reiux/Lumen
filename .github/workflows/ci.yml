@@ -58,16 +58,28 @@ jobs:
         run: cargo clippy --workspace --all-targets
 
   build-dev-linux:
-    name: Build Linux Dev Artifacts (x64)
+    name: Build Linux Dev Artifacts (${{ matrix.arch }})
     if: github.event_name != 'pull_request'
     needs: [test]
-    runs-on: ubuntu-22.04
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            extra_deps: ""
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            extra_deps: "libfuse2t64 patchelf"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
-          targets: x86_64-unknown-linux-gnu
+          targets: ${{ matrix.target }}
 
       - name: Install Protoc
         uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
@@ -82,9 +94,11 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install Linux System Dependencies
+        env:
+          EXTRA_DEPS: ${{ matrix.extra_deps }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev libayatana-appindicator3-dev librsvg2-dev protobuf-compiler
+          sudo apt-get install -y libwebkit2gtk-4.1-dev build-essential curl wget file libssl-dev libayatana-appindicator3-dev librsvg2-dev protobuf-compiler $EXTRA_DEPS
 
       - name: Install Frontend Dependencies
         run: npm ci --prefix frontend --engine-strict=false
@@ -94,6 +108,8 @@ jobs:
 
       - name: Build Tauri Bundles (.deb & AppImage)
         working-directory: crates/lumen-tauri
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
         run: npx --prefix ../../frontend tauri build --debug --bundles appimage,deb
 
       - name: Build Standalone Linux CLI
@@ -101,6 +117,8 @@ jobs:
 
       - name: Stage Dev Artifacts
         shell: bash
+        env:
+          ARCH: ${{ matrix.arch }}
         run: |
           CARGO_VER=$(grep -m1 '^version =' crates/lumen-tauri/Cargo.toml | cut -d '"' -f2)
           SHORT_SHA=$(git rev-parse --short HEAD)
@@ -115,8 +133,8 @@ jobs:
             break
           done
           if [ -n "$APPIMAGE" ] && [ -f "$APPIMAGE" ]; then
-            cp "$APPIMAGE" "dist/lumen_${V}_linux_x64.AppImage"
-            chmod +x "dist/lumen_${V}_linux_x64.AppImage"
+            cp "$APPIMAGE" "dist/lumen_${V}_linux_${ARCH}.AppImage"
+            chmod +x "dist/lumen_${V}_linux_${ARCH}.AppImage"
           else
             echo "Error: Missing AppImage artifact."
             exit 1
@@ -129,7 +147,7 @@ jobs:
             break
           done
           if [ -n "$DEB_FILE" ] && [ -f "$DEB_FILE" ]; then
-            cp "$DEB_FILE" "dist/lumen_${V}_linux_x64.deb"
+            cp "$DEB_FILE" "dist/lumen_${V}_linux_${ARCH}.deb"
           else
             echo "Error: Missing .deb artifact."
             exit 1
@@ -144,8 +162,8 @@ jobs:
             fi
           done
           if [ -n "$GUI_BIN" ]; then
-            cp "$GUI_BIN" "dist/lumen_${V}_linux_x64"
-            chmod +x "dist/lumen_${V}_linux_x64"
+            cp "$GUI_BIN" "dist/lumen_${V}_linux_${ARCH}"
+            chmod +x "dist/lumen_${V}_linux_${ARCH}"
           else
             echo "Error: Missing standalone lumen binary."
             exit 1
@@ -160,8 +178,8 @@ jobs:
             fi
           done
           if [ -n "$CLI_BIN" ]; then
-            cp "$CLI_BIN" "dist/lumen-cli_${V}_linux_x64"
-            chmod +x "dist/lumen-cli_${V}_linux_x64"
+            cp "$CLI_BIN" "dist/lumen-cli_${V}_linux_${ARCH}"
+            chmod +x "dist/lumen-cli_${V}_linux_${ARCH}"
           else
             echo "Error: Missing standalone lumen-cli binary."
             exit 1
@@ -172,7 +190,7 @@ jobs:
       - name: Upload Dev Artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: lumen-dev-linux-x64
+          name: lumen-dev-linux-${{ matrix.arch }}
           path: dist/*
           retention-days: 7
 
