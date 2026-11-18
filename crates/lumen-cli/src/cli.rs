@@ -28,11 +28,17 @@ use lumen_core::net::create_http_client;
 use lumen_core::scanner::{scan_directories_incremental, ScanOptions};
 use lumen_core::upload::{UploadEngine, UploadEvent, UploadOptions};
 
+const CLI_VERSION: &str = if cfg!(debug_assertions) {
+    concat!(env!("CARGO_PKG_VERSION"), "-dev")
+} else {
+    env!("CARGO_PKG_VERSION")
+};
+
 #[derive(Parser, Debug)]
 #[command(
     name = "lumen-cli",
     about = "Native Google Photos desktop uploader with Material Design 3 and Live Photos support",
-    version
+    version = CLI_VERSION
 )]
 pub struct Cli {
     /// Path to configuration file (overrides default config path)

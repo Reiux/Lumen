@@ -502,10 +502,18 @@ fn get_default_install_dir() -> PathBuf {
     }
 }
 
+fn installer_app_version() -> String {
+    if cfg!(debug_assertions) {
+        format!("{}-dev", env!("CARGO_PKG_VERSION"))
+    } else {
+        env!("CARGO_PKG_VERSION").to_string()
+    }
+}
+
 #[tauri::command]
 fn get_setup_info() -> SetupInfo {
     let is_uninstall = is_uninstall_invocation();
-    let current_version = env!("CARGO_PKG_VERSION").to_string();
+    let current_version = installer_app_version();
     let default_dir = get_default_install_dir();
     let legacy_nsis = get_legacy_nsis_info();
     let modern_installed = get_modern_installed_info();
@@ -1431,7 +1439,7 @@ fn register_windows_uninstall(
         .map_err(|e| e.to_string())?;
 
     key.set_value("DisplayName", &"Lumen").map_err(|e| e.to_string())?;
-    key.set_value("DisplayVersion", &env!("CARGO_PKG_VERSION")).map_err(|e| e.to_string())?;
+    key.set_value("DisplayVersion", &installer_app_version()).map_err(|e| e.to_string())?;
     key.set_value("Publisher", &"Reiux").map_err(|e| e.to_string())?;
     key.set_value("InstallLocation", &install_dir.to_string_lossy().to_string())
         .map_err(|e| e.to_string())?;

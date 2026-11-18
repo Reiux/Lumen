@@ -1115,8 +1115,9 @@ pub async fn run_update_check(
         .as_secs() as i64;
     let should_persist_check = manual || last_check == 0 || (now_sec - last_check) >= (12 * 3600);
 
+    let current_ver = get_app_version();
     let info = checker
-        .check_for_updates(redirect_url, env!("CARGO_PKG_VERSION"), manual, last_check)
+        .check_for_updates(redirect_url, &current_ver, manual, last_check)
         .await;
 
     if should_persist_check && info.error.is_none() {

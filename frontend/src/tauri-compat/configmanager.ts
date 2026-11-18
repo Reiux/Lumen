@@ -58,9 +58,10 @@ export const ConfigManager = {
       const res = await tauriInvoke('check_for_updates', { manual });
       return $models.UpdateInfo.createFrom(res);
     }
+    const fallbackVer = import.meta.env.DEV ? '2.1.1-dev' : '2.1.1';
     return new $models.UpdateInfo({
-      currentVersion: '2.1.0',
-      latestVersion: '2.1.0',
+      currentVersion: fallbackVer,
+      latestVersion: '2.1.1',
       hasUpdate: false,
       releaseUrl: 'https://github.com/Reiux/Lumen/releases/latest',
       releaseNotes: '',
@@ -161,10 +162,11 @@ export const ConfigManager = {
   },
 
   async GetAppVersion(): Promise<string> {
+    const fallbackVer = import.meta.env.DEV ? '2.1.1-dev' : '2.1.1';
     if (hasTauri()) {
-      return (await tauriInvoke<string>('get_app_version')) || '2.1.0';
+      return (await tauriInvoke<string>('get_app_version')) || fallbackVer;
     }
-    return '2.1.0';
+    return fallbackVer;
   },
 
   async GetAutoCheckUpdates(): Promise<boolean> {
