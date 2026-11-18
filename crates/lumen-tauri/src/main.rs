@@ -205,6 +205,7 @@ fn main() {
 
             let app_handle = app.handle().clone();
             if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_title(&format!("Lumen v{}", commands::get_app_version()));
                 let w = window.clone();
                 let ah = app_handle.clone();
                 window.on_window_event(move |event| match event {

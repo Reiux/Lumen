@@ -783,7 +783,7 @@
       <div class="hero-area" data-tauri-drag-region>
         <div class="hero-text-align">
           <div class="hero-title" id="heroTitle">
-            Lumen <span class="version-tag">v2.1.0</span>
+            Lumen <span class="version-tag">v2.1.1</span>
           </div>
           <div class="hero-subtitle" id="heroSubtitle">
             Unofficial desktop client for Google Photos
@@ -1040,7 +1040,13 @@
     function switchToFreshInstallUI() {
       isUninstallMode = false;
       document.getElementById('windowTitle').textContent = "Lumen Setup";
-      document.getElementById('heroTitle').innerHTML = 'Lumen <span class="version-tag">v2.1.0</span>';
+      const heroTitle = document.getElementById('heroTitle');
+      heroTitle.textContent = "Lumen ";
+      const verSpan = document.createElement('span');
+      verSpan.className = 'version-tag';
+      const displayVer = currentVersion ? `v${currentVersion.replace(/^v/, '')}` : 'v2.1.1';
+      verSpan.textContent = displayVer;
+      heroTitle.appendChild(verSpan);
       document.getElementById('heroSubtitle').textContent = "Unofficial desktop client for Google Photos";
 
       customDrawer.classList.remove('expanded');
