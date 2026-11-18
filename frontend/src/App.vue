@@ -7,7 +7,8 @@ import { formatErrorMessage } from './utils/statusTranslation'
 import { toast } from 'vue-sonner'
 import { Events } from '@wailsio/runtime'
 import { ConfigManager } from '../bindings/app/core'
-import type { LogEntry } from '../bindings/app/core/models'
+import type { LogEntry, UpdateInfo } from '../bindings/app/core/models'
+import UpdateAvailableModal from './components/UpdateAvailableModal.vue'
 import UploadReviewModal, { type ReviewSummary } from './components/UploadReviewModal.vue'
 import { tauriInvoke } from './tauri-compat/wails-runtime'
 import M3Button from './components/ui/M3Button.vue'
@@ -35,6 +36,7 @@ import { launchReplayTrigger } from './utils/launchState'
 import { uploadManager } from './utils/UploadManager'
 import { detectDebugBuild, devOptionsState, isDevMode, mockBatches, mockLogEntries, mockProblems, mockState, setMockView } from './utils/mockMode'
 import { preferencesState, refreshPreferences } from './utils/configStore'
+import { useDialogFocusTrap } from './utils/useDialogFocusTrap'
 import { cycleNextTheme, themePulseCounter } from './utils/theme'
 import {
   displayNameFromEmail,
@@ -71,31 +73,47 @@ const isRescanningReview = ref(false)
 const reviewIncludeSubfolders = ref(false)
 const pendingReviewSummary = ref<ReviewSummary | null>(null)
 const pendingReviewFiles = ref<string[]>([])
+let reviewScanSeq = 0
 
-async function runReviewScan(files: string[], isRescan = false): Promise<ReviewSummary | null> {
+async function runReviewScan(
+  files: string[],
+  isRescan = false,
+  seq = ++reviewScanSeq,
+  recursiveOverride?: boolean,
+): Promise<ReviewSummary | null> {
   const summary = await tauriInvoke<ReviewSummary>('scan_for_review', {
     files,
-    recursive: reviewIncludeSubfolders.value,
+    recursive: recursiveOverride,
   })
-  if (isRescan) {
-    // Preserve identity so the modal stays mounted and animates the update.
-    if (summary) {
-      pendingReviewSummary.value = summary
-    }
+  if (seq !== reviewScanSeq) {
+    return null
+  }
+  if (isRescan && summary) {
+    pendingReviewSummary.value = summary
   }
   return summary
 }
 
 async function handleReviewToggleSubfolders(value: boolean) {
   if (isRescanningReview.value) return
+  const prevValue = reviewIncludeSubfolders.value
+  const seq = ++reviewScanSeq
   reviewIncludeSubfolders.value = value
   isRescanningReview.value = true
   try {
-    await runReviewScan(pendingReviewFiles.value, true)
+    await runReviewScan(pendingReviewFiles.value, true, seq, value)
   } catch (err) {
+    if (seq === reviewScanSeq) {
+      reviewIncludeSubfolders.value = prevValue
+      toast.error(t('backup.toastScanFailed'), {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    }
     console.error('Failed to rescan with subfolder toggle:', err)
   } finally {
-    isRescanningReview.value = false
+    if (seq === reviewScanSeq) {
+      isRescanningReview.value = false
+    }
   }
 }
 
@@ -140,9 +158,12 @@ async function handleConfirmReview() {
 }
 
 function handleCancelReview() {
+  reviewScanSeq++
   showReviewModal.value = false
+  isRescanningReview.value = false
   pendingReviewFiles.value = []
   pendingReviewSummary.value = null
+  uploadManager.cancelReviewScan().catch(() => {})
 }
 
 async function initiateUpload(files: string[]) {
@@ -152,28 +173,37 @@ async function initiateUpload(files: string[]) {
   try {
     cfg = await ConfigManager.GetSettings()
     isDryRunEnabled.value = !!cfg.dryRun
-  } catch {}
+  } catch (err) {
+    console.debug('Could not read settings before upload:', err)
+  }
 
   if (isDryRunEnabled.value) {
+    if (isScanningForReview.value) return
+    const seq = ++reviewScanSeq
     let toastId: string | number | undefined
     try {
       isScanningForReview.value = true
       toastId = toast.loading(t('backup.toastCheckingFiles'))
-      // Seed the dialog toggle from the current global preference.
-      reviewIncludeSubfolders.value = !!cfg?.recursive
-      const summary = await runReviewScan(files)
+      const initialRecursive = cfg?.recursive ? true : undefined
+      const summary = await runReviewScan(files, false, seq, initialRecursive)
+      if (seq !== reviewScanSeq) {
+        return
+      }
       if (!summary || summary.totalCount === 0) {
         toast.info(t('backup.toastNoMediaFound'))
         return
       }
+      reviewIncludeSubfolders.value = Boolean(cfg?.recursive || summary.hasFolder)
       pendingReviewSummary.value = summary
       pendingReviewFiles.value = files
       showReviewModal.value = true
     } catch (err) {
-      console.error('Failed to scan files for review:', err)
-      toast.error(t('backup.toastScanFailed'), {
-        description: err instanceof Error ? err.message : String(err),
-      })
+      if (seq === reviewScanSeq) {
+        console.error('Failed to scan files for review:', err)
+        toast.error(t('backup.toastScanFailed'), {
+          description: err instanceof Error ? err.message : String(err),
+        })
+      }
     } finally {
       if (toastId) toast.dismiss(toastId)
       isScanningForReview.value = false
@@ -227,12 +257,19 @@ async function handleStartRealUpload() {
     return
   }
 
-  uploadManager.resetUploadResults()
-  uploadManager.beginPreparation()
+  const queuedMidUpload = uploadState.isUploading
+  if (!queuedMidUpload) {
+    uploadManager.resetUploadResults()
+    uploadManager.beginPreparation()
+  } else {
+    toast.info(t('backup.toastAddedToQueue'))
+  }
   try {
     await Events.Emit('startUpload', { files: candidatePaths, dryRun: false })
   } catch (error) {
-    uploadManager.endPreparation()
+    if (!queuedMidUpload) {
+      uploadManager.endPreparation()
+    }
     console.error('Failed to start real backup:', error)
     toast.error(t('backup.toastStartFailed'), {
       description: error instanceof Error ? error.message : String(error),
@@ -349,7 +386,22 @@ const albumDisplayLabel = computed(() => {
   return t('dialogs.album.none')
 })
 
+const albumDialogCardRef = ref<HTMLElement | null>(null)
+let albumModalSnapshot: { mode: AlbumTargetMode; name: string; customName: string; nickname: string } | null = null
+
+function snapshotAlbumModalState() {
+  if (!albumModalSnapshot) {
+    albumModalSnapshot = {
+      mode: albumTargetMode.value,
+      name: albumNameOrKey.value,
+      customName: customAlbumName.value,
+      nickname: albumNickname.value,
+    }
+  }
+}
+
 function openAlbumPrompt() {
+  snapshotAlbumModalState()
   albumNameOrKey.value = albumTargetMode.value === 'custom' ? customAlbumName.value : ''
   if (albumNameOrKey.value && albumNicknames.value[albumNameOrKey.value]) {
     albumNickname.value = albumNicknames.value[albumNameOrKey.value] || ''
@@ -394,14 +446,14 @@ const displayProcessedCount = computed(() => {
   if (mockState.enabled && sessionProcessedCount.value === 0) {
     return 170
   }
-  return sessionProcessedCount.value + uploadState.uploadedFiles
+  return sessionProcessedCount.value
 })
 
 const displaySkippedCount = computed(() => {
   if (mockState.enabled && sessionSkippedCount.value === 0) {
     return 15
   }
-  return sessionSkippedCount.value + uploadState.results.skipped.length
+  return sessionSkippedCount.value
 })
 
 const displayBatches = computed(() => {
@@ -493,12 +545,14 @@ const _displayLogs = computed(() => {
 async function loadActivityData() {
   try {
     const entries = await ConfigManager.GetLogEntries(200, 'ALL')
+    sessionProcessedCount.value = 0
+    sessionSkippedCount.value = 0
     if (entries && entries.length > 0) {
       activityLogs.value = entries
       activityProblems.value = entries.filter(e => e.level === 'WARN' || e.level === 'ERROR')
       logProblemCount.value = activityProblems.value.length
 
-      const batchesMap = new Map<string, BatchSummaryItem>()
+      const batchesMap = new Map<string, BatchSummaryItem & { _totalBytes: number; _maxDurationMs: number }>()
       for (const entry of entries) {
         if (!entry.runId) continue
         if (!batchesMap.has(entry.runId)) {
@@ -510,12 +564,22 @@ async function loadActivityData() {
             uploadedCount: 0,
             skippedCount: 0,
             failedCount: 0,
-            duration: entry.durationMs ? `${Math.round(entry.durationMs / 1000)}s` : '--',
-            sizeFormatted: entry.sizeBytes ? `${(entry.sizeBytes / 1024 / 1024).toFixed(1)} MB` : '--',
+            duration: '--',
+            sizeFormatted: '--',
+            _totalBytes: 0,
+            _maxDurationMs: 0,
           })
         }
         const b = batchesMap.get(entry.runId)!
         b.totalCount++
+        if (entry.sizeBytes) {
+          b._totalBytes += entry.sizeBytes
+          b.sizeFormatted = `${(b._totalBytes / 1024 / 1024).toFixed(1)} MB`
+        }
+        if (entry.durationMs && entry.durationMs > b._maxDurationMs) {
+          b._maxDurationMs = entry.durationMs
+          b.duration = `${Math.round(b._maxDurationMs / 1000)}s`
+        }
         if (entry.outcome === 'UPLOADED') {
           b.uploadedCount++
           sessionProcessedCount.value++
@@ -526,7 +590,12 @@ async function loadActivityData() {
           sessionSkippedCount.value++
         }
       }
-      activityBatches.value = Array.from(batchesMap.values())
+      activityBatches.value = Array.from(batchesMap.values()).map(({ _totalBytes, _maxDurationMs, ...batch }) => batch)
+    } else {
+      activityLogs.value = []
+      activityProblems.value = []
+      logProblemCount.value = 0
+      activityBatches.value = []
     }
   } catch (err) {
     console.debug('Failed to load activity data:', err)
@@ -541,6 +610,7 @@ async function clearProblems() {
   }
   activityProblems.value = []
   logProblemCount.value = 0
+  activityLogs.value = activityLogs.value.filter(e => e.level !== 'WARN' && e.level !== 'ERROR')
   if (mockState.enabled) {
     mockProblems.splice(0, mockProblems.length)
   }
@@ -551,11 +621,18 @@ async function clearBackupHistory() {
     await ConfigManager.ClearLogEntries()
   } catch (err) {
     console.warn('Failed to clear backup history:', err)
+    toast.error(t('settings.saveFailed'))
+    return
   }
   activityBatches.value = []
   activityLogs.value = []
+  activityProblems.value = []
+  logProblemCount.value = 0
+  sessionProcessedCount.value = 0
+  sessionSkippedCount.value = 0
   if (mockState.enabled) {
     mockBatches.splice(0, mockBatches.length)
+    mockProblems.splice(0, mockProblems.length)
   }
 }
 
@@ -657,6 +734,7 @@ watch(selectedOption, async (newValue) => {
     try {
       await ConfigManager.SetSelected(newValue)
       await updateTokenBindingPrompt(newValue)
+      albumNicknames.value = (await ConfigManager.GetAlbumNicknames(newValue)) || {}
       console.log('Successfully updated selected value:', newValue)
     } catch (error) {
       console.error('Failed to update selected value:', error)
@@ -665,6 +743,7 @@ watch(selectedOption, async (newValue) => {
   } else {
     tokenBindingEmail.value = ''
     customAvatar.value = null
+    albumNicknames.value = {}
   }
 })
 
@@ -692,11 +771,14 @@ watch(
   (view) => {
     if (!isDevMode() || !mockState.enabled) return
     if (view === 'album') {
-      showAlbumInput.value = true
+      snapshotAlbumModalState()
+      pendingFiles.value = ['/mock/photo1.jpg', '/mock/photo2.jpg', '/mock/photo3.jpg']
       pendingFileCount.value = 3
+      showAlbumInput.value = true
     } else {
+      albumModalSnapshot = null
       showAlbumInput.value = false
-  showAlbumKeyHelp.value = false
+      showAlbumKeyHelp.value = false
     }
   }
 )
@@ -919,8 +1001,19 @@ const onWindowMouseMove = (e: MouseEvent) => {
 async function handleFilesDropped(files: string[], dropZone = 'regular') {
   if (!files || files.length === 0) return
 
+  if (
+    showReviewModal.value ||
+    showAlbumInput.value ||
+    showEditNameDialog.value ||
+    showRemoveAccountConfirm.value
+  ) {
+    return
+  }
+
   if (isDevMode() && mockState.enabled) {
+    if (activeTab.value !== 'upload') return
     if (dropZone === 'album') {
+      snapshotAlbumModalState()
       pendingFiles.value = files
       pendingFileCount.value = files.length
       showAlbumInput.value = true
@@ -930,7 +1023,12 @@ async function handleFilesDropped(files: string[], dropZone = 'regular') {
     return
   }
 
+  if (activeTab.value !== 'upload' || displayOptions.value.length === 0) {
+    return
+  }
+
   if (dropZone === 'album') {
+    snapshotAlbumModalState()
     pendingFiles.value = files
     pendingFileCount.value = files.length
     showAlbumInput.value = true
@@ -946,7 +1044,7 @@ const onDropZoneDrop = (e: DragEvent) => {
   isDraggingFiles.value = false
   if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
     const fileList = Array.from(e.dataTransfer.files)
-    const paths = fileList.map((f: any) => f.path || f.name).filter(Boolean)
+    const paths = fileList.map((f: any) => f.path).filter(Boolean)
     if (paths.length > 0) {
       handleFilesDropped(paths, 'regular')
     }
@@ -1038,6 +1136,9 @@ function parseAlbumInput(input: string): { keyOrName: string; error?: string } {
 
 const confirmAlbumUpload = async () => {
   const rawInput = albumNameOrKey.value.trim()
+  if (albumTargetMode.value === 'custom' && !rawInput) {
+    return
+  }
   const parsed = parseAlbumInput(rawInput)
   if (parsed.error) {
     toast.error(parsed.error)
@@ -1065,6 +1166,7 @@ const confirmAlbumUpload = async () => {
     await ConfigManager.SetAlbumAutoMode(false)
   }
 
+  albumModalSnapshot = null
   showAlbumInput.value = false
   showAlbumKeyHelp.value = false
   albumNickname.value = ''
@@ -1100,9 +1202,21 @@ const cancelAlbumUpload = () => {
   showAlbumKeyHelp.value = false
   pendingFiles.value = []
   pendingFileCount.value = 0
-  albumNameOrKey.value = ''
-  albumNickname.value = ''
+  if (albumModalSnapshot) {
+    albumTargetMode.value = albumModalSnapshot.mode
+    albumNameOrKey.value = albumModalSnapshot.name
+    customAlbumName.value = albumModalSnapshot.customName
+    albumNickname.value = albumModalSnapshot.nickname
+    albumModalSnapshot = null
+  } else {
+    albumNameOrKey.value = ''
+    albumNickname.value = ''
+  }
 }
+
+useDialogFocusTrap(() => showAlbumInput.value, albumDialogCardRef, {
+  onEscape: cancelAlbumUpload,
+})
 
 async function onUploadFolderFromSettings(folderPath: string) {
   activeTab.value = 'upload'
@@ -1229,14 +1343,23 @@ function triggerAvatarUpload() {
 }
 
 let onGlobalKeydown: ((e: KeyboardEvent) => void) | null = null
+const startupUpdateInfo = ref<UpdateInfo | null>(null)
+const showStartupUpdateModal = ref(false)
+const eventUnlisteners: Array<() => void> = []
+let isAppUnmounted = false
 
 onMounted(async () => {
   await detectDebugBuild()
+  if (isAppUnmounted) return
   await refreshCredentials()
+  if (isAppUnmounted) return
   await refreshPreferences()
+  if (isAppUnmounted) return
   await loadActivityData()
+  if (isAppUnmounted) return
   try {
     const cfg = await ConfigManager.GetSettings()
+    if (isAppUnmounted) return
     if (cfg) {
       isSaverMode.value = !!cfg.saver
       isDryRunEnabled.value = !!cfg.dryRun
@@ -1247,6 +1370,7 @@ onMounted(async () => {
   } catch {
     // Ignore in test/mock environment
   }
+  if (isAppUnmounted) return
   isAppReady.value = true
   try {
     Events.Emit('app:ready')
@@ -1266,10 +1390,19 @@ onMounted(async () => {
   window.addEventListener('uploadError', uploadErrorHandler)
   window.addEventListener('uploadEmpty', uploadEmptyHandler)
 
-  Events.On('folder-watch:detected', (data: any) => {
-    const count = data?.count || (Array.isArray(data?.files) ? data.files.length : 1)
-    toast.info(t('backup.toastAutoWatchDetected', { count }))
-  })
+  eventUnlisteners.push(
+    Events.On('folder-watch:detected', (event: any) => {
+      const payload = event?.data ?? event
+      const count = payload?.count || (Array.isArray(payload?.files) ? payload.files.length : 1)
+      toast.info(t('backup.toastAutoWatchDetected', { count }))
+    }),
+    Events.On('app:update-available', (event: { data: UpdateInfo }) => {
+      if (event?.data?.hasUpdate) {
+        startupUpdateInfo.value = event.data
+        showStartupUpdateModal.value = true
+      }
+    }),
+  )
 
   onGlobalKeydown = (e: KeyboardEvent) => {
     if (e.key === 'F12' || (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i'))) {
@@ -1307,59 +1440,78 @@ onMounted(async () => {
     console.debug('Failed to get problem logs on startup', err)
   })
 
-  Events.On('log:entry', (event: { data: LogEntry }) => {
-    const entry = event.data
-    if (!entry) return
-    activityLogs.value.unshift(entry)
-    if (entry.level === 'WARN' || entry.level === 'ERROR') {
-      logProblemCount.value++
-      activityProblems.value.unshift(entry)
-    }
-    if (entry.outcome === 'UPLOADED') {
-      sessionProcessedCount.value++
-    } else if (entry.outcome?.startsWith('SKIPPED')) {
-      sessionSkippedCount.value++
-    }
-    if (entry.runId) {
-      let batch = activityBatches.value.find(b => b.runId === entry.runId)
-      if (!batch) {
-        batch = {
-          runId: entry.runId,
-          name: entry.runId,
-          timestamp: new Date().toLocaleTimeString(),
-          totalCount: 0,
-          uploadedCount: 0,
-          skippedCount: 0,
-          failedCount: 0,
-          duration: '--',
-          sizeFormatted: '--',
-        }
-        activityBatches.value.unshift(batch)
+  eventUnlisteners.push(
+    Events.On('log:entry', (event: { data: LogEntry }) => {
+      const entry = event.data
+      if (!entry) return
+      activityLogs.value.unshift(entry)
+      if (entry.level === 'WARN' || entry.level === 'ERROR') {
+        logProblemCount.value++
+        activityProblems.value.unshift(entry)
       }
-      batch.totalCount++
       if (entry.outcome === 'UPLOADED') {
-        batch.uploadedCount++
-      } else if (entry.outcome === 'FAILED') {
-        batch.failedCount++
+        sessionProcessedCount.value++
       } else if (entry.outcome?.startsWith('SKIPPED')) {
-        batch.skippedCount++
+        sessionSkippedCount.value++
       }
-    }
-  })
+      if (entry.runId) {
+        let batch = activityBatches.value.find(b => b.runId === entry.runId) as
+          | (BatchSummaryItem & { _totalBytes?: number; _maxDurationMs?: number })
+          | undefined
+        if (!batch) {
+          batch = {
+            runId: entry.runId,
+            name: entry.runId,
+            timestamp: new Date().toLocaleTimeString(),
+            totalCount: 0,
+            uploadedCount: 0,
+            skippedCount: 0,
+            failedCount: 0,
+            duration: '--',
+            sizeFormatted: '--',
+            _totalBytes: 0,
+            _maxDurationMs: 0,
+          }
+          activityBatches.value.unshift(batch)
+        }
+        batch.totalCount++
+        if (entry.sizeBytes) {
+          batch._totalBytes = (batch._totalBytes || 0) + entry.sizeBytes
+          batch.sizeFormatted = `${(batch._totalBytes / 1024 / 1024).toFixed(1)} MB`
+        }
+        if (entry.durationMs && entry.durationMs > (batch._maxDurationMs || 0)) {
+          batch._maxDurationMs = entry.durationMs
+          batch.duration = `${Math.round(batch._maxDurationMs / 1000)}s`
+        }
+        if (entry.outcome === 'UPLOADED') {
+          batch.uploadedCount++
+        } else if (entry.outcome === 'FAILED') {
+          batch.failedCount++
+        } else if (entry.outcome?.startsWith('SKIPPED')) {
+          batch.skippedCount++
+        }
+      }
+    }),
 
-  Events.On('files-dropped', async (event: { data: { files: string[]; dropZone: string } }) => {
-    isDraggingFiles.value = false
-    dragCounter = 0
-    isNativeDragging = false
-    await handleFilesDropped(event.data.files, event.data.dropZone)
-  })
+    Events.On('files-dropped', async (event: { data: { files: string[]; dropZone: string } }) => {
+      isDraggingFiles.value = false
+      dragCounter = 0
+      isNativeDragging = false
+      await handleFilesDropped(event.data.files, event.data.dropZone)
+    }),
 
-  Events.On('file-drag-cancelled', () => {
-    clearDragState()
-  })
+    Events.On('file-drag-cancelled', () => {
+      clearDragState()
+    }),
+  )
 })
 
 onUnmounted(() => {
+  isAppUnmounted = true
+  for (const unlisten of eventUnlisteners) {
+    unlisten()
+  }
+  eventUnlisteners.length = 0
   document.removeEventListener('dragenter', onDragEnter)
   document.removeEventListener('dragleave', onDragLeave)
   document.removeEventListener('dragover', onDragOver)
@@ -1416,6 +1568,7 @@ onUnmounted(() => {
         <!-- 1. Backup Item -->
         <button
           type="button"
+          data-nav-tab="upload"
           class="nav-rail-item group relative flex flex-col items-center justify-center w-full py-1.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)] rounded-xl transition-all duration-200"
           :title="t('nav.backup')"
           :aria-label="t('nav.backup')"
@@ -1446,6 +1599,7 @@ onUnmounted(() => {
         <!-- 2. Folders Item -->
         <button
           type="button"
+          data-nav-tab="folders"
           class="nav-rail-item group relative flex flex-col items-center justify-center w-full py-1.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)] rounded-xl transition-all duration-200"
           :title="t('nav.folders')"
           :aria-label="t('nav.folders')"
@@ -1476,6 +1630,7 @@ onUnmounted(() => {
         <!-- 3. Activity Item -->
         <button
           type="button"
+          data-nav-tab="activity"
           class="nav-rail-item group relative flex flex-col items-center justify-center w-full py-1.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)] rounded-xl transition-all duration-200"
           :title="t('nav.activity')"
           :aria-label="t('nav.activity')"
@@ -1512,6 +1667,7 @@ onUnmounted(() => {
         <!-- 4. Accounts Item -->
         <button
           type="button"
+          data-nav-tab="accounts"
           class="nav-rail-item group relative flex flex-col items-center justify-center w-full py-1.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)] rounded-xl transition-all duration-200"
           :title="t('nav.accounts')"
           :aria-label="t('nav.accounts')"
@@ -1542,6 +1698,7 @@ onUnmounted(() => {
         <!-- 5. Settings Item -->
         <button
           type="button"
+          data-nav-tab="settings"
           class="nav-rail-item group relative flex flex-col items-center justify-center w-full py-1.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)] rounded-xl transition-all duration-200"
           :title="t('nav.settings')"
           :aria-label="t('nav.settings')"
@@ -1572,6 +1729,7 @@ onUnmounted(() => {
         <!-- 6. About Item -->
         <button
           type="button"
+          data-nav-tab="about"
           class="nav-rail-item group relative flex flex-col items-center justify-center w-full py-1.5 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)] rounded-xl transition-all duration-200"
           :title="t('nav.about')"
           :aria-label="t('nav.about')"
@@ -2628,7 +2786,7 @@ onUnmounted(() => {
           style="--wails-draggable: none"
         >
           <div class="w-full max-w-[1600px] mx-auto flex flex-col">
-            <DeveloperView :live-logs="activityLogs" />
+            <DeveloperView :live-logs="activityLogs" @clear-logs="clearBackupHistory" />
           </div>
         </div>
       </Transition>
@@ -2650,7 +2808,9 @@ onUnmounted(() => {
           @click.self="cancelAlbumUpload"
         >
           <div
-            class="m3-dialog-card relative flex w-full max-w-md flex-col items-center justify-center gap-5 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container-high)] p-8 text-center shadow-2xl"
+            ref="albumDialogCardRef"
+            tabindex="-1"
+            class="m3-dialog-card relative flex w-full max-w-md flex-col items-center justify-center gap-5 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container-high)] p-8 text-center shadow-2xl outline-none"
             role="dialog"
             aria-modal="true"
             aria-labelledby="album-dialog-title"
@@ -2842,7 +3002,7 @@ onUnmounted(() => {
 
     <!-- Review Files Before Upload Modal Pop-up -->
     <UploadReviewModal
-      v-if="showReviewModal && pendingReviewSummary"
+      :open="showReviewModal && !!pendingReviewSummary"
       :summary="pendingReviewSummary"
       :include-subfolders="reviewIncludeSubfolders"
       :is-rescanning="isRescanningReview"
@@ -2865,6 +3025,11 @@ onUnmounted(() => {
       @start="onLaunchStart"
       @settle="onLaunchSettle"
       @finish="onLaunchFinish"
+    />
+
+    <UpdateAvailableModal
+      v-model="showStartupUpdateModal"
+      :update-info="startupUpdateInfo"
     />
   </main>
 </template>

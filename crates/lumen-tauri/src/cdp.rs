@@ -16,26 +16,40 @@ use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
 static BROWSER_CLOSE_FAILED: AtomicBool = AtomicBool::new(false);
-static ACTIVE_BROWSER_PID: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static ACTIVE_BROWSER_SESSION: std::sync::Mutex<Option<(u64, u32)>> = std::sync::Mutex::new(None);
+static NEXT_SESSION_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 static BROWSER_CANCELLED: AtomicBool = AtomicBool::new(false);
+
+fn kill_pid_quiet(pid: u32) {
+    if pid == 0 {
+        return;
+    }
+    #[cfg(unix)]
+    {
+        let _ = Command::new("kill")
+            .args(["-TERM", &pid.to_string()])
+            .output();
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let _ = Command::new("taskkill")
+            .args(["/F", "/T", "/PID", &pid.to_string()])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+    }
+}
 
 pub fn cancel_active_browser() {
     BROWSER_CANCELLED.store(true, Ordering::SeqCst);
-    let pid = ACTIVE_BROWSER_PID.swap(0, Ordering::SeqCst);
-    if pid > 0 {
-        #[cfg(unix)]
-        {
-            let _ = std::process::Command::new("kill")
-                .args(["-TERM", &pid.to_string()])
-                .output();
-        }
-        #[cfg(windows)]
-        {
-            let _ = std::process::Command::new("taskkill")
-                .args(["/F", "/T", "/PID", &pid.to_string()])
-                .output();
-        }
-    }
+    let pid = ACTIVE_BROWSER_SESSION
+        .lock()
+        .unwrap()
+        .take()
+        .map(|(_, pid)| pid)
+        .unwrap_or(0);
+    kill_pid_quiet(pid);
 }
 
 pub fn set_browser_close_failed(failed: bool) {
@@ -58,60 +72,77 @@ pub fn find_chromium_browser() -> Option<PathBuf> {
     let win_user_brave = format!("{}\\BraveSoftware\\Brave-Browser\\Application\\brave.exe", win_local);
     let win_user_edge = format!("{}\\Microsoft\\Edge\\Application\\msedge.exe", win_local);
 
-    let candidates = [
-        "google-chrome-stable",
-        "google-chrome",
-        "chromium",
-        "chromium-browser",
-        "brave-origin",
-        "brave-browser",
-        "brave-bin",
-        "brave",
-        "brave-beta",
-        "brave-nightly",
-        "microsoft-edge-stable",
-        "com.brave.Browser",
-        "org.chromium.Chromium",
-        "com.google.Chrome",
-        "com.microsoft.Edge",
-        "/var/lib/flatpak/exports/bin/com.brave.Browser",
-        "/var/lib/flatpak/exports/bin/org.chromium.Chromium",
-        "/var/lib/flatpak/exports/bin/com.google.Chrome",
-        "/var/lib/flatpak/exports/bin/com.microsoft.Edge",
-        user_flatpak_brave.as_str(),
-        user_flatpak_chromium.as_str(),
-        user_flatpak_chrome.as_str(),
-        user_flatpak_edge.as_str(),
-        "/usr/bin/google-chrome-stable",
-        "/usr/bin/chromium",
-        "/usr/bin/chromium-browser",
-        "/usr/bin/brave-origin",
-        "/opt/brave-origin-bin/brave-origin",
-        "/usr/bin/brave-browser",
-        "/usr/bin/brave-bin",
-        "/usr/bin/brave",
-        "/usr/bin/brave-beta",
-        "/usr/bin/brave-nightly",
-        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-        "/Applications/Chromium.app/Contents/MacOS/Chromium",
-        "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
-        win_user_chrome.as_str(),
-        win_user_brave.as_str(),
-        win_user_edge.as_str(),
-        "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
-        "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
-        "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
-        "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
-        "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
-    ];
+    let candidates: &[&str] = if cfg!(windows) {
+        &[
+            win_user_chrome.as_str(),
+            win_user_brave.as_str(),
+            win_user_edge.as_str(),
+            "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+            "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+            "C:\\Program Files\\BraveSoftware\\Brave-Browser\\Application\\brave.exe",
+            "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
+            "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
+            "chrome.exe",
+            "brave.exe",
+            "msedge.exe",
+        ]
+    } else if cfg!(target_os = "macos") {
+        &[
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+            "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+            "google-chrome",
+            "chromium",
+            "brave",
+        ]
+    } else {
+        &[
+            "google-chrome-stable",
+            "google-chrome",
+            "chromium",
+            "chromium-browser",
+            "brave-origin",
+            "brave-browser",
+            "brave-bin",
+            "brave",
+            "brave-beta",
+            "brave-nightly",
+            "microsoft-edge-stable",
+            "com.brave.Browser",
+            "org.chromium.Chromium",
+            "com.google.Chrome",
+            "com.microsoft.Edge",
+            "/var/lib/flatpak/exports/bin/com.brave.Browser",
+            "/var/lib/flatpak/exports/bin/org.chromium.Chromium",
+            "/var/lib/flatpak/exports/bin/com.google.Chrome",
+            "/var/lib/flatpak/exports/bin/com.microsoft.Edge",
+            user_flatpak_brave.as_str(),
+            user_flatpak_chromium.as_str(),
+            user_flatpak_chrome.as_str(),
+            user_flatpak_edge.as_str(),
+            "/usr/bin/google-chrome-stable",
+            "/usr/bin/chromium",
+            "/usr/bin/chromium-browser",
+            "/usr/bin/brave-origin",
+            "/opt/brave-origin-bin/brave-origin",
+            "/usr/bin/brave-browser",
+            "/usr/bin/brave-bin",
+            "/usr/bin/brave",
+            "/usr/bin/brave-beta",
+            "/usr/bin/brave-nightly",
+        ]
+    };
 
-    for candidate in &candidates {
+    for candidate in candidates {
         let p = Path::new(candidate);
         if p.is_absolute() && p.exists() {
             return Some(p.to_path_buf());
         }
-        if let Ok(which) = which_browser(candidate) {
-            return Some(which);
+        if !p.is_absolute() {
+            if let Ok(which) = which_browser(candidate) {
+                return Some(which);
+            }
         }
     }
     None
@@ -137,26 +168,15 @@ fn which_browser(name: &str) -> Result<PathBuf> {
     if name.contains('/') || name.contains('\\') || name.contains("..") {
         bail!("invalid browser executable name");
     }
-    let cmd = if cfg!(windows) {
-        if let Ok(sysroot) = std::env::var("SystemRoot") {
-            let where_path = PathBuf::from(sysroot).join("System32\\where.exe");
-            if where_path.is_file() {
-                where_path
-            } else {
-                PathBuf::from("where.exe")
+    if let Some(path_env) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path_env) {
+            if dir.as_os_str().is_empty() {
+                continue;
             }
-        } else {
-            PathBuf::from("where.exe")
-        }
-    } else {
-        PathBuf::from("which")
-    };
-    let output = Command::new(cmd).arg(name).output()?;
-    if output.status.success() {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let path_str = stdout.lines().next().unwrap_or("").trim().to_string();
-        if !path_str.is_empty() {
-            return Ok(PathBuf::from(path_str));
+            let candidate = dir.join(name);
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
         }
     }
     bail!("not found")
@@ -173,6 +193,29 @@ struct CdpCookie {
     name: String,
     value: String,
     domain: String,
+    #[serde(default)]
+    secure: bool,
+}
+
+fn is_google_auth_cookie_domain(domain: &str) -> bool {
+    let trimmed = domain.trim().trim_matches('.').to_ascii_lowercase();
+    if trimmed.is_empty() || trimmed.chars().any(|c| c.is_whitespace()) {
+        return false;
+    }
+    trimmed == "google.com" || trimmed.ends_with(".google.com")
+}
+
+fn extract_google_auth_cookie(cookies: &[CdpCookie]) -> Option<String> {
+    for c in cookies {
+        if c.secure
+            && is_google_auth_cookie_domain(&c.domain)
+            && c.name.eq_ignore_ascii_case("oauth_token")
+            && !c.value.trim().is_empty()
+        {
+            return Some(c.value.clone());
+        }
+    }
+    None
 }
 
 #[derive(Deserialize)]
@@ -188,6 +231,7 @@ struct CdpResponse {
 }
 
 pub struct CdpSession {
+    session_id: u64,
     child: Child,
     #[allow(dead_code)]
     user_data_dir: tempfile::TempDir,
@@ -210,6 +254,11 @@ impl CdpSession {
             let _ = fs::set_permissions(user_data_dir.path(), fs::Permissions::from_mode(0o700));
         }
 
+        // Ensure any still-live prior browser process from an earlier sign-in is terminated before launching a new one
+        if let Some((_, prev_pid)) = ACTIVE_BROWSER_SESSION.lock().unwrap().take() {
+            kill_pid_quiet(prev_pid);
+        }
+
         BROWSER_CLOSE_FAILED.store(false, Ordering::SeqCst);
         BROWSER_CANCELLED.store(false, Ordering::SeqCst);
 
@@ -222,14 +271,23 @@ impl CdpSession {
             .spawn()
             .context("Failed to spawn browser process")?;
 
-        ACTIVE_BROWSER_PID.store(child.id(), Ordering::SeqCst);
+        let session_id = NEXT_SESSION_ID.fetch_add(1, Ordering::SeqCst);
+        *ACTIVE_BROWSER_SESSION.lock().unwrap() = Some((session_id, child.id()));
 
         let port_file = user_data_dir.path().join("DevToolsActivePort");
+
+        let clear_session = |sid: u64| {
+            if let Ok(mut guard) = ACTIVE_BROWSER_SESSION.lock() {
+                if matches!(*guard, Some((id, _)) if id == sid) {
+                    *guard = None;
+                }
+            }
+        };
 
         let mut port_content = String::new();
         for _ in 0..40 {
             if BROWSER_CANCELLED.load(Ordering::SeqCst) {
-                ACTIVE_BROWSER_PID.store(0, Ordering::SeqCst);
+                clear_session(session_id);
                 let _ = child.kill();
                 let _ = child.wait();
                 bail!("Browser sign-in was cancelled by user.");
@@ -246,7 +304,7 @@ impl CdpSession {
         }
 
         if port_content.is_empty() {
-            ACTIVE_BROWSER_PID.store(0, Ordering::SeqCst);
+            clear_session(session_id);
             let _ = child.kill();
             let _ = child.wait();
             bail!("Timed out waiting for Chromium remote debugging port to become active.");
@@ -254,7 +312,7 @@ impl CdpSession {
 
         let lines: Vec<&str> = port_content.lines().collect();
         if lines.len() < 2 {
-            ACTIVE_BROWSER_PID.store(0, Ordering::SeqCst);
+            clear_session(session_id);
             let _ = child.kill();
             let _ = child.wait();
             bail!("Invalid DevToolsActivePort file format from browser");
@@ -264,7 +322,7 @@ impl CdpSession {
         let port: u16 = match port_str.parse() {
             Ok(p) => p,
             Err(e) => {
-                ACTIVE_BROWSER_PID.store(0, Ordering::SeqCst);
+                clear_session(session_id);
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err(e).context("Invalid DevToolsActivePort: port is not a valid number");
@@ -279,6 +337,7 @@ impl CdpSession {
         let ws_url = format!("ws://127.0.0.1:{}{}", port, clean_ws_path);
 
         Ok(Self {
+            session_id,
             child,
             user_data_dir,
             ws_url,
@@ -321,11 +380,8 @@ impl CdpSession {
             if let Ok(Some(Ok(Message::Text(text)))) = tokio::time::timeout(Duration::from_millis(800), ws_stream.next()).await {
                 if let Ok(resp) = serde_json::from_str::<CdpResponse>(&text) {
                     if let Some(res) = resp.result {
-                        for c in &res.cookies {
-                            let name_matches = c.name.eq_ignore_ascii_case("oauth_token") || c.name.eq_ignore_ascii_case("token");
-                            if c.domain.contains("google") && name_matches && !c.value.is_empty() {
-                                return Ok(c.value.clone());
-                            }
+                        if let Some(tok) = extract_google_auth_cookie(&res.cookies) {
+                            return Ok(tok);
                         }
                     }
                 }
@@ -342,7 +398,11 @@ impl CdpSession {
             return true;
         }
         self.closed = true;
-        ACTIVE_BROWSER_PID.store(0, Ordering::SeqCst);
+        if let Ok(mut guard) = ACTIVE_BROWSER_SESSION.lock() {
+            if matches!(*guard, Some((id, _)) if id == self.session_id) {
+                *guard = None;
+            }
+        }
         if matches!(self.child.try_wait(), Ok(Some(_))) {
             return true;
         }
@@ -382,6 +442,60 @@ mod tests {
     fn test_cancel_active_browser_safe_when_idle() {
         cancel_active_browser();
         assert!(BROWSER_CANCELLED.load(Ordering::SeqCst));
-        assert_eq!(ACTIVE_BROWSER_PID.load(Ordering::SeqCst), 0);
+        assert!(ACTIVE_BROWSER_SESSION.lock().unwrap().is_none());
+    }
+
+    #[test]
+    fn test_google_auth_cookie_domain_and_extraction() {
+        assert!(is_google_auth_cookie_domain(".google.com"));
+        assert!(is_google_auth_cookie_domain("google.com"));
+        assert!(is_google_auth_cookie_domain("accounts.google.com"));
+        assert!(is_google_auth_cookie_domain("ACCOUNTS.GOOGLE.COM."));
+
+        assert!(!is_google_auth_cookie_domain("evilgoogle.com"));
+        assert!(!is_google_auth_cookie_domain("google.com.attacker.org"));
+        assert!(!is_google_auth_cookie_domain("accounts-google.com"));
+        assert!(!is_google_auth_cookie_domain(""));
+
+        let cookies = vec![
+            CdpCookie {
+                name: "oauth_token".to_string(),
+                value: "phish-token".to_string(),
+                domain: "evilgoogle.com".to_string(),
+                secure: true,
+            },
+            CdpCookie {
+                name: "oauth_token".to_string(),
+                value: "insecure-token".to_string(),
+                domain: ".google.com".to_string(),
+                secure: false,
+            },
+            CdpCookie {
+                name: "token".to_string(),
+                value: "non-oauth-cookie".to_string(),
+                domain: "accounts.google.com".to_string(),
+                secure: true,
+            },
+        ];
+        assert_eq!(extract_google_auth_cookie(&cookies), None);
+
+        let valid = vec![
+            CdpCookie {
+                name: "oauth_token".to_string(),
+                value: "phish-token".to_string(),
+                domain: "google.com.attacker.org".to_string(),
+                secure: true,
+            },
+            CdpCookie {
+                name: "oauth_token".to_string(),
+                value: "oauth2_4/valid_token".to_string(),
+                domain: ".google.com".to_string(),
+                secure: true,
+            },
+        ];
+        assert_eq!(
+            extract_google_auth_cookie(&valid).as_deref(),
+            Some("oauth2_4/valid_token")
+        );
     }
 }

@@ -204,10 +204,12 @@ onUnmounted(() => {
               color: getAvatarColor(activeAccount).text,
             }"
             :title="t('accountMenu.changePhotoTitle')"
+            :aria-label="t('accountMenu.changePhotoTitle')"
             role="button"
             tabindex="0"
             @click="emit('upload-avatar')"
             @keydown.enter="emit('upload-avatar')"
+            @keydown.space.prevent="emit('upload-avatar')"
           >
             <img
               v-if="customAvatar"
@@ -261,6 +263,7 @@ onUnmounted(() => {
               v-for="opt in accounts"
               :key="opt"
               type="button"
+              role="menuitem"
               class="flex items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 transition cursor-pointer text-left hover:bg-[var(--md-sys-color-surface-container-high)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)]"
               :class="opt === activeAccount ? 'bg-[var(--md-sys-color-primary-container)]/40 m3-label-large text-[var(--md-sys-color-primary)]' : 'm3-body-medium text-[var(--md-sys-color-on-surface)]'"
               @click="emit('switch-account', opt)"
@@ -292,6 +295,7 @@ onUnmounted(() => {
         <!-- Quick Navigation to Accounts Page -->
         <button
           type="button"
+          role="menuitem"
           class="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 m3-label-large text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container-high)] transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)]"
           @click="emit('manage-accounts')"
         >
@@ -306,6 +310,7 @@ onUnmounted(() => {
         <!-- Quick Action: Cycle Theme Palette -->
         <button
           type="button"
+          role="menuitem"
           class="flex w-full items-center justify-between rounded-xl px-2.5 py-2 m3-label-large text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container-high)] transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)]"
           :title="t('accountMenu.cycleTheme')"
           @click="emit('cycle-theme')"

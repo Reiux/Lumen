@@ -153,6 +153,9 @@ export function updateAppFavicon(primaryColor: string) {
       link.rel = 'icon'
       document.head.appendChild(link)
     }
+    if (link.href.startsWith('blob:')) {
+      URL.revokeObjectURL(link.href)
+    }
     link.type = 'image/svg+xml'
     link.href = url
   } catch (e) {
@@ -206,7 +209,37 @@ export function applyMatugenPalette(colors: Record<string, string>) {
   themePulseCounter.value++
 }
 
+const MATUGEN_SEMANTIC_VARS = [
+  '--background',
+  '--foreground',
+  '--card',
+  '--popover',
+  '--primary',
+  '--ring',
+  '--primary-foreground',
+  '--secondary',
+  '--secondary-foreground',
+  '--border',
+  '--input',
+  '--destructive',
+  '--destructive-foreground',
+] as const
+
+function clearMatugenInlineOverrides() {
+  if (typeof document === 'undefined') return
+  const root = document.documentElement
+  for (const prop of MATUGEN_SEMANTIC_VARS) {
+    root.style.removeProperty(prop)
+  }
+  for (const prop of Array.from(root.style)) {
+    if (prop.startsWith('--md-sys-color-')) {
+      root.style.removeProperty(prop)
+    }
+  }
+}
+
 export function applyTheme(seed: string = currentThemeSeed.value, variant: M3PaletteVariant = currentPaletteVariant.value) {
+  clearMatugenInlineOverrides()
   try {
     applyDynamicTheme(seed, true, variant)
   } catch (e) {
@@ -217,6 +250,7 @@ export function applyTheme(seed: string = currentThemeSeed.value, variant: M3Pal
 }
 
 export function setThemeSeed(seed: string) {
+  matugenRequestSeq++
   if (isMatugenActive.value) {
     isMatugenActive.value = false
     if (typeof localStorage !== 'undefined') {
@@ -240,7 +274,10 @@ export function setPaletteVariant(variant: M3PaletteVariant) {
   }
 }
 
+let matugenRequestSeq = 0
+
 export async function setMatugenEnabled(enabled: boolean) {
+  const reqSeq = ++matugenRequestSeq
   isMatugenActive.value = enabled
   if (typeof localStorage !== 'undefined') {
     localStorage.setItem(THEME_MODE_STORAGE_KEY, enabled ? 'matugen' : 'preset')
@@ -248,20 +285,25 @@ export async function setMatugenEnabled(enabled: boolean) {
 
   if (enabled) {
     if (matugenColors.value) {
-      applyMatugenPalette(matugenColors.value)
+      applyMatugenColorsOrSeed(matugenColors.value)
     } else {
       const colors = await tauriInvoke<Record<string, string>>('get_matugen_colors')
-      if (colors) {
+      if (reqSeq !== matugenRequestSeq || !isMatugenActive.value) {
+        return
+      }
+      if (colors && Object.keys(colors).length > 0) {
         matugenColors.value = colors
-        applyMatugenPalette(colors)
+        applyMatugenColorsOrSeed(colors)
+      } else {
+        isMatugenActive.value = false
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(THEME_MODE_STORAGE_KEY, 'preset')
+        }
+        applyTheme(currentThemeSeed.value, currentPaletteVariant.value)
       }
     }
   } else {
-    // Clear custom style overrides and restore chosen preset theme
-    if (typeof document !== 'undefined') {
-      const root = document.documentElement
-      root.removeAttribute('style')
-    }
+    clearMatugenInlineOverrides()
     applyTheme(currentThemeSeed.value, currentPaletteVariant.value)
   }
 }
@@ -319,6 +361,20 @@ export function cycleNextTheme() {
   setThemeSeed(THEME_PRESETS[nextIndex].seed)
 }
 
+function applyMatugenColorsOrSeed(colors: Record<string, string>) {
+  const hasFullPalette = Boolean(
+    colors.surface ||
+      colors['--md-sys-color-surface'] ||
+      colors.on_surface ||
+      colors['--md-sys-color-on-surface'],
+  )
+  if (!hasFullPalette && (colors.seed || colors.primary)) {
+    applyTheme(colors.seed || colors.primary, currentPaletteVariant.value)
+    return
+  }
+  applyMatugenPalette(colors)
+}
+
 export async function initTheme() {
   const seed = getInitialSeed()
   const variant = getInitialVariant()
@@ -347,7 +403,7 @@ export async function initTheme() {
       const shouldActivate = savedMode === 'matugen' || (savedMode === null && status.available)
       if (shouldActivate && status.colors) {
         isMatugenActive.value = true
-        applyMatugenPalette(status.colors)
+        applyMatugenColorsOrSeed(status.colors)
       }
 
       // Wire live wallpaper / color change listener
@@ -355,7 +411,7 @@ export async function initTheme() {
         if (event && event.data) {
           matugenColors.value = event.data
           if (isMatugenActive.value) {
-            applyMatugenPalette(event.data)
+            applyMatugenColorsOrSeed(event.data)
           }
         }
       })

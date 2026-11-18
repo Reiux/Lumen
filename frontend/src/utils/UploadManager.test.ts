@@ -12,6 +12,13 @@ vi.mock('@wailsio/runtime', () => ({
       handlers.set(event, list)
       return () => {}
     }),
+    Emit: vi.fn().mockResolvedValue(undefined),
+  },
+}))
+
+vi.mock('../../bindings/app/core', () => ({
+  ConfigManager: {
+    CancelScan: vi.fn().mockResolvedValue(undefined),
   },
 }))
 
@@ -62,6 +69,65 @@ describe('UploadManager regression coverage', () => {
     expect(state.uploadedFiles).toBe(1)
     expect(state.uploadedBytes).toBe(4096)
 
+    // Simulate paused + album activity, then verify reset & next uploadStart clear stale flags
+    uploadManager.pauseUpload()
+    emitBackend('albumProgress', {
+      AlbumName: 'Trip',
+      ItemsAdded: 1,
+      TotalItems: 2,
+      AlbumKeys: ['k1'],
+      IsComplete: false,
+    })
+    expect(state.isPaused).toBe(true)
+    expect(state.isCreatingAlbum).toBe(true)
+
+    uploadManager.resetUploadResults()
+    expect(state.isPaused).toBe(false)
+    expect(state.isCreatingAlbum).toBe(false)
+    expect(state.albumStatus).toBeNull()
+    expect(state.uploadedBytes).toBe(0)
+
+    uploadManager.pauseUpload()
+    emitBackend('uploadStart', { Total: 1, TotalBytes: 1024, IsDryRun: false })
+    expect(state.isPaused).toBe(false)
+
     window.removeEventListener('uploadEmpty', emptyListener)
+  })
+
+  it('emits dryRun: false on upload() and retryFailed()', async () => {
+    const { Events } = await import('@wailsio/runtime')
+    const { uploadManager } = await import('./UploadManager')
+    const emitMock = Events.Emit as ReturnType<typeof vi.fn>
+    emitMock.mockClear()
+
+    await uploadManager.upload(['/tmp/a.jpg'])
+    expect(emitMock).toHaveBeenCalledWith('startUpload', { files: ['/tmp/a.jpg'], dryRun: false })
+
+    emitMock.mockClear()
+    await uploadManager.retryFailed(['/tmp/b.jpg'])
+    expect(emitMock).toHaveBeenCalledWith('startUpload', { files: ['/tmp/b.jpg'], dryRun: false })
+  })
+
+  it('cancelReviewScan does not emit uploadCancel and handles upload:error events', async () => {
+    const { Events } = await import('@wailsio/runtime')
+    const { ConfigManager } = await import('../../bindings/app/core')
+    const { uploadManager } = await import('./UploadManager')
+    const emitMock = Events.Emit as ReturnType<typeof vi.fn>
+    const cancelScanMock = ConfigManager.CancelScan as ReturnType<typeof vi.fn>
+
+    emitMock.mockClear()
+    cancelScanMock.mockClear()
+
+    await uploadManager.cancelReviewScan()
+    expect(cancelScanMock).toHaveBeenCalledTimes(1)
+    expect(emitMock).not.toHaveBeenCalledWith('uploadCancel')
+
+    const errListener = vi.fn()
+    window.addEventListener('uploadError', errListener)
+    uploadManager.beginPreparation()
+    emitBackend('upload:error', 'Missing credentials for queued batch')
+    expect(uploadManager.state.scanProgress.isScanning).toBe(false)
+    expect(errListener).toHaveBeenCalledTimes(1)
+    window.removeEventListener('uploadError', errListener)
   })
 })

@@ -32,6 +32,7 @@
     "pauseBackup": "Pause backup",
     "resumeBackup": "Resume backup",
     "paused": "Paused",
+    "retrying": "Retrying",
     "backupHistory": "Backup history",
     "retry": "Retry",
     "copyResults": "Copy Results",
@@ -152,6 +153,9 @@
     "updateExistingPhotos": "Update existing photos",
     "dateFromFilename": "Date from filename",
     "dateFromFilenameSubtitle": "Use dates written in file names when camera metadata is missing.",
+    "excludePattern": "Exclude pattern (regex)",
+    "excludePatternSubtitle": "Skip files whose path or name matches a regular expression (e.g. \\.tmp$|@eaDir).",
+    "saveFailed": "Could not save setting",
     "performance": "Performance",
     "backupThreads": "Backup threads",
     "backupThreadsSubtitle": "Set how many files back up at the same time.",
@@ -251,7 +255,9 @@
     "autoWatchToggleAria": "Auto-watch folders master toggle",
     "backupFolderAria": "Back up folder now",
     "removeFolderAria": "Remove watched folder",
-    "toggleOptionsAria": "Toggle folder options"
+    "toggleOptionsAria": "Toggle folder options",
+    "toggleWatchAria": "Toggle watching {name}",
+    "includeSubfoldersAria": "Include subfolders for {name}"
   },
   "accounts": {
     "title": "Google accounts",
@@ -284,7 +290,8 @@
     "changePhotoTitle": "Click to change profile photo",
     "avatarAlt": "Profile avatar",
     "uploadPhotoAria": "Upload custom profile photo",
-    "accountOptionsAria": "Account options"
+    "accountOptionsAria": "Account options",
+    "removeAccountAria": "Remove {email}"
   },
   "about": {
     "tagline": "Fast, privacy-focused desktop companion for Google Fotos.",
@@ -536,7 +543,8 @@
     "toastFailed": "Failed to trigger notification",
     "toggleDevToolsTitle": "Toggle Webview Developer Tools (F12)",
     "replaySplashTitle": "Replay launch splash animation",
-    "notificationsToggleAria": "Toggle notifications in settings"
+    "notificationsToggleAria": "Toggle notifications in settings",
+    "toggleFlagAria": "Toggle {flag} flicker flag"
   },
   "licenses": {
     "title": "Open source licenses",
@@ -649,6 +657,8 @@
     "toggleSkippedAria": "Toggle skipped items list",
     "toggleFailedAria": "Toggle failed items list",
     "retryFailedAria": "Retry failed backups",
+    "dismissDryRunAria": "Dismiss dry run preview",
+    "dismissResultsAria": "Dismiss results and back up more photos",
     "mediaFile": "Media file"
   },
   "updater": {

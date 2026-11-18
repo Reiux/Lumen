@@ -28,6 +28,16 @@ pub fn setup_tray(app: &AppHandle) -> Result<tauri::tray::TrayIcon, Box<dyn std:
                 }
             }
             "quit" => {
+                crate::cdp::cancel_active_browser();
+                if let Some(state) = app.try_state::<crate::commands::AppState>() {
+                    state.upload_cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+                    state.scan_cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+                    if let Ok(mut guard) = state.watcher.try_lock() {
+                        if let Some(ref mut w) = *guard {
+                            w.stop();
+                        }
+                    }
+                }
                 app.exit(0);
             }
             _ => {}
@@ -42,7 +52,8 @@ pub fn setup_tray(app: &AppHandle) -> Result<tauri::tray::TrayIcon, Box<dyn std:
                 let app = tray.app_handle();
                 if let Some(window) = app.get_webview_window("main") {
                     if let Ok(visible) = window.is_visible() {
-                        if visible {
+                        let is_minimized = window.is_minimized().unwrap_or(false);
+                        if visible && !is_minimized {
                             let _ = window.hide();
                         } else {
                             let _ = window.show();

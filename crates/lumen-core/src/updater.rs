@@ -27,12 +27,14 @@ pub struct UpdateInfo {
 #[derive(Clone)]
 struct CacheEntry {
     etag: String,
+    info: UpdateInfo,
 }
 
 #[derive(Clone, Default)]
 pub struct UpdateChecker {
     client: reqwest::Client,
     cache: Arc<RwLock<HashMap<String, CacheEntry>>>,
+    proxy_override: Option<String>,
 }
 
 impl UpdateChecker {
@@ -45,6 +47,21 @@ impl UpdateChecker {
         Self {
             client,
             cache: Arc::new(RwLock::new(HashMap::new())),
+            proxy_override: None,
+        }
+    }
+
+    pub fn with_proxy(proxy: impl Into<String>) -> Self {
+        let mut checker = Self::new();
+        checker.proxy_override = Some(proxy.into());
+        checker
+    }
+
+    fn effective_proxy(&self) -> String {
+        if let Some(ref p) = self.proxy_override {
+            p.clone()
+        } else {
+            crate::config::ConfigManager::global().get_preferences().proxy
         }
     }
 
@@ -55,30 +72,44 @@ impl UpdateChecker {
         manual: bool,
         last_check: i64,
     ) -> UpdateInfo {
+        self.check_for_updates_inner(redirect_url, current_version, manual, last_check, true)
+            .await
+    }
+
+    async fn check_for_updates_inner(
+        &self,
+        redirect_url: &str,
+        current_version: &str,
+        manual: bool,
+        last_check: i64,
+        enforce_trusted_origin: bool,
+    ) -> UpdateInfo {
         let now_sec = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs() as i64;
 
-        if let Ok(parsed) = url::Url::parse(redirect_url) {
-            let is_https = parsed.scheme() == "https";
-            let is_trusted_host = parsed.host_str() == Some("github.com");
-            let is_trusted_path = parsed.path().to_lowercase().starts_with("/reiux/");
-            if !is_https || !is_trusted_host || !is_trusted_path {
+        if enforce_trusted_origin {
+            if let Ok(parsed) = url::Url::parse(redirect_url) {
+                let is_https = parsed.scheme() == "https";
+                let is_trusted_host = parsed.host_str() == Some("github.com");
+                let is_trusted_path = parsed.path().to_lowercase().starts_with("/reiux/");
+                if !is_https || !is_trusted_host || !is_trusted_path {
+                    return UpdateInfo {
+                        current_version: current_version.to_string(),
+                        has_update: false,
+                        error: Some("Untrusted update redirect URL origin".to_string()),
+                        ..Default::default()
+                    };
+                }
+            } else {
                 return UpdateInfo {
                     current_version: current_version.to_string(),
                     has_update: false,
-                    error: Some("Untrusted update redirect URL origin".to_string()),
+                    error: Some("Invalid update URL format".to_string()),
                     ..Default::default()
                 };
             }
-        } else {
-            return UpdateInfo {
-                current_version: current_version.to_string(),
-                has_update: false,
-                error: Some("Invalid update URL format".to_string()),
-                ..Default::default()
-            };
         }
 
         if !manual && last_check > 0 && (now_sec - last_check) < (12 * 3600) {
@@ -90,13 +121,13 @@ impl UpdateChecker {
             };
         }
 
-        let cached_etag = self
+        let cached_entry = self
             .cache
             .read()
             .ok()
-            .and_then(|c| c.get(redirect_url).map(|e| e.etag.clone()));
+            .and_then(|c| c.get(redirect_url).cloned());
 
-        let configured_proxy = crate::config::ConfigManager::global().get_preferences().proxy;
+        let configured_proxy = self.effective_proxy();
         let active_client = if !configured_proxy.trim().is_empty() {
             match crate::net::create_http_client(Some(&configured_proxy)) {
                 Ok(c) => c,
@@ -117,8 +148,8 @@ impl UpdateChecker {
             .get(redirect_url)
             .header("User-Agent", format!("Lumen-Desktop/{}", current_version));
 
-        if let Some(etag) = &cached_etag {
-            req = req.header("If-None-Match", etag);
+        if let Some(entry) = &cached_entry {
+            req = req.header("If-None-Match", &entry.etag);
         }
 
         let resp = match req.send().await {
@@ -136,6 +167,15 @@ impl UpdateChecker {
         let status = resp.status();
 
         if status == reqwest::StatusCode::NOT_MODIFIED {
+            if let Some(entry) = cached_entry {
+                let mut info = entry.info;
+                info.current_version = current_version.to_string();
+                info.has_update = !info.latest_version.is_empty()
+                    && is_version_newer(&info.latest_version, current_version);
+                info.error = None;
+                info.checked_at = now_sec.to_string();
+                return info;
+            }
             return UpdateInfo {
                 current_version: current_version.to_string(),
                 has_update: false,
@@ -144,18 +184,11 @@ impl UpdateChecker {
             };
         }
 
-        if let Some(etag_header) = resp.headers().get("etag") {
-            if let Ok(etag_val) = etag_header.to_str() {
-                if let Ok(mut c) = self.cache.write() {
-                    c.insert(
-                        redirect_url.to_string(),
-                        CacheEntry {
-                            etag: etag_val.to_string(),
-                        },
-                    );
-                }
-            }
-        }
+        let response_etag = resp
+            .headers()
+            .get("etag")
+            .and_then(|v| v.to_str().ok())
+            .map(str::to_string);
 
         if status == reqwest::StatusCode::FORBIDDEN || status == reqwest::StatusCode::TOO_MANY_REQUESTS {
             let msg = parse_rate_limit_message(&resp);
@@ -176,7 +209,9 @@ impl UpdateChecker {
                         format!("https://github.com{}", loc)
                     };
 
-                    let is_safe_redirect = if let Ok(u) = url::Url::parse(&full_url) {
+                    let is_safe_redirect = if !enforce_trusted_origin {
+                        true
+                    } else if let Ok(u) = url::Url::parse(&full_url) {
                         u.scheme() == "https"
                             && (u.host_str() == Some("github.com") || u.host_str() == Some("api.github.com"))
                             && u.path().to_lowercase().starts_with("/reiux/")
@@ -195,7 +230,7 @@ impl UpdateChecker {
 
                     if let Some(tag) = extract_tag_from_location(loc) {
                         let has_update = is_version_newer(&tag, current_version);
-                        return UpdateInfo {
+                        let info = UpdateInfo {
                             current_version: current_version.to_string(),
                             latest_version: tag,
                             has_update,
@@ -203,6 +238,8 @@ impl UpdateChecker {
                             checked_at: now_sec.to_string(),
                             ..Default::default()
                         };
+                        self.store_cache_entry(redirect_url, response_etag.as_deref(), &info);
+                        return info;
                     }
                 }
             }
@@ -221,6 +258,9 @@ impl UpdateChecker {
                     let safe_release_url = rel
                         .html_url
                         .filter(|url_str| {
+                            if !enforce_trusted_origin {
+                                return true;
+                            }
                             if let Ok(u) = url::Url::parse(url_str) {
                                 u.scheme() == "https"
                                     && u.host_str() == Some("github.com")
@@ -230,7 +270,7 @@ impl UpdateChecker {
                             }
                         })
                         .unwrap_or_else(|| redirect_url.to_string());
-                    return UpdateInfo {
+                    let info = UpdateInfo {
                         current_version: current_version.to_string(),
                         latest_version: rel.tag_name,
                         has_update,
@@ -238,6 +278,8 @@ impl UpdateChecker {
                         checked_at: now_sec.to_string(),
                         ..Default::default()
                     };
+                    self.store_cache_entry(redirect_url, response_etag.as_deref(), &info);
+                    return info;
                 }
             }
         }
@@ -247,6 +289,20 @@ impl UpdateChecker {
             error: Some("Could not parse release from GitHub redirect.".to_string()),
             checked_at: now_sec.to_string(),
             ..Default::default()
+        }
+    }
+
+    fn store_cache_entry(&self, redirect_url: &str, etag: Option<&str>, info: &UpdateInfo) {
+        if let Some(etag_val) = etag {
+            if let Ok(mut c) = self.cache.write() {
+                c.insert(
+                    redirect_url.to_string(),
+                    CacheEntry {
+                        etag: etag_val.to_string(),
+                        info: info.clone(),
+                    },
+                );
+            }
         }
     }
 
@@ -267,7 +323,7 @@ impl UpdateChecker {
             return Err("Invalid release tag characters".to_string());
         }
 
-        let configured_proxy = crate::config::ConfigManager::global().get_preferences().proxy;
+        let configured_proxy = self.effective_proxy();
         let client = if !configured_proxy.trim().is_empty() {
             crate::net::create_http_client(Some(&configured_proxy))
                 .map_err(|e| format!("Invalid proxy configuration: {}", e))?
@@ -353,14 +409,14 @@ fn parse_rate_limit_message(resp: &reqwest::Response) -> String {
     if let Some(reset) = resp.headers().get("X-RateLimit-Reset").and_then(|v| v.to_str().ok()) {
         if let Ok(epoch) = reset.parse::<i64>() {
             let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
-            let diff = epoch - now;
-            let mins = std::cmp::max(1, (diff + 59) / 60);
+            let diff = epoch.saturating_sub(now);
+            let mins = std::cmp::max(1, diff.saturating_add(59) / 60);
             return format!("GitHub is limiting requests right now. Try again in {} minutes.", mins);
         }
     }
     if let Some(retry) = resp.headers().get("Retry-After").and_then(|v| v.to_str().ok()) {
         if let Ok(secs) = retry.parse::<i64>() {
-            let mins = std::cmp::max(1, (secs + 59) / 60);
+            let mins = std::cmp::max(1, secs.saturating_add(59) / 60);
             return format!("GitHub is limiting requests right now. Try again in {} minutes.", mins);
         }
     }
@@ -392,5 +448,58 @@ mod tests {
         assert!(!is_version_newer("v2.1.0-beta.1", "2.1.0"));
         assert!(is_version_newer("v2.1.0", "2.1.0-beta.1"));
         assert!(is_version_newer("v2.1.1-rc.1", "2.1.0"));
+    }
+
+    #[tokio::test]
+    async fn test_etag_304_preserves_cached_update_info() {
+        use wiremock::matchers::{header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/Reiux/Lumen/releases/latest"))
+            .and(header("If-None-Match", "\"v2-etag\""))
+            .respond_with(ResponseTemplate::new(304))
+            .expect(2)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("GET"))
+            .and(path("/Reiux/Lumen/releases/latest"))
+            .respond_with(
+                ResponseTemplate::new(302)
+                    .insert_header("ETag", "\"v2-etag\"")
+                    .insert_header(
+                        "Location",
+                        "https://github.com/Reiux/Lumen/releases/tag/v2.5.0",
+                    ),
+            )
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+
+        let checker = UpdateChecker::new();
+        let url = format!("{}/Reiux/Lumen/releases/latest", server.uri());
+
+        let first = checker
+            .check_for_updates_inner(&url, "2.0.0", true, 0, false)
+            .await;
+        assert!(first.has_update);
+        assert_eq!(first.latest_version, "v2.5.0");
+
+        let second = checker
+            .check_for_updates_inner(&url, "2.0.0", true, 0, false)
+            .await;
+        assert!(second.has_update);
+        assert_eq!(second.latest_version, "v2.5.0");
+        assert_eq!(
+            second.release_url,
+            "https://github.com/Reiux/Lumen/releases/tag/v2.5.0"
+        );
+
+        let third = checker
+            .check_for_updates_inner(&url, "2.5.0", true, 0, false)
+            .await;
+        assert!(!third.has_update);
     }
 }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { toast } from 'vue-sonner'
 import { ConfigManager } from '../bindings/app/core'
 import { setLocale } from './i18n'
 import M3Switch from './components/ui/M3Switch.vue'
@@ -22,7 +23,8 @@ import {
   matugenColors,
   setMatugenEnabled,
 } from './utils/theme'
-import { preferencesState, setUseQuota, setSaver } from './utils/configStore'
+import { preferencesState, setUseQuota, setSaver, setNotifyOnComplete } from './utils/configStore'
+import { useDialogFocusTrap } from './utils/useDialogFocusTrap'
 
 const { t } = useI18n()
 
@@ -43,6 +45,7 @@ interface Settings {
   deleteFromHost: boolean
   disableUnsupportedFilesFilter: boolean
   setDateFromFilename: boolean
+  excludePattern: string
   uploadThreads: number
   minimizeToTray: boolean
   launchOnStartup: boolean
@@ -70,6 +73,7 @@ const settings = ref<Settings>({
   deleteFromHost: false,
   disableUnsupportedFilesFilter: false,
   setDateFromFilename: false,
+  excludePattern: '',
   uploadThreads: 1,
   minimizeToTray: false,
   launchOnStartup: false,
@@ -87,12 +91,16 @@ const settings = ref<Settings>({
 
 const isHydrating = ref(true)
 const showDeleteConfirm = ref(false)
+const deleteDialogCardRef = ref<HTMLElement | null>(null)
+const languageDialogCardRef = ref<HTMLElement | null>(null)
 const hashCacheCount = ref(0)
 const isClearingCache = ref(false)
 const isTrayAvailable = ref(true)
 const activeAccountEmail = ref('')
 const proxyError = ref('')
+const excludeError = ref('')
 let proxySaveTimer: ReturnType<typeof setTimeout> | null = null
+let excludeSaveTimer: ReturnType<typeof setTimeout> | null = null
 
 // Sticky Navigation Sections matching Mockup A
 const sections = computed(() => [
@@ -211,6 +219,10 @@ function cancelDeleteFromHost() {
   showDeleteConfirm.value = false
 }
 
+useDialogFocusTrap(() => showDeleteConfirm.value, deleteDialogCardRef, {
+  onEscape: cancelDeleteFromHost,
+})
+
 async function clearHashCache() {
   try {
     isClearingCache.value = true
@@ -221,6 +233,8 @@ async function clearHashCache() {
   }
 }
 
+let isUnmounted = false
+
 onMounted(async () => {
   try {
     const [config, hashCount, trayAvail] = await Promise.all([
@@ -229,6 +243,7 @@ onMounted(async () => {
       ConfigManager.IsTrayAvailable(),
       refreshActiveAccount(),
     ])
+    if (isUnmounted) return
     settings.value = {
       proxy: config.proxy || '',
       useQuota: config.useQuota || false,
@@ -241,6 +256,7 @@ onMounted(async () => {
       deleteFromHost: config.deleteFromHost || false,
       disableUnsupportedFilesFilter: config.disableUnsupportedFilesFilter || false,
       setDateFromFilename: config.setDateFromFilename || false,
+      excludePattern: config.excludePattern || '',
       uploadThreads: config.uploadThreads || 4,
       minimizeToTray: config.minimizeToTray || false,
       launchOnStartup: config.launchOnStartup || false,
@@ -262,10 +278,16 @@ onMounted(async () => {
     }
     preferencesState.useQuota = settings.value.useQuota
     preferencesState.saver = settings.value.saver
+  } catch (err) {
+    console.error('Failed to load settings:', err)
   } finally {
     await nextTick()
-    isHydrating.value = false
+    if (!isUnmounted) {
+      isHydrating.value = false
+    }
   }
+
+  if (isUnmounted) return
 
   // Setup scroll-spy inside the tab pane container
   scrollContainerEl = document.querySelector('[data-tab="settings"]') as HTMLElement | null
@@ -275,18 +297,64 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  isUnmounted = true
   if (scrollContainerEl) {
     scrollContainerEl.removeEventListener('scroll', handleScroll)
     scrollContainerEl = null
   }
   if (scrollResetTimer) clearTimeout(scrollResetTimer)
-  if (proxySaveTimer) clearTimeout(proxySaveTimer)
+  if (proxySaveTimer) {
+    clearTimeout(proxySaveTimer)
+    proxySaveTimer = null
+    ConfigManager.SetProxy(settings.value.proxy).catch((err) => {
+      toast.error(t('settings.saveFailed'), {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    })
+  }
+  if (excludeSaveTimer) {
+    clearTimeout(excludeSaveTimer)
+    excludeSaveTimer = null
+    ConfigManager.SetExcludePattern(settings.value.excludePattern).catch((err) => {
+      toast.error(t('settings.saveFailed'), {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    })
+  }
 })
 
+let suppressWatchDepth = 0
+
+function runSuppressed(fn: () => void) {
+  suppressWatchDepth++
+  try {
+    fn()
+  } finally {
+    nextTick(() => {
+      suppressWatchDepth = Math.max(0, suppressWatchDepth - 1)
+    })
+  }
+}
+
+async function saveSetting(fn: () => Promise<unknown>, revert?: () => void) {
+  try {
+    await fn()
+  } catch (err) {
+    if (revert) {
+      runSuppressed(revert)
+    }
+    console.error('Failed to save setting:', err)
+    toast.error(t('settings.saveFailed'), {
+      description: err instanceof Error ? err.message : String(err),
+    })
+  }
+}
+
 watch(() => settings.value.proxy, (newValue) => {
-  if (isHydrating.value) return
+  if (isHydrating.value || suppressWatchDepth > 0) return
   if (proxySaveTimer) clearTimeout(proxySaveTimer)
   proxySaveTimer = setTimeout(async () => {
+    proxySaveTimer = null
     try {
       await ConfigManager.SetProxy(newValue)
       proxyError.value = ''
@@ -296,110 +364,212 @@ watch(() => settings.value.proxy, (newValue) => {
   }, 400)
 })
 
-watch(() => settings.value.useQuota, async (newValue) => {
-  if (isHydrating.value) return
+watch(() => settings.value.excludePattern, (newValue) => {
+  if (isHydrating.value || suppressWatchDepth > 0) return
+  if (excludeSaveTimer) clearTimeout(excludeSaveTimer)
+  excludeSaveTimer = setTimeout(async () => {
+    excludeSaveTimer = null
+    try {
+      await ConfigManager.SetExcludePattern(newValue)
+      excludeError.value = ''
+    } catch (err) {
+      excludeError.value = err instanceof Error ? err.message : String(err)
+    }
+  }, 400)
+})
+
+watch(() => settings.value.useQuota, (newValue, oldValue) => {
+  if (isHydrating.value || suppressWatchDepth > 0) return
+  const prevSaver = settings.value.saver
   if (newValue && settings.value.saver) {
-    settings.value.saver = false
-    await setSaver(false)
+    runSuppressed(() => {
+      settings.value.saver = false
+    })
   }
-  await setUseQuota(newValue)
+  saveSetting(
+    async () => {
+      if (newValue && prevSaver) {
+        await setSaver(false)
+      }
+      await setUseQuota(newValue)
+    },
+    () => {
+      settings.value.useQuota = oldValue
+      settings.value.saver = prevSaver
+    },
+  )
 })
 
-watch(() => settings.value.saver, async (newValue) => {
-  if (isHydrating.value) return
+watch(() => settings.value.saver, (newValue, oldValue) => {
+  if (isHydrating.value || suppressWatchDepth > 0) return
+  const prevQuota = settings.value.useQuota
   if (newValue && settings.value.useQuota) {
-    settings.value.useQuota = false
-    await setUseQuota(false)
+    runSuppressed(() => {
+      settings.value.useQuota = false
+    })
   }
-  await setSaver(newValue)
+  saveSetting(
+    async () => {
+      if (newValue && prevQuota) {
+        await setUseQuota(false)
+      }
+      await setSaver(newValue)
+    },
+    () => {
+      settings.value.saver = oldValue
+      settings.value.useQuota = prevQuota
+    },
+  )
 })
 
-watch(() => settings.value.recursive, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetRecursive(newValue)
+watch(() => settings.value.recursive, (newValue, oldValue) => {
+  if (isHydrating.value || suppressWatchDepth > 0) return
+  saveSetting(
+    () => ConfigManager.SetRecursive(newValue),
+    () => { settings.value.recursive = oldValue },
+  )
 })
 
-watch(() => settings.value.forceUpload, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetForceUpload(newValue)
+watch(() => settings.value.forceUpload, (newValue, oldValue) => {
+  if (isHydrating.value || suppressWatchDepth > 0) return
+  saveSetting(
+    () => ConfigManager.SetForceUpload(newValue),
+    () => { settings.value.forceUpload = oldValue },
+  )
 })
 
-watch(() => settings.value.pairLivePhotos, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetPairLivePhotos(newValue)
-  if (newValue && !settings.value.skipIncompleteLivePhotos) {
-    settings.value.skipIncompleteLivePhotos = true
-    await ConfigManager.SetSkipIncompleteLivePhotos(true)
+watch(() => settings.value.pairLivePhotos, (newValue, oldValue) => {
+  if (isHydrating.value || suppressWatchDepth > 0) return
+  const prevSkip = settings.value.skipIncompleteLivePhotos
+  const autoEnableSkip = newValue && !prevSkip
+  if (autoEnableSkip) {
+    runSuppressed(() => {
+      settings.value.skipIncompleteLivePhotos = true
+    })
   }
+  saveSetting(
+    async () => {
+      await ConfigManager.SetPairLivePhotos(newValue)
+      if (autoEnableSkip) {
+        await ConfigManager.SetSkipIncompleteLivePhotos(true)
+      }
+    },
+    () => {
+      settings.value.pairLivePhotos = oldValue
+      settings.value.skipIncompleteLivePhotos = prevSkip
+    },
+  )
 })
 
-watch(() => settings.value.skipIncompleteLivePhotos, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetSkipIncompleteLivePhotos(newValue)
+watch(() => settings.value.skipIncompleteLivePhotos, (newValue, oldValue) => {
+  if (isHydrating.value || suppressWatchDepth > 0) return
+  saveSetting(
+    () => ConfigManager.SetSkipIncompleteLivePhotos(newValue),
+    () => { settings.value.skipIncompleteLivePhotos = oldValue },
+  )
 })
 
-watch(() => settings.value.updateExistingPhotosToLive, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetUpdateExistingPhotosToLive(newValue)
+watch(() => settings.value.updateExistingPhotosToLive, (newValue, oldValue) => {
+  if (isHydrating.value || suppressWatchDepth > 0) return
+  saveSetting(
+    () => ConfigManager.SetUpdateExistingPhotosToLive(newValue),
+    () => { settings.value.updateExistingPhotosToLive = oldValue },
+  )
 })
 
-watch(() => settings.value.deleteFromHost, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetDeleteFromHost(newValue)
+watch(() => settings.value.deleteFromHost, (newValue, oldValue) => {
+  if (isHydrating.value || suppressWatchDepth > 0) return
+  saveSetting(
+    () => ConfigManager.SetDeleteFromHost(newValue),
+    () => { settings.value.deleteFromHost = oldValue },
+  )
 })
 
-watch(() => settings.value.disableUnsupportedFilesFilter, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetDisableUnsupportedFilesFilter(newValue)
+watch(() => settings.value.disableUnsupportedFilesFilter, (newValue, oldValue) => {
+  if (isHydrating.value || suppressWatchDepth > 0) return
+  saveSetting(
+    () => ConfigManager.SetDisableUnsupportedFilesFilter(newValue),
+    () => { settings.value.disableUnsupportedFilesFilter = oldValue },
+  )
 })
 
-watch(() => settings.value.setDateFromFilename, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetSetDateFromFilename(newValue)
+watch(() => settings.value.setDateFromFilename, (newValue, oldValue) => {
+  if (isHydrating.value || suppressWatchDepth > 0) return
+  saveSetting(
+    () => ConfigManager.SetSetDateFromFilename(newValue),
+    () => { settings.value.setDateFromFilename = oldValue },
+  )
 })
 
-watch(() => settings.value.uploadThreads, async (newValue) => {
-  if (isHydrating.value) return
+watch(() => settings.value.uploadThreads, (newValue, oldValue) => {
+  if (isHydrating.value || suppressWatchDepth > 0) return
   if (newValue < 1) {
     settings.value.uploadThreads = 1
   } else {
-    await ConfigManager.SetUploadThreads(newValue)
+    saveSetting(
+      () => ConfigManager.SetUploadThreads(newValue),
+      () => { settings.value.uploadThreads = oldValue },
+    )
   }
 })
 
-watch(() => settings.value.minimizeToTray, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetMinimizeToTray(newValue)
+watch(() => settings.value.minimizeToTray, (newValue, oldValue) => {
+  if (isHydrating.value || suppressWatchDepth > 0) return
+  saveSetting(
+    () => ConfigManager.SetMinimizeToTray(newValue),
+    () => { settings.value.minimizeToTray = oldValue },
+  )
 })
 
-watch(() => settings.value.launchOnStartup, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetLaunchOnStartup(newValue)
+watch(() => settings.value.launchOnStartup, (newValue, oldValue) => {
+  if (isHydrating.value || suppressWatchDepth > 0) return
+  saveSetting(
+    () => ConfigManager.SetLaunchOnStartup(newValue),
+    () => { settings.value.launchOnStartup = oldValue },
+  )
 })
 
-watch(() => settings.value.notifyOnComplete, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetNotifyOnComplete(newValue)
+watch(() => settings.value.notifyOnComplete, (newValue, oldValue) => {
+  if (isHydrating.value || suppressWatchDepth > 0) return
+  saveSetting(
+    () => setNotifyOnComplete(newValue),
+    () => { settings.value.notifyOnComplete = oldValue },
+  )
 })
 
-watch(() => settings.value.useLocalHashCache, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetUseLocalHashCache(newValue)
+watch(() => settings.value.useLocalHashCache, (newValue, oldValue) => {
+  if (isHydrating.value || suppressWatchDepth > 0) return
+  saveSetting(
+    () => ConfigManager.SetUseLocalHashCache(newValue),
+    () => { settings.value.useLocalHashCache = oldValue },
+  )
 })
 
-watch(() => settings.value.uploadSpeedLimitKBps, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetUploadSpeedLimitKBps(newValue)
+watch(() => settings.value.uploadSpeedLimitKBps, (newValue, oldValue) => {
+  if (isHydrating.value || suppressWatchDepth > 0) return
+  saveSetting(
+    () => ConfigManager.SetUploadSpeedLimitKBps(newValue),
+    () => { settings.value.uploadSpeedLimitKBps = oldValue },
+  )
 })
 
-watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetWatchFoldersEnabled(newValue)
+watch(() => settings.value.watchFoldersEnabled, (newValue, oldValue) => {
+  if (isHydrating.value || suppressWatchDepth > 0) return
+  saveSetting(
+    () => ConfigManager.SetWatchFoldersEnabled(newValue),
+    () => { settings.value.watchFoldersEnabled = oldValue },
+  )
 })
 
 const savedLang = typeof localStorage !== 'undefined' ? localStorage.getItem('lumen_locale') || 'en' : 'en'
 const currentLanguage = ref(savedLang)
 const showLanguageDialog = ref(false)
+
+useDialogFocusTrap(() => showLanguageDialog.value, languageDialogCardRef, {
+  onEscape: () => {
+    showLanguageDialog.value = false
+  },
+})
 
 const availableLanguages = [
   { code: 'en', nativeName: 'English', englishName: 'English' },
@@ -423,24 +593,39 @@ function selectLanguage(lang: string) {
   showLanguageDialog.value = false
 }
 
-watch(() => settings.value.scheduleEnabled, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetScheduleEnabled(newValue)
+watch(() => settings.value.scheduleEnabled, (newValue, oldValue) => {
+  if (isHydrating.value || suppressWatchDepth > 0) return
+  saveSetting(
+    () => ConfigManager.SetScheduleEnabled(newValue),
+    () => { settings.value.scheduleEnabled = oldValue },
+  )
 })
 
-watch([() => settings.value.scheduleStartHour, () => settings.value.scheduleEndHour], async ([start, end]) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetScheduleHours(Number(start), Number(end))
+watch([() => settings.value.scheduleStartHour, () => settings.value.scheduleEndHour], ([start, end], [oldStart, oldEnd]) => {
+  if (isHydrating.value || suppressWatchDepth > 0) return
+  saveSetting(
+    () => ConfigManager.SetScheduleHours(Number(start), Number(end)),
+    () => {
+      settings.value.scheduleStartHour = oldStart
+      settings.value.scheduleEndHour = oldEnd
+    },
+  )
 })
 
-watch(() => settings.value.pauseOnBattery, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetPauseOnBattery(newValue)
+watch(() => settings.value.pauseOnBattery, (newValue, oldValue) => {
+  if (isHydrating.value || suppressWatchDepth > 0) return
+  saveSetting(
+    () => ConfigManager.SetPauseOnBattery(newValue),
+    () => { settings.value.pauseOnBattery = oldValue },
+  )
 })
 
-watch(() => settings.value.dryRun, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetDryRun(newValue)
+watch(() => settings.value.dryRun, (newValue, oldValue) => {
+  if (isHydrating.value || suppressWatchDepth > 0) return
+  saveSetting(
+    () => ConfigManager.SetDryRun(newValue),
+    () => { settings.value.dryRun = oldValue },
+  )
 })
 </script>
 
@@ -844,6 +1029,29 @@ watch(() => settings.value.dryRun, async (newValue) => {
                 :aria-label="t('settings.dateFromFilename')"
               />
             </div>
+
+            <!-- Exclude Pattern -->
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5">
+              <div class="flex flex-col pr-2">
+                <label for="exclude-pattern-input" class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
+                  {{ t('settings.excludePattern') }}
+                </label>
+                <span class="m3-body-medium mt-0.5">
+                  {{ t('settings.excludePatternSubtitle') }}
+                </span>
+              </div>
+              <div class="w-64 shrink-0 self-start sm:self-auto">
+                <M3TextField
+                  id="exclude-pattern-input"
+                  v-model="settings.excludePattern"
+                  placeholder="\.tmp$|@eaDir"
+                  variant="outlined"
+                  leading-icon="filter_alt_off"
+                  :error="!!excludeError"
+                  :error-text="excludeError"
+                />
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1152,7 +1360,9 @@ watch(() => settings.value.dryRun, async (newValue) => {
           @click.self="cancelDeleteFromHost"
         >
           <div
-            class="m3-dialog-card relative flex w-full max-w-md flex-col gap-5 rounded-[28px] border border-[var(--md-sys-color-error)]/40 bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl"
+            ref="deleteDialogCardRef"
+            tabindex="-1"
+            class="m3-dialog-card relative flex w-full max-w-md flex-col gap-5 rounded-[28px] border border-[var(--md-sys-color-error)]/40 bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl outline-none"
             role="alertdialog"
             aria-modal="true"
             aria-labelledby="delete-confirm-title"
@@ -1215,7 +1425,9 @@ watch(() => settings.value.dryRun, async (newValue) => {
           @click.self="showLanguageDialog = false"
         >
           <div
-            class="m3-dialog-card relative flex w-full max-w-sm flex-col gap-4 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl"
+            ref="languageDialogCardRef"
+            tabindex="-1"
+            class="m3-dialog-card relative flex w-full max-w-sm flex-col gap-4 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl outline-none"
             role="dialog"
             aria-modal="true"
             aria-labelledby="language-dialog-title"

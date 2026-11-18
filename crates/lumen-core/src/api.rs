@@ -163,10 +163,10 @@ impl Api {
         self.rate_limiter = limiter;
     }
 
-    fn invalidate_token_if_unauthorized(&self, status: u16) {
+    fn invalidate_token_if_unauthorized(&self, status: u16, failed_token: &str) {
         if matches!(status, 401 | 403) {
             if let Some(ref tm) = self.token_manager {
-                tm.invalidate();
+                tm.invalidate_if_matches(failed_token);
             }
         }
     }
@@ -197,6 +197,17 @@ impl Api {
     }
 
     pub async fn bearer_token(&self) -> Result<String, ApiError> {
+        if let Some(ref tm) = self.token_manager {
+            if let Some(cached) = tm.get_cached_token() {
+                return Ok(cached);
+            }
+        }
+
+        let _refresh_guard = match self.token_manager {
+            Some(ref tm) => Some(tm.refresh_lock().lock().await),
+            None => None,
+        };
+
         if let Some(ref tm) = self.token_manager {
             if let Some(cached) = tm.get_cached_token() {
                 return Ok(cached);
@@ -341,7 +352,7 @@ impl Api {
             .map_err(ApiError::Network)?;
 
         if !status.is_success() {
-            self.invalidate_token_if_unauthorized(status.as_u16());
+            self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
             return Err(ApiError::HttpStatus {
                 status: status.as_u16(),
                 body: String::from_utf8_lossy(&body_bytes).to_string(),
@@ -399,7 +410,7 @@ impl Api {
 
         let status = resp.status();
         if !status.is_success() {
-            self.invalidate_token_if_unauthorized(status.as_u16());
+            self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
             let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
                 .await
                 .unwrap_or_default();
@@ -446,7 +457,15 @@ impl Api {
             .map_err(|e| ApiError::Network(e.to_string()))?;
 
         let status = resp.status();
+        let upload_status_hdr = resp
+            .headers()
+            .get("x-goog-upload-status")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_ascii_lowercase());
         if status.is_success() {
+            if matches!(upload_status_hdr.as_deref(), Some("cancelled")) {
+                return Ok(None);
+            }
             if let Some(recv_str) = resp.headers().get("x-goog-upload-size-received").and_then(|v| v.to_str().ok()) {
                 if let Ok(recv) = recv_str.parse::<i64>() {
                     return Ok(Some(recv));
@@ -455,14 +474,46 @@ impl Api {
             return Ok(Some(0));
         }
 
-        self.invalidate_token_if_unauthorized(status.as_u16());
-        Ok(None)
+        self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
+        if matches!(status.as_u16(), 404 | 410) {
+            return Ok(None);
+        }
+        let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
+            .await
+            .unwrap_or_default();
+        Err(ApiError::HttpStatus {
+            status: status.as_u16(),
+            body: String::from_utf8_lossy(&body_bytes).to_string(),
+        })
     }
 
     pub async fn upload_file_resumable<F>(
         &self,
         upload_token: &str,
         file_path: &Path,
+        cancelled: Option<Arc<AtomicBool>>,
+        paused: Option<Arc<AtomicBool>>,
+        on_progress: F,
+    ) -> Result<ScottyFinalizeToken, ApiError>
+    where
+        F: FnMut(i64, i64, usize) + Send + 'static,
+    {
+        self.upload_file_resumable_from_offset(
+            upload_token,
+            file_path,
+            None,
+            cancelled,
+            paused,
+            on_progress,
+        )
+        .await
+    }
+
+    pub async fn upload_file_resumable_from_offset<F>(
+        &self,
+        upload_token: &str,
+        file_path: &Path,
+        initial_offset: Option<i64>,
         cancelled: Option<Arc<AtomicBool>>,
         paused: Option<Arc<AtomicBool>>,
         mut on_progress: F,
@@ -482,10 +533,19 @@ impl Api {
             None => format!("{}/data/upload/uploadmedia/interactive?upload_id={}", DEFAULT_PHOTOS_UPLOAD_BASE, encoded_token),
         };
 
-        // Query server to check if any bytes have already arrived
         let mut current_offset: i64 = 0;
-        if let Ok(Some(recv)) = self.query_upload_status(upload_token).await {
-            if recv > 0 && recv <= file_size {
+        let queried_offset = match initial_offset {
+            Some(off) => Some(off),
+            None => self.query_upload_status(upload_token).await?,
+        };
+        if let Some(recv) = queried_offset {
+            if recv > file_size {
+                return Err(ApiError::Io(format!(
+                    "Remote upload offset ({}) exceeds local file size ({})",
+                    recv, file_size
+                )));
+            }
+            if recv > 0 {
                 current_offset = recv;
                 on_progress(current_offset, file_size, 1);
             }
@@ -500,8 +560,23 @@ impl Api {
                 .map_err(|e| ApiError::Io(e.to_string()))?;
         }
 
-        // Handle empty file edge case
-        if file_size == 0 {
+        // Handle empty file OR resume where server already received all bytes
+        if file_size == 0 || current_offset >= file_size {
+            if let Some(ref c) = cancelled {
+                if c.load(Ordering::Relaxed) {
+                    return Err(ApiError::Io("Upload cancelled".to_string()));
+                }
+            }
+            if let Some(ref p) = paused {
+                while p.load(Ordering::Relaxed) {
+                    if let Some(ref c) = cancelled {
+                        if c.load(Ordering::Relaxed) {
+                            return Err(ApiError::Io("Upload cancelled".to_string()));
+                        }
+                    }
+                    tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
+                }
+            }
             let bearer = self.bearer_token().await?;
             let resp = self
                 .client
@@ -512,7 +587,7 @@ impl Api {
                 .header("Authorization", format!("Bearer {}", bearer))
                 .header("X-Goog-Upload-Protocol", "resumable")
                 .header("X-Goog-Upload-Command", "upload, finalize")
-                .header("X-Goog-Upload-Offset", "0")
+                .header("X-Goog-Upload-Offset", current_offset.to_string())
                 .header("Content-Length", "0")
                 .body(Vec::new())
                 .send()
@@ -524,7 +599,7 @@ impl Api {
                 .await
                 .map_err(ApiError::Network)?;
             if !status.is_success() {
-                self.invalidate_token_if_unauthorized(status.as_u16());
+                self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
                 return Err(ApiError::HttpStatus {
                     status: status.as_u16(),
                     body: String::from_utf8_lossy(&body_bytes).to_string(),
@@ -586,7 +661,7 @@ impl Api {
                 .map_err(ApiError::Network)?;
 
             if !status.is_success() {
-                self.invalidate_token_if_unauthorized(status.as_u16());
+                self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
                 return Err(ApiError::HttpStatus {
                     status: status.as_u16(),
                     body: String::from_utf8_lossy(&body_bytes).to_string(),
@@ -682,7 +757,7 @@ impl Api {
             .map_err(ApiError::Network)?;
 
         if !status.is_success() {
-            self.invalidate_token_if_unauthorized(status.as_u16());
+            self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
             return Err(ApiError::HttpStatus {
                 status: status.as_u16(),
                 body: String::from_utf8_lossy(&body_bytes).to_string(),
@@ -717,6 +792,7 @@ impl Api {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub async fn commit_live_photo(
         &self,
         photo_token: &ScottyFinalizeToken,
@@ -725,6 +801,29 @@ impl Api {
         photo_sha1: &[u8],
         video_sha1: &[u8],
         timestamp: i64,
+    ) -> Result<String, ApiError> {
+        self.commit_live_photo_with_reconcile(
+            photo_token,
+            video_token,
+            file_name,
+            photo_sha1,
+            video_sha1,
+            timestamp,
+            None,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn commit_live_photo_with_reconcile(
+        &self,
+        photo_token: &ScottyFinalizeToken,
+        video_token: &ScottyFinalizeToken,
+        file_name: &str,
+        photo_sha1: &[u8],
+        video_sha1: &[u8],
+        timestamp: i64,
+        reconcile_source_sha1: Option<&[u8]>,
     ) -> Result<String, ApiError> {
         let endpoint = match &self.custom_endpoint_base {
             Some(base) => format!("{}/16538846908252377752", base.trim_end_matches('/')),
@@ -737,6 +836,11 @@ impl Api {
             .unwrap_or_default();
 
         let storage_policy = if self.saver && !self.use_quota { 1 } else { 3 };
+        let reconcile_info = reconcile_source_sha1.map(|sha1| Box::new(ReconcileInfo {
+            reconcile_type: ReconcileType::Phodeo as i32,
+            source_sha1: sha1.to_vec(),
+            photo_upload_blueprint: None,
+        }));
 
         let blueprint = MediaItemBlueprint {
             upload_token: photo_token.raw.clone(),
@@ -751,7 +855,7 @@ impl Api {
                 nanoseconds: 0,
             }),
             storage_policy,
-            reconcile_info: None,
+            reconcile_info,
             upload_quality: 1,
             live_photo_info: Some(LivePhotoInfo {
                 video_upload_token: video_token.raw.clone(),
@@ -795,7 +899,7 @@ impl Api {
             .map_err(ApiError::Network)?;
 
         if !status.is_success() {
-            self.invalidate_token_if_unauthorized(status.as_u16());
+            self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
             return Err(ApiError::HttpStatus {
                 status: status.as_u16(),
                 body: String::from_utf8_lossy(&body_bytes).to_string(),
@@ -878,7 +982,7 @@ impl AlbumApi for Api {
             .map_err(AlbumError::Api)?;
 
         if !status.is_success() {
-            self.invalidate_token_if_unauthorized(status.as_u16());
+            self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
             let body = String::from_utf8_lossy(&body_bytes).to_string();
             if status == reqwest::StatusCode::NOT_FOUND || body.to_lowercase().contains("not found") {
                 return Err(AlbumError::NotFound(album_name.to_string()));
@@ -943,7 +1047,7 @@ impl AlbumApi for Api {
 
         let status = resp.status();
         if !status.is_success() {
-            self.invalidate_token_if_unauthorized(status.as_u16());
+            self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
             let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
                 .await
                 .unwrap_or_default();

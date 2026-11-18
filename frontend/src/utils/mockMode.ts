@@ -26,6 +26,13 @@ export function setDevOptionsUnlocked(unlocked: boolean) {
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('lumen_mock_active', 'false')
     }
+    if (mockProgressInterval) {
+      clearInterval(mockProgressInterval)
+      mockProgressInterval = null
+    }
+    uploadManager.state.isUploading = false
+    uploadManager.state.scanProgress.isScanning = false
+    uploadManager.resetUploadResults()
   }
 }
 
@@ -219,6 +226,7 @@ export function setMockView(view: MockState['currentView']) {
 
   if (view === 'uploading') {
     uploadManager.state.scanProgress.isScanning = false
+    uploadManager.resetUploadResults()
     simulateUploadProgress()
   } else if (view === 'results') {
     uploadManager.state.scanProgress.isScanning = false

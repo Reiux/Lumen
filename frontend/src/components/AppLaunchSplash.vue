@@ -45,6 +45,7 @@ const logoTransition = ref('none')
 const splashLogoEl = ref<HTMLElement | null>(null)
 
 let hasEnded = false
+let isUnmounted = false
 let timerIds: number[] = []
 let startTime = 0
 let isHandoffActive = false
@@ -137,6 +138,7 @@ async function startSequence(isReplay = false) {
   if (!isReplay) {
     await prepareWindow()
   }
+  if (isUnmounted || hasEnded) return
 
   // Accessibility: prefers-reduced-motion crossfades in <= 200ms
   if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) {
@@ -235,6 +237,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  isUnmounted = true
   cleanupEvents()
   clearTimers()
 })

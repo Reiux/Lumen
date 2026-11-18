@@ -24,7 +24,7 @@ const selectedAccount = ref('')
 const inotifyError = ref('')
 const isAddingFolder = ref(false)
 const recentAlbums = ref<string[]>([])
-const albumNicknames = ref<Record<string, string | undefined>>({})
+const albumNicknamesByAccount = ref<Record<string, Record<string, string | undefined>>>({})
 
 // Pending backlog dialog state
 const pendingBacklog = ref<{ folder: string; count: number; account: string } | null>(null)
@@ -60,12 +60,20 @@ function isBroadDirectory(path: string): boolean {
   )
 }
 
-function getAlbumLabel(keyOrName: string): string {
+function resolveFolderAccount(cfg?: WatchedFolderConfig): string {
+  return cfg?.accountEmail || selectedAccount.value || ''
+}
+
+function getAlbumNickname(keyOrName: string, accountEmail?: string): string {
+  const cleanKey = keyOrName.trim()
+  if (!cleanKey) return ''
+  const acc = accountEmail || selectedAccount.value || ''
+  return albumNicknamesByAccount.value[acc]?.[cleanKey] || ''
+}
+
+function getAlbumLabel(keyOrName: string, accountEmail?: string): string {
   if (!keyOrName) return ''
-  if (albumNicknames.value[keyOrName]) {
-    return albumNicknames.value[keyOrName]
-  }
-  return keyOrName
+  return getAlbumNickname(keyOrName, accountEmail) || keyOrName
 }
 
 async function loadData() {
@@ -85,9 +93,18 @@ async function loadData() {
     watchedConfigs.value = (await ConfigManager.GetWatchedFolderConfigs()) || []
     inotifyError.value = (await ConfigManager.GetInotifyError()) || ''
 
-    if (selectedAccount.value) {
-      albumNicknames.value = (await ConfigManager.GetAlbumNicknames(selectedAccount.value)) || {}
+    const accountsToFetch = new Set<string>()
+    if (selectedAccount.value) accountsToFetch.add(selectedAccount.value)
+    for (const fc of watchedConfigs.value) {
+      if (fc.accountEmail) accountsToFetch.add(fc.accountEmail)
     }
+    const nextNicknames: Record<string, Record<string, string | undefined>> = {}
+    await Promise.all(
+      Array.from(accountsToFetch).map(async (acc) => {
+        nextNicknames[acc] = (await ConfigManager.GetAlbumNicknames(acc)) || {}
+      }),
+    )
+    albumNicknamesByAccount.value = nextNicknames
     recentAlbums.value = (await ConfigManager.GetRecentAlbums()) || []
 
     // Default expand all enabled folders
@@ -104,11 +121,13 @@ async function loadData() {
 }
 
 async function onToggleMasterSwitch(enabled: boolean) {
+  const prev = watchFoldersEnabled.value
   watchFoldersEnabled.value = enabled
   try {
     await ConfigManager.SetWatchFoldersEnabled(enabled)
     toast.success(enabled ? t('folders.toastWatcherActive') : t('folders.toastWatcherDisabled'))
   } catch (err) {
+    watchFoldersEnabled.value = prev
     console.error('Failed to toggle folder watcher:', err)
     toast.error(t('folders.toastWatcherError'))
   }
@@ -174,11 +193,12 @@ function cancelBacklog() {
 }
 
 async function toggleFolderEnabled(cfg: WatchedFolderConfig) {
+  const prevSnapshot = { ...cfg }
   cfg.enabled = !cfg.enabled
   if (cfg.enabled) {
     expandedFolders.value[cfg.path] = true
   }
-  await saveFolderConfig(cfg)
+  await saveFolderConfig(cfg, prevSnapshot)
 }
 
 async function toggleIncludeSubfolders(cfg: WatchedFolderConfig) {
@@ -187,17 +207,20 @@ async function toggleIncludeSubfolders(cfg: WatchedFolderConfig) {
     showBroadWarning.value = true
     return
   }
+  const prevSnapshot = { ...cfg }
   cfg.includeSubfolders = !cfg.includeSubfolders
-  await saveFolderConfig(cfg)
+  await saveFolderConfig(cfg, prevSnapshot)
 }
 
-function confirmBroadFolder() {
-  if (pendingBroadFolder.value) {
-    pendingBroadFolder.value.includeSubfolders = true
-    saveFolderConfig(pendingBroadFolder.value)
-    pendingBroadFolder.value = null
-  }
+async function confirmBroadFolder() {
+  const folder = pendingBroadFolder.value
+  pendingBroadFolder.value = null
   showBroadWarning.value = false
+  if (folder) {
+    const prevSnapshot = { ...folder }
+    folder.includeSubfolders = true
+    await saveFolderConfig(folder, prevSnapshot)
+  }
 }
 
 function cancelBroadFolder() {
@@ -205,11 +228,22 @@ function cancelBroadFolder() {
   showBroadWarning.value = false
 }
 
-async function saveFolderConfig(cfg: WatchedFolderConfig) {
+async function updateFolderField(cfg: WatchedFolderConfig, patch: Partial<WatchedFolderConfig>) {
+  const prevSnapshot = { ...cfg }
+  Object.assign(cfg, patch)
+  await saveFolderConfig(cfg, prevSnapshot)
+}
+
+async function saveFolderConfig(cfg: WatchedFolderConfig, prevSnapshot?: WatchedFolderConfig) {
   try {
     await ConfigManager.UpdateWatchedFolderConfig(cfg)
     inotifyError.value = (await ConfigManager.GetInotifyError()) || ''
   } catch (err) {
+    if (prevSnapshot) {
+      Object.assign(cfg, prevSnapshot)
+    } else {
+      await loadData()
+    }
     console.error('Failed to update folder configuration:', err)
     toast.error(t('folders.toastSettingsError'))
   }
@@ -233,14 +267,19 @@ function onUploadNow(cfg: WatchedFolderConfig) {
   toast.success(t('folders.toastBackupQueued', { name: folderBasename(cfg.path) }))
 }
 
-async function saveAlbumNickname(key: string, nickname: string) {
-  if (!selectedAccount.value || !key.trim()) return
+async function saveAlbumNickname(accountEmail: string, key: string, nickname: string) {
+  const targetAccount = accountEmail || selectedAccount.value
+  if (!targetAccount || !key.trim()) return
   try {
-    await ConfigManager.SetAlbumNickname(selectedAccount.value, key.trim(), nickname.trim())
-    albumNicknames.value = (await ConfigManager.GetAlbumNicknames(selectedAccount.value)) || {}
+    await ConfigManager.SetAlbumNickname(targetAccount, key.trim(), nickname.trim())
+    albumNicknamesByAccount.value = {
+      ...albumNicknamesByAccount.value,
+      [targetAccount]: (await ConfigManager.GetAlbumNicknames(targetAccount)) || {},
+    }
     toast.success(t('folders.toastNicknameSaved'))
   } catch (err) {
     console.error('Failed to save album nickname:', err)
+    toast.error(t('folders.toastSettingsError'))
   }
 }
 
@@ -395,7 +434,7 @@ onMounted(() => {
                     class="rounded-full bg-[var(--md-sys-color-secondary-container)] px-2 py-0.5 m3-label-small normal-case text-[var(--md-sys-color-on-secondary-container)] truncate max-w-[140px]"
                     :title="cfg.albumNameOrKey"
                   >
-                    {{ getAlbumLabel(cfg.albumNameOrKey) }}
+                    {{ getAlbumLabel(cfg.albumNameOrKey, resolveFolderAccount(cfg)) }}
                   </span>
                 </div>
 
@@ -424,7 +463,7 @@ onMounted(() => {
               <!-- Enable/Disable Switch -->
               <M3Switch
                 :model-value="cfg.enabled"
-                :aria-label="`Toggle watching ${folderBasename(cfg.path)}`"
+                :aria-label="t('folders.toggleWatchAria', { name: folderBasename(cfg.path) })"
                 @update:model-value="toggleFolderEnabled(cfg)"
               />
 
@@ -471,7 +510,7 @@ onMounted(() => {
                   </div>
                   <M3Switch
                     :model-value="cfg.includeSubfolders"
-                    :aria-label="`Include subfolders for ${folderBasename(cfg.path)}`"
+                    :aria-label="t('folders.includeSubfoldersAria', { name: folderBasename(cfg.path) })"
                     @update:model-value="toggleIncludeSubfolders(cfg)"
                   />
                 </div>
@@ -494,7 +533,7 @@ onMounted(() => {
                       :toggle="true"
                       :selected="cfg.albumMode === 'none' || !cfg.albumMode"
                       :variant="cfg.albumMode === 'none' || !cfg.albumMode ? 'filled' : 'outlined'"
-                      @click="cfg.albumMode = 'none'; saveFolderConfig(cfg)"
+                      @click="updateFolderField(cfg, { albumMode: 'none' })"
                     >
                       {{ t('folders.modeNone') }}
                     </M3Button>
@@ -503,7 +542,7 @@ onMounted(() => {
                       :toggle="true"
                       :selected="cfg.albumMode === 'auto'"
                       :variant="cfg.albumMode === 'auto' ? 'filled' : 'outlined'"
-                      @click="cfg.albumMode = 'auto'; saveFolderConfig(cfg)"
+                      @click="updateFolderField(cfg, { albumMode: 'auto' })"
                     >
                       {{ t('folders.modeAuto') }}
                     </M3Button>
@@ -512,7 +551,7 @@ onMounted(() => {
                       :toggle="true"
                       :selected="cfg.albumMode === 'custom'"
                       :variant="cfg.albumMode === 'custom' ? 'filled' : 'outlined'"
-                      @click="cfg.albumMode = 'custom'; saveFolderConfig(cfg)"
+                      @click="updateFolderField(cfg, { albumMode: 'custom' })"
                     >
                       {{ t('folders.modeCustom') }}
                     </M3Button>
@@ -549,12 +588,12 @@ onMounted(() => {
                       <div class="pt-2">
                         <M3TextField
                           :id="`album-nickname-${cfg.path}`"
-                          :model-value="albumNicknames[cfg.albumNameOrKey.trim()] || ''"
+                          :model-value="getAlbumNickname(cfg.albumNameOrKey, resolveFolderAccount(cfg))"
                           :label="t('dialogs.album.nicknameLabel')"
                           :placeholder="t('dialogs.album.nicknamePlaceholder')"
                           variant="outlined"
                           leading-icon="label"
-                          @change="(val: string) => saveAlbumNickname(cfg.albumNameOrKey, val)"
+                          @change="(val: string) => saveAlbumNickname(resolveFolderAccount(cfg), cfg.albumNameOrKey, val)"
                         />
                       </div>
                     </div>
@@ -576,9 +615,9 @@ onMounted(() => {
                           :selected="cfg.albumNameOrKey === recent"
                           :variant="cfg.albumNameOrKey === recent ? 'filled' : 'outlined'"
                           icon="folder"
-                          @click="cfg.albumNameOrKey = recent; saveFolderConfig(cfg)"
+                          @click="updateFolderField(cfg, { albumNameOrKey: recent })"
                         >
-                          <span class="max-w-[130px] truncate">{{ getAlbumLabel(recent) }}</span>
+                          <span class="max-w-[130px] truncate">{{ getAlbumLabel(recent, resolveFolderAccount(cfg)) }}</span>
                         </M3Button>
                       </div>
                     </div>

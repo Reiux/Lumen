@@ -5,15 +5,19 @@ import licensesData from '../../../docs/THIRD_PARTY_LICENSES.json'
 import M3Button from './ui/M3Button.vue'
 import M3Icon from './ui/M3Icon.vue'
 import M3TextField from './ui/M3TextField.vue'
+import { useDialogFocusTrap } from '../utils/useDialogFocusTrap'
 
 interface Props {
   open: boolean
 }
 
-defineProps<Props>()
+const props = defineProps<Props>()
 const emit = defineEmits<{
   (e: 'update:open', val: boolean): void
 }>()
+
+const dialogCardRef = ref<HTMLElement | null>(null)
+useDialogFocusTrap(() => props.open, dialogCardRef, { onEscape: close })
 
 const { t } = useI18n()
 
@@ -54,7 +58,9 @@ const filteredNpmDeps = computed(() => {
         @click.self="close"
       >
         <div
-          class="m3-dialog-card relative flex flex-col w-full max-w-4xl max-h-[85vh] rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] border border-[var(--md-sys-color-outline-variant)]/40 shadow-2xl overflow-hidden"
+          ref="dialogCardRef"
+          tabindex="-1"
+          class="m3-dialog-card relative flex flex-col w-full max-w-4xl max-h-[85vh] rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] border border-[var(--md-sys-color-outline-variant)]/40 shadow-2xl overflow-hidden outline-none"
           role="dialog"
           aria-modal="true"
           aria-labelledby="licenses-modal-title"
@@ -174,7 +180,7 @@ const filteredNpmDeps = computed(() => {
           >
             <div
               v-for="dep in filteredRustDeps"
-              :key="dep.name"
+              :key="`${dep.name}@${dep.version}`"
               class="px-6 py-3 flex items-center justify-between gap-4 hover:bg-[var(--md-sys-color-surface-container-high)]/60 transition-colors"
             >
               <div class="flex flex-col min-w-0">
@@ -211,7 +217,7 @@ const filteredNpmDeps = computed(() => {
           >
             <div
               v-for="dep in filteredNpmDeps"
-              :key="dep.name"
+              :key="`${dep.name}@${dep.version}`"
               class="px-6 py-3 flex items-center justify-between gap-4 hover:bg-[var(--md-sys-color-surface-container-high)]/60 transition-colors"
             >
               <div class="flex flex-col min-w-0">

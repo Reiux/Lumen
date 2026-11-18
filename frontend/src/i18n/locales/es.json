@@ -32,6 +32,7 @@
     "pauseBackup": "Pausar copia",
     "resumeBackup": "Reanudar copia",
     "paused": "Pausado",
+    "retrying": "Reintentando",
     "backupHistory": "Historial de copias",
     "retry": "Reintentar",
     "copyResults": "Copiar resultados",
@@ -152,6 +153,9 @@
     "updateExistingPhotos": "Actualizar fotos existentes",
     "dateFromFilename": "Fecha a partir del nombre",
     "dateFromFilenameSubtitle": "Usa fechas en nombres de archivo cuando falten metadatos.",
+    "excludePattern": "Patrón de exclusión (regex)",
+    "excludePatternSubtitle": "Omite archivos cuya ruta o nombre coincida con una expresión regular (p. ej. \\.tmp$|@eaDir).",
+    "saveFailed": "No se pudo guardar el ajuste",
     "performance": "Rendimiento",
     "backupThreads": "Hilos de copia",
     "backupThreadsSubtitle": "Establece cuántos archivos se copian simultáneamente.",
@@ -251,7 +255,9 @@
     "autoWatchToggleAria": "Interruptor general de monitoreo automático",
     "backupFolderAria": "Respaldar carpeta ahora",
     "removeFolderAria": "Eliminar carpeta monitoreada",
-    "toggleOptionsAria": "Alternar opciones de carpeta"
+    "toggleOptionsAria": "Alternar opciones de carpeta",
+    "toggleWatchAria": "Alternar monitoreo de {name}",
+    "includeSubfoldersAria": "Incluir subcarpetas para {name}"
   },
   "accounts": {
     "title": "Cuentas de Google",
@@ -284,7 +290,8 @@
     "changePhotoTitle": "Haz clic para cambiar la foto de perfil",
     "avatarAlt": "Avatar de perfil",
     "uploadPhotoAria": "Subir foto de perfil personalizada",
-    "accountOptionsAria": "Opciones de cuenta"
+    "accountOptionsAria": "Opciones de cuenta",
+    "removeAccountAria": "Eliminar {email}"
   },
   "about": {
     "tagline": "Compañero de escritorio rápido y centrado en la privacidad para Google Fotos.",
@@ -536,7 +543,8 @@
     "toastFailed": "No se pudo enviar la notificación",
     "toggleDevToolsTitle": "Alternar herramientas de desarrollo (F12)",
     "replaySplashTitle": "Repetir animación de inicio",
-    "notificationsToggleAria": "Alternar notificaciones en configuración"
+    "notificationsToggleAria": "Alternar notificaciones en configuración",
+    "toggleFlagAria": "Alternar indicador {flag}"
   },
   "licenses": {
     "title": "Licencias de código abierto",
@@ -649,6 +657,8 @@
     "toggleSkippedAria": "Alternar lista de elementos omitidos",
     "toggleFailedAria": "Alternar lista de elementos fallidos",
     "retryFailedAria": "Reintentar respaldos fallidos",
+    "dismissDryRunAria": "Descartar vista previa de simulación",
+    "dismissResultsAria": "Descartar resultados y respaldar más fotos",
     "mediaFile": "Archivo multimedia"
   },
   "updater": {

@@ -4,7 +4,7 @@
   "version": "2.1.0",
   "identifier": "com.reiux.lumen",
   "build": {
-    "beforeDevCommand": "npm run dev --prefix frontend",
+    "beforeDevCommand": "npm run dev --prefix ../../frontend",
     "beforeBuildCommand": "",
     "frontendDist": "../../frontend/dist"
   },
@@ -26,7 +26,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: https: data:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https://github.com https://*.googleapis.com;"
+      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: https: data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https://github.com https://*.googleapis.com;"
     }
   },
   "bundle": {

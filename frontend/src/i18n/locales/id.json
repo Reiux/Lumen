@@ -150,6 +150,7 @@
     "pauseBackup": "Jeda pencadangan",
     "resumeBackup": "Lanjutkan pencadangan",
     "paused": "Dijeda",
+    "retrying": "Mencoba ulang",
     "backupHistory": "Riwayat pencadangan",
     "retry": "Coba lagi",
     "copyResults": "Salin Hasil",
@@ -265,6 +266,8 @@
     "toggleSkippedAria": "Alihkan daftar item yang dilewati",
     "toggleFailedAria": "Alihkan daftar item yang gagal",
     "retryFailedAria": "Coba lagi pencadangan yang gagal",
+    "dismissDryRunAria": "Tutup pratinjau simulasi",
+    "dismissResultsAria": "Tutup hasil dan cadangkan foto lainnya",
     "mediaFile": "Berkas media"
   },
   "circuitBreaker": {
@@ -341,7 +344,9 @@
     "autoWatchToggleAria": "Sakelar utama pantau otomatis folder",
     "backupFolderAria": "Cadangkan folder sekarang",
     "removeFolderAria": "Hapus folder yang dipantau",
-    "toggleOptionsAria": "Alihkan opsi folder"
+    "toggleOptionsAria": "Alihkan opsi folder",
+    "toggleWatchAria": "Alihkan pemantauan {name}",
+    "includeSubfoldersAria": "Sertakan subfolder untuk {name}"
   },
   "accounts": {
     "title": "Akun Google",
@@ -374,7 +379,8 @@
     "changePhotoTitle": "Klik untuk mengubah foto profil",
     "avatarAlt": "Avatar profil",
     "uploadPhotoAria": "Unggah foto profil kustom",
-    "accountOptionsAria": "Opsi akun"
+    "accountOptionsAria": "Opsi akun",
+    "removeAccountAria": "Hapus {email}"
   },
   "about": {
     "tagline": "Aplikasi pendamping desktop cepat dan menjaga privasi untuk Google Foto.",
@@ -503,6 +509,9 @@
     "updateExistingPhotos": "Perbarui foto yang sudah ada",
     "dateFromFilename": "Tanggal dari nama file",
     "dateFromFilenameSubtitle": "Gunakan tanggal yang tertulis pada nama file saat metadata kamera hilang.",
+    "excludePattern": "Pola pengecualian (regex)",
+    "excludePatternSubtitle": "Lewati file yang jalur atau namanya cocok dengan ekspresi reguler (mis. \\.tmp$|@eaDir).",
+    "saveFailed": "Gagal menyimpan pengaturan",
     "performance": "Performa",
     "backupThreads": "Utas pencadangan",
     "backupThreadsSubtitle": "Atur berapa banyak file yang dicadangkan secara bersamaan.",
@@ -610,7 +619,8 @@
     "toastFailed": "Gagal memicu notifikasi",
     "toggleDevToolsTitle": "Alihkan Alat Pengembang Webview (F12)",
     "replaySplashTitle": "Putar ulang animasi pembuka peluncuran",
-    "notificationsToggleAria": "Alihkan notifikasi di pengaturan"
+    "notificationsToggleAria": "Alihkan notifikasi di pengaturan",
+    "toggleFlagAria": "Alihkan tanda {flag}"
   },
   "googleAuth": {
     "title": "Tambah Akun Google",

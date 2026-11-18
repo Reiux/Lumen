@@ -67,6 +67,10 @@ fn main() {
         is_uploading: Arc::new(AtomicBool::new(false)),
         pending_watch_files: Arc::new(std::sync::Mutex::new(Vec::new())),
         watcher: Arc::new(tokio::sync::Mutex::new(None)),
+        tray_available: Arc::new(AtomicBool::new(false)),
+        update_checker: lumen_core::updater::UpdateChecker::new(),
+        run_seq: Arc::new(std::sync::atomic::AtomicU64::new(1)),
+        log_seq: Arc::new(std::sync::atomic::AtomicU64::new(1)),
     };
 
     tauri::Builder::default()
@@ -189,9 +193,15 @@ fn main() {
             commands::toggle_devtools,
         ])
         .setup(|app| {
-            if let Ok(tray) = tray::setup_tray(app.handle()) {
+            let tray_ok = if let Ok(tray) = tray::setup_tray(app.handle()) {
                 app.manage(tray);
-            }
+                true
+            } else {
+                false
+            };
+            app.state::<AppState>()
+                .tray_available
+                .store(tray_ok, std::sync::atomic::Ordering::SeqCst);
 
             let app_handle = app.handle().clone();
             if let Some(window) = app.get_webview_window("main") {
@@ -200,7 +210,9 @@ fn main() {
                 window.on_window_event(move |event| match event {
                     tauri::WindowEvent::CloseRequested { api, .. } => {
                         let state = ah.state::<AppState>();
-                        if state.config_manager.get_config().preferences.minimize_to_tray {
+                        if state.tray_available.load(std::sync::atomic::Ordering::Relaxed)
+                            && state.config_manager.get_config().preferences.minimize_to_tray
+                        {
                             api.prevent_close();
                             let _ = w.hide();
                         }
@@ -236,29 +248,15 @@ fn main() {
                 tokio::time::sleep(Duration::from_secs(3)).await;
                 let state = ah_update.state::<AppState>();
                 if state.config_manager.get_config().preferences.auto_check_updates {
-                    let checker = lumen_core::updater::UpdateChecker::new();
-                    let info = checker
-                        .check_for_updates(
-                            lumen_core::updater::DEFAULT_RELEASES_URL,
-                            env!("CARGO_PKG_VERSION"),
-                            false,
-                            0,
-                        )
-                        .await;
+                    let info = commands::run_update_check(
+                        &state.config_manager,
+                        &state.update_checker,
+                        lumen_core::updater::DEFAULT_RELEASES_URL,
+                        false,
+                    )
+                    .await;
                     if info.has_update {
-                        let _ = ah_update.emit(
-                            "app:update-available",
-                            crate::models::UpdateInfo {
-                                current_version: info.current_version,
-                                latest_version: info.latest_version,
-                                has_update: true,
-                                release_url: info.release_url,
-                                release_notes: info.release_notes,
-                                published_at: String::new(),
-                                checked_at: String::new(),
-                                error: None,
-                            },
-                        );
+                        let _ = ah_update.emit("app:update-available", info);
                     }
                 }
             });
@@ -336,7 +334,16 @@ fn main() {
                         }),
                     );
 
-                    let _ = commands::execute_upload(string_paths, ah_event.clone(), (*state).clone(), true, None, None);
+                    if let Err(e) = commands::execute_upload(
+                        string_paths,
+                        ah_event.clone(),
+                        (*state).clone(),
+                        true,
+                        None,
+                        None,
+                    ) {
+                        tracing::warn!("Folder watcher upload failed to start: {}", e);
+                    }
                 });
 
                 let watcher_arc = state.watcher.clone();

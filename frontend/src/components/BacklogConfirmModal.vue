@@ -1,11 +1,13 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import M3Button from './ui/M3Button.vue'
 import M3Icon from './ui/M3Icon.vue'
+import { useDialogFocusTrap } from '../utils/useDialogFocusTrap'
 
 const { t } = useI18n()
 
-defineProps<{
+const props = defineProps<{
   pendingBacklog: { folder: string; count: number; account: string } | null
 }>()
 
@@ -13,6 +15,11 @@ const emit = defineEmits<{
   (e: 'cancel'): void
   (e: 'confirm', uploadExisting: boolean): void
 }>()
+
+const dialogCardRef = ref<HTMLElement | null>(null)
+useDialogFocusTrap(() => Boolean(props.pendingBacklog), dialogCardRef, {
+  onEscape: () => emit('cancel'),
+})
 </script>
 
 <template>
@@ -24,7 +31,9 @@ const emit = defineEmits<{
         @click.self="emit('cancel')"
       >
         <div
-          class="m3-dialog-card relative flex flex-col gap-4 w-full max-w-md rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl border border-[var(--md-sys-color-outline-variant)]/40"
+          ref="dialogCardRef"
+          tabindex="-1"
+          class="m3-dialog-card relative flex flex-col gap-4 w-full max-w-md rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl border border-[var(--md-sys-color-outline-variant)]/40 outline-none"
           role="dialog"
           aria-modal="true"
           aria-labelledby="backlog-confirm-title"

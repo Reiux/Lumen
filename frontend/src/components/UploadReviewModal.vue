@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import M3Button from './ui/M3Button.vue'
 import M3Icon from './ui/M3Icon.vue'
 import M3Switch from './ui/M3Switch.vue'
 import M3LoadingIndicator from './ui/M3LoadingIndicator.vue'
+import { useDialogFocusTrap } from '../utils/useDialogFocusTrap'
 
 const { t } = useI18n()
 
@@ -20,8 +22,9 @@ export interface ReviewSummary {
   hasFolder?: boolean
 }
 
-defineProps<{
-  summary: ReviewSummary
+const props = defineProps<{
+  open: boolean
+  summary: ReviewSummary | null
   includeSubfolders?: boolean
   isRescanning?: boolean
 }>()
@@ -32,11 +35,16 @@ const emit = defineEmits<{
   (e: 'update:includeSubfolders', value: boolean): void
 }>()
 
+const dialogCardRef = ref<HTMLElement | null>(null)
+useDialogFocusTrap(() => Boolean(props.open && props.summary), dialogCardRef, {
+  onEscape: () => emit('cancel'),
+})
+
 function formatBytes(bytes: number, decimals = 1): string {
-  if (!bytes || bytes === 0) return '0 B'
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
   const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.min(sizes.length - 1, Math.floor(Math.log(bytes) / Math.log(k)))
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(decimals))} ${sizes[i]}`
 }
 </script>
@@ -45,11 +53,14 @@ function formatBytes(bytes: number, decimals = 1): string {
   <Teleport to="body">
     <Transition name="m3-dialog-modal">
       <div
+        v-if="open && summary"
         class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 select-none overflow-y-auto"
         @click.self="emit('cancel')"
       >
         <div
-          class="m3-dialog-card relative flex flex-col gap-4 w-full max-w-lg rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl border border-[var(--md-sys-color-outline-variant)]/40 max-h-[85vh]"
+          ref="dialogCardRef"
+          tabindex="-1"
+          class="m3-dialog-card relative flex flex-col gap-4 w-full max-w-lg rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl border border-[var(--md-sys-color-outline-variant)]/40 max-h-[85vh] outline-none"
           role="dialog"
           aria-modal="true"
           aria-labelledby="review-confirm-title"

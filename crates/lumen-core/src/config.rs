@@ -1,9 +1,45 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 use serde::{Deserialize, Serialize};
 
 use crate::keyring::{KeyringStorage, MockKeyringProvider};
+
+static CONFIG_TEMP_SEQ: AtomicU64 = AtomicU64::new(1);
+
+fn secure_copy_file(src: &Path, dst: &Path) -> std::io::Result<()> {
+    let meta = fs::symlink_metadata(src)?;
+    if !meta.is_file() || meta.file_type().is_symlink() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Source path is not a regular file",
+        ));
+    }
+    let bytes = fs::read(src)?;
+    let mut opts = fs::OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        opts.mode(0o600);
+        opts.custom_flags(libc::O_NOFOLLOW);
+        let mut f = opts.open(dst)?;
+        let _ = f.set_permissions(fs::Permissions::from_mode(0o600));
+        use std::io::Write;
+        f.write_all(&bytes)?;
+        f.sync_all()?;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        use std::io::Write;
+        let mut f = opts.open(dst)?;
+        f.write_all(&bytes)?;
+        f.sync_all()?;
+        Ok(())
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct WatchedFolderConfig {
@@ -55,7 +91,7 @@ pub struct Preferences {
     pub launch_on_startup: bool,
     #[serde(default = "default_true", rename = "notify_on_complete")]
     pub notify_on_complete: bool,
-    #[serde(default, rename = "use_local_hash_cache")]
+    #[serde(default = "default_true", rename = "use_local_hash_cache")]
     pub use_local_hash_cache: bool,
     #[serde(default, rename = "upload_speed_limit_kbps")]
     pub upload_speed_limit_kbps: u32,
@@ -173,7 +209,7 @@ impl Default for Preferences {
             minimize_to_tray: false,
             launch_on_startup: false,
             notify_on_complete: true,
-            use_local_hash_cache: false,
+            use_local_hash_cache: true,
             upload_speed_limit_kbps: 0,
             watch_folders_enabled: false,
             watched_folders: Vec::new(),
@@ -288,7 +324,21 @@ static GLOBAL_CONFIG_MANAGER: OnceLock<ConfigManager> = OnceLock::new();
 
 impl ConfigManager {
     pub fn new(config_path: PathBuf, keyring: Arc<KeyringStorage>) -> Self {
-        let config = Self::load_from_path(&config_path).unwrap_or_default();
+        let config = match Self::load_from_path(&config_path) {
+            Ok(cfg) => cfg,
+            Err(err) => {
+                tracing::error!("Failed to load config from {:?}: {}", config_path, err);
+                if config_path.is_file() {
+                    let mut bak_os = config_path.as_os_str().to_os_string();
+                    bak_os.push(".corrupt");
+                    let bak_path = PathBuf::from(bak_os);
+                    if !bak_path.exists() {
+                        let _ = secure_copy_file(&config_path, &bak_path);
+                    }
+                }
+                Config::default()
+            }
+        };
         Self {
             config: RwLock::new(config),
             config_path: RwLock::new(config_path),
@@ -324,9 +374,12 @@ impl ConfigManager {
         F: FnOnce(&mut Config),
     {
         let mut cfg = self.config.write().unwrap();
-        f(&mut cfg);
+        let mut next_cfg = cfg.clone();
+        f(&mut next_cfg);
         let path = self.config_path.read().unwrap().clone();
-        Self::save_to_path(&cfg, &path)
+        Self::save_to_path(&next_cfg, &path)?;
+        *cfg = next_cfg;
+        Ok(())
     }
 
     pub fn load_from_path(path: &Path) -> Result<Config, String> {
@@ -376,11 +429,11 @@ impl ConfigManager {
             return Ok(config);
         }
 
-        Ok(Config::default())
+        Err("Configuration file is corrupted or unrecognized YAML/JSON".to_string())
     }
 
     pub fn save_to_path(config: &Config, path: &Path) -> Result<(), String> {
-        if let Some(parent) = path.parent() {
+        if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
             #[cfg(unix)]
             {
@@ -390,8 +443,12 @@ impl ConfigManager {
         }
 
         let yaml = serde_yaml::to_string(config).map_err(|e| e.to_string())?;
-        let temp_path = path.with_extension("tmp");
-        let _ = fs::remove_file(&temp_path);
+        let seq = CONFIG_TEMP_SEQ.fetch_add(1, Ordering::Relaxed);
+        let file_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("config.yaml");
+        let temp_path = path.with_file_name(format!(".{}.tmp.{}.{}", file_name, std::process::id(), seq));
 
         {
             use std::io::Write;
@@ -413,7 +470,10 @@ impl ConfigManager {
             f.sync_all().map_err(|e| e.to_string())?;
         }
 
-        fs::rename(&temp_path, path).map_err(|e| e.to_string())?;
+        if let Err(e) = fs::rename(&temp_path, path) {
+            let _ = fs::remove_file(&temp_path);
+            return Err(e.to_string());
+        }
 
         #[cfg(unix)]
         {
@@ -438,20 +498,39 @@ impl ConfigManager {
         }
 
         // 1. Try OS keyring first
-        if let Ok(Some(cred)) = self.keyring.get_credential(&email) {
-            if !cred.trim().is_empty() {
-                return Ok(cred);
+        let keyring_err = match self.keyring.get_credential(&email) {
+            Ok(Some(cred)) if !cred.trim().is_empty() => return Ok(cred),
+            Ok(_) => None,
+            Err(e) => Some(e),
+        };
+
+        // 2. Fall back to config credentials list (only if it still contains a Token)
+        let mut found_sanitized_without_token = false;
+        let cfg = self.config.read().unwrap();
+        for cred in &cfg.account.credentials {
+            let params: std::collections::HashMap<String, String> =
+                url::form_urlencoded::parse(cred.as_bytes()).into_owned().collect();
+            if let Some(parsed_email) = params.get("Email") {
+                if parsed_email.eq_ignore_ascii_case(&email) {
+                    if params.get("Token").map(|t| !t.trim().is_empty()).unwrap_or(false) {
+                        return Ok(cred.clone());
+                    }
+                    found_sanitized_without_token = true;
+                }
             }
         }
 
-        // 2. Fall back to config credentials list
-        let cfg = self.config.read().unwrap();
-        for cred in &cfg.account.credentials {
-            if let Some(parsed) = url::form_urlencoded::parse(cred.as_bytes()).into_owned().collect::<std::collections::HashMap<_, _>>().get("Email").cloned() {
-                if parsed.eq_ignore_ascii_case(&email) {
-                    return Ok(cred.clone());
-                }
+        if found_sanitized_without_token {
+            if let Some(err) = keyring_err {
+                return Err(format!(
+                    "OS keyring unavailable for {}: {} (please unlock your keyring or sign in again)",
+                    email, err
+                ));
             }
+            return Err(format!(
+                "Keyring has no stored token for {} (session keyring may have been cleared); please sign in again",
+                email
+            ));
         }
 
         Err(format!("no credentials found for account: {}", email))
@@ -463,10 +542,14 @@ impl ConfigManager {
             return Err("email cannot be empty".to_string());
         }
 
-        // Try saving to keyring
+        // Try saving to keyring; if keyring storage fails, delete any stale entry
+        // so an older keyring token cannot shadow the fallback credential on disk.
         let keyring_result = self.keyring.store_credential(email, credential);
         let keyring_saved = keyring_result.is_ok();
         let should_backup_in_file = !keyring_saved;
+        if should_backup_in_file {
+            let _ = self.keyring.delete_credential(email);
+        }
 
         self.update(|cfg| {
             cfg.account.selected = email.to_string();
@@ -499,7 +582,23 @@ impl ConfigManager {
     }
 
     pub fn remove_credential(&self, email: &str) -> Result<(), String> {
+        let _ = self.remove_credential_if_present(email)?;
+        Ok(())
+    }
+
+    pub fn remove_credential_if_present(&self, email: &str) -> Result<bool, String> {
         let email = email.trim();
+        let had_selected = {
+            let cfg = self.config.read().unwrap();
+            cfg.account.selected.eq_ignore_ascii_case(email)
+                || cfg.account.credentials.iter().any(|c| {
+                    url::form_urlencoded::parse(c.as_bytes())
+                        .find(|(k, _)| k == "Email")
+                        .map(|(_, e)| e.eq_ignore_ascii_case(email))
+                        .unwrap_or(false)
+                })
+        };
+        let keyring_existed = self.keyring.get_credential(email).is_ok();
         let _ = self.keyring.delete_credential(email);
 
         self.update(|cfg| {
@@ -517,7 +616,9 @@ impl ConfigManager {
                         .map(|(_, v)| v.into_owned())
                 }).unwrap_or_default();
             }
-        })
+        })?;
+
+        Ok(had_selected || keyring_existed)
     }
 }
 
@@ -566,34 +667,17 @@ pub fn determine_config_path(override_path: Option<&Path>) -> PathBuf {
                     use std::os::unix::fs::PermissionsExt;
                     let _ = fs::set_permissions(&lumen_dir, fs::Permissions::from_mode(0o700));
                 }
-                if fs::copy(&legacy_config, &lumen_config).is_ok() {
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::fs::PermissionsExt;
-                        let _ = fs::set_permissions(&lumen_config, fs::Permissions::from_mode(0o600));
-                    }
-                    let legacy_db = legacy_dir.join("hash_cache.db");
-                    if let Ok(db_meta) = fs::symlink_metadata(&legacy_db) {
-                        if db_meta.is_file() && !db_meta.file_type().is_symlink() {
-                            let target_db = lumen_dir.join("hash_cache.db");
-                            let _ = fs::copy(&legacy_db, &target_db);
-                            #[cfg(unix)]
-                            {
-                                use std::os::unix::fs::PermissionsExt;
-                                let _ = fs::set_permissions(&target_db, fs::Permissions::from_mode(0o600));
-                            }
-                        }
-                    }
-                    let legacy_reg = legacy_dir.join("album_registry.json");
-                    if let Ok(reg_meta) = fs::symlink_metadata(&legacy_reg) {
-                        if reg_meta.is_file() && !reg_meta.file_type().is_symlink() {
-                            let target_reg = lumen_dir.join("album_registry.json");
-                            let _ = fs::copy(&legacy_reg, &target_reg);
-                            #[cfg(unix)]
-                            {
-                                use std::os::unix::fs::PermissionsExt;
-                                let _ = fs::set_permissions(&target_reg, fs::Permissions::from_mode(0o600));
-                            }
+                if secure_copy_file(&legacy_config, &lumen_config).is_ok() {
+                    for (legacy_name, target_name) in [
+                        ("hash_cache.db", "hash_cache.db"),
+                        ("hashes.db", "hashes.db"),
+                        ("album_registry.json", "album_registry.json"),
+                        ("albums.json", "albums.json"),
+                    ] {
+                        let legacy_file = legacy_dir.join(legacy_name);
+                        let target_file = lumen_dir.join(target_name);
+                        if !target_file.exists() {
+                            let _ = secure_copy_file(&legacy_file, &target_file);
                         }
                     }
                     return lumen_config;
@@ -784,5 +868,45 @@ preferences:
         assert_eq!(cfg.preferences.upload_threads, 4);
         assert!(cfg.preferences.saver);
         assert_eq!(cfg.preferences.last_update_check, 0);
+    }
+
+    #[test]
+    fn test_corrupt_config_returns_err_and_preserves_backup() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("lumen.config");
+        fs::write(&path, ":::not valid yaml or json [[[").unwrap();
+
+        assert!(ConfigManager::load_from_path(&path).is_err());
+
+        let mgr = ConfigManager::new_with_mock_keyring(path.clone());
+        let mut bak = path.as_os_str().to_os_string();
+        bak.push(".corrupt");
+        let bak_path = PathBuf::from(bak);
+        assert!(bak_path.exists(), "corrupt config backup should be preserved");
+        assert_eq!(mgr.get_config().account.selected, "");
+    }
+
+    #[test]
+    fn test_get_credential_rejects_stripped_tokenless_fallback_when_keyring_empty() {
+        use crate::keyring::{KeyringStorage, MockKeyringProvider};
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("lumen.config");
+        let keyring = Arc::new(KeyringStorage::new(Arc::new(MockKeyringProvider::new())));
+        let mgr = ConfigManager::new(path, keyring.clone());
+
+        let email = "lost@example.com";
+        let cred = "androidId=9999&Email=lost@example.com&Token=secret_master_token";
+        mgr.save_credential(email, cred).unwrap();
+
+        // Simulate OS session keyring cleared (e.g. reboot on keyutils)
+        keyring.delete_credential(email).unwrap();
+
+        let err = mgr.get_credential_for_account(Some(email)).unwrap_err();
+        assert!(
+            err.contains("Keyring has no stored token") || err.contains("OS keyring unavailable"),
+            "unexpected error: {}",
+            err
+        );
     }
 }

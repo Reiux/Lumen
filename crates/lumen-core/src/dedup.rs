@@ -44,7 +44,7 @@ pub struct HashCache {
 
 impl HashCache {
     pub fn open(db_path: &Path) -> Result<Self, DedupError> {
-        if let Some(parent) = db_path.parent() {
+        if let Some(parent) = db_path.parent().filter(|p| !p.as_os_str().is_empty()) {
             std::fs::create_dir_all(parent)?;
             #[cfg(unix)]
             {
@@ -64,13 +64,13 @@ impl HashCache {
                         let _ = std::fs::remove_file(&target);
                     }
                 }
-                let mut opts = std::fs::OpenOptions::new();
-                opts.write(true).create(true).truncate(false);
-                opts.mode(0o600);
-                opts.custom_flags(libc::O_NOFOLLOW);
-                if let Ok(f) = opts.open(&target) {
-                    let _ = f.set_permissions(std::fs::Permissions::from_mode(0o600));
-                }
+            }
+            let mut opts = std::fs::OpenOptions::new();
+            opts.write(true).create(true).truncate(false);
+            opts.mode(0o600);
+            opts.custom_flags(libc::O_NOFOLLOW);
+            if let Ok(f) = opts.open(db_path) {
+                let _ = f.set_permissions(std::fs::Permissions::from_mode(0o600));
             }
         }
         let conn = Connection::open(db_path)?;
@@ -104,7 +104,7 @@ impl HashCache {
 
     fn init_schema(&self) -> Result<(), DedupError> {
         let conn = self.conn.lock().unwrap();
-        let _ = conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
+        let _ = conn.execute_batch("PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
 
         // Check for table migration
         let has_acc_col: i64 = conn.query_row(
@@ -250,6 +250,53 @@ impl HashCache {
             params![account_email, sha1_b64, file_size],
         )?;
         Ok(())
+    }
+
+    pub async fn get_async(&self, account_email: &str, sha1_b64: &str, file_size: i64) -> Result<Option<String>, DedupError> {
+        let cache = self.clone();
+        let email = account_email.to_string();
+        let sha1 = sha1_b64.to_string();
+        tokio::task::spawn_blocking(move || cache.get(&email, &sha1, file_size))
+            .await
+            .map_err(|e| DedupError::Io(std::io::Error::other(e.to_string())))?
+    }
+
+    pub async fn put_async(&self, account_email: &str, sha1_b64: &str, media_key: &str, file_size: i64, mtime: i64) -> Result<(), DedupError> {
+        let cache = self.clone();
+        let email = account_email.to_string();
+        let sha1 = sha1_b64.to_string();
+        let key = media_key.to_string();
+        tokio::task::spawn_blocking(move || cache.put(&email, &sha1, &key, file_size, mtime))
+            .await
+            .map_err(|e| DedupError::Io(std::io::Error::other(e.to_string())))?
+    }
+
+    pub async fn save_upload_session_async(&self, account_email: &str, sha1_b64: &str, file_size: i64, token: &str) -> Result<(), DedupError> {
+        let cache = self.clone();
+        let email = account_email.to_string();
+        let sha1 = sha1_b64.to_string();
+        let tok = token.to_string();
+        tokio::task::spawn_blocking(move || cache.save_upload_session(&email, &sha1, file_size, &tok))
+            .await
+            .map_err(|e| DedupError::Io(std::io::Error::other(e.to_string())))?
+    }
+
+    pub async fn get_upload_session_async(&self, account_email: &str, sha1_b64: &str, file_size: i64) -> Result<Option<String>, DedupError> {
+        let cache = self.clone();
+        let email = account_email.to_string();
+        let sha1 = sha1_b64.to_string();
+        tokio::task::spawn_blocking(move || cache.get_upload_session(&email, &sha1, file_size))
+            .await
+            .map_err(|e| DedupError::Io(std::io::Error::other(e.to_string())))?
+    }
+
+    pub async fn remove_upload_session_async(&self, account_email: &str, sha1_b64: &str, file_size: i64) -> Result<(), DedupError> {
+        let cache = self.clone();
+        let email = account_email.to_string();
+        let sha1 = sha1_b64.to_string();
+        tokio::task::spawn_blocking(move || cache.remove_upload_session(&email, &sha1, file_size))
+            .await
+            .map_err(|e| DedupError::Io(std::io::Error::other(e.to_string())))?
     }
 }
 

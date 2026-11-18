@@ -9,6 +9,7 @@ import M3Icon from './ui/M3Icon.vue'
 import M3TextField from './ui/M3TextField.vue'
 import AccountRiskCard from './AccountRiskCard.vue'
 import { displayNameFromEmail, getAvatarColor, getEmailInitial } from '../utils/avatar'
+import { useDialogFocusTrap } from '../utils/useDialogFocusTrap'
 
 const { t } = useI18n()
 
@@ -38,18 +39,31 @@ const detectedBrowserName = ref('')
 const showManualFallback = ref(false)
 let unlistenCloseFailed: (() => void) | null = null
 
+const dialogCardRef = ref<HTMLElement | null>(null)
 const dialogBodyRef = ref<HTMLElement | null>(null)
 const tokenFieldRef = ref<{ focus?: () => void } | null>(null)
-let openerElement: HTMLElement | null = null
 let successDismissTimer: ReturnType<typeof setTimeout> | null = null
+
+useDialogFocusTrap(
+  () => isOpen.value,
+  dialogCardRef,
+  {
+    onEscape: () => {
+      isOpen.value = false
+    },
+    initialFocus: () => tokenFieldRef.value,
+  },
+)
 
 async function checkBrowserSupport() {
   try {
-    hasSupportedBrowser.value = await ConfigManager.HasSupportedBrowser()
-    if (hasSupportedBrowser.value) {
-      detectedBrowserName.value = (await ConfigManager.GetSupportedBrowserName()) || ''
-    }
+    const supported = await ConfigManager.HasSupportedBrowser()
+    const browserName = supported ? (await ConfigManager.GetSupportedBrowserName()) || '' : ''
+    if (!isOpen.value) return
+    hasSupportedBrowser.value = supported
+    detectedBrowserName.value = browserName
   } catch {
+    if (!isOpen.value) return
     hasSupportedBrowser.value = false
     detectedBrowserName.value = ''
   }
@@ -62,12 +76,15 @@ watch(hasAcknowledgedRisk, (ack) => {
   ConfigManager.SetAccountRiskAcknowledged(ack).catch(() => {})
 })
 
+let browserAttemptSeq = 0
+
 async function handleBrowserSignIn() {
   if (!hasAcknowledgedRisk.value) {
     validationError.value = t('googleAuth.validationSafetyNotice')
     return
   }
 
+  const attemptSeq = ++browserAttemptSeq
   browserState.value = 'waiting'
   browserErrorMessage.value = ''
   browserCloseFallbackMessage.value = ''
@@ -75,7 +92,15 @@ async function handleBrowserSignIn() {
 
   try {
     await ConfigManager.SetAccountRiskAcknowledged(true)
+    if (!isOpen.value || attemptSeq !== browserAttemptSeq) return
     const connectedEmail = await ConfigManager.StartBrowserSignIn()
+    if (attemptSeq !== browserAttemptSeq) return
+    if (!isOpen.value) {
+      if (connectedEmail) {
+        emit('account-added')
+      }
+      return
+    }
     if (!connectedEmail) {
       throw new Error(t('googleAuth.couldNotVerifyNoEmail'))
     }
@@ -84,13 +109,17 @@ async function handleBrowserSignIn() {
     verifiedUser.value = { email: connectedEmail }
 
     successDismissTimer = setTimeout(() => {
+      if (!verifiedUser.value) return
+      const email = verifiedUser.value.email
+      verifiedUser.value = null
       isOpen.value = false
       emit('account-added')
       toast.success(t('googleAuth.toastConnected'), {
-        description: connectedEmail,
+        description: email,
       })
     }, 1500)
   } catch (error: unknown) {
+    if (!isOpen.value || attemptSeq !== browserAttemptSeq) return
     const errMsg = error instanceof Error ? error.message : String(error)
     if (errMsg.toLowerCase().includes('cancel')) {
       browserState.value = 'idle'
@@ -102,12 +131,13 @@ async function handleBrowserSignIn() {
 }
 
 async function handleCancelBrowserSignIn() {
+  browserAttemptSeq++
+  browserState.value = 'idle'
   try {
     await ConfigManager.CancelBrowserSignIn()
   } catch {
     // ignore
   }
-  browserState.value = 'idle'
 }
 
 function handleFallbackToManual() {
@@ -120,23 +150,30 @@ function handleFallbackToManual() {
 
 watch(isOpen, (open) => {
   if (open) {
-    openerElement = (document.activeElement as HTMLElement) || null
     validationError.value = ''
     verifiedUser.value = null
     isValidating.value = false
     browserState.value = 'idle'
     browserErrorMessage.value = ''
     browserCloseFallbackMessage.value = ''
+    showManualFallback.value = false
     checkBrowserSupport()
     nextTick(() => {
       if (dialogBodyRef.value) {
         dialogBodyRef.value.scrollTop = 0
       }
-      tokenFieldRef.value?.focus?.()
     })
   } else {
     if (browserState.value === 'waiting') {
       ConfigManager.CancelBrowserSignIn().catch(() => {})
+    }
+    if (verifiedUser.value) {
+      const email = verifiedUser.value.email
+      verifiedUser.value = null
+      emit('account-added')
+      toast.success(t('googleAuth.toastConnected'), {
+        description: email,
+      })
     }
     oauthToken.value = ''
     rawCredential.value = ''
@@ -145,33 +182,22 @@ watch(isOpen, (open) => {
     isValidating.value = false
     browserState.value = 'idle'
     browserErrorMessage.value = ''
+    browserCloseFallbackMessage.value = ''
+    showManualFallback.value = false
     if (successDismissTimer) {
       clearTimeout(successDismissTimer)
       successDismissTimer = null
     }
-    if (openerElement && typeof openerElement.focus === 'function') {
-      openerElement.focus({ preventScroll: true })
-    }
-    openerElement = null
   }
 })
 
-function handleKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && isOpen.value) {
-    e.stopPropagation()
-    isOpen.value = false
-  }
-}
-
 onMounted(() => {
-  window.addEventListener('keydown', handleKeydown)
   unlistenCloseFailed = Events.On('browser-signin:close-failed', () => {
     browserCloseFallbackMessage.value = t('googleAuth.signedInCanClose')
   })
 })
 
 onUnmounted(() => {
-  window.removeEventListener('keydown', handleKeydown)
   if (successDismissTimer) clearTimeout(successDismissTimer)
   if (unlistenCloseFailed) {
     unlistenCloseFailed()
@@ -250,6 +276,7 @@ const isFormValid = computed(() => {
 })
 
 async function handleConnect() {
+  if (isValidating.value || verifiedUser.value) return
   if (!hasAcknowledgedRisk.value) {
     validationError.value = t('googleAuth.validationSafetyNotice')
     return
@@ -267,6 +294,12 @@ async function handleConnect() {
   try {
     // Perform immediate live validation probe & storage via backend
     const connectedEmail = await ConfigManager.ValidateAndAddCredentials(payload)
+    if (!isOpen.value) {
+      if (connectedEmail) {
+        emit('account-added')
+      }
+      return
+    }
     if (!connectedEmail) {
       throw new Error(t('googleAuth.couldNotVerifyNoEmail'))
     }
@@ -277,13 +310,17 @@ async function handleConnect() {
 
     // Auto-advance after brief visual confirmation
     successDismissTimer = setTimeout(() => {
+      if (!verifiedUser.value) return
+      const email = verifiedUser.value.email
+      verifiedUser.value = null
       isOpen.value = false
       emit('account-added')
       toast.success(t('googleAuth.toastConnected'), {
-        description: connectedEmail,
+        description: email,
       })
     }, 1500)
   } catch (error) {
+    if (!isOpen.value) return
     isValidating.value = false
     const errMsg = error instanceof Error ? error.message : String(error)
     validationError.value = errMsg || t('googleAuth.validationErrorGeneric')
@@ -292,11 +329,13 @@ async function handleConnect() {
 
 function handleDoneSuccess() {
   if (successDismissTimer) clearTimeout(successDismissTimer)
+  const email = verifiedUser.value?.email
+  verifiedUser.value = null
   isOpen.value = false
   emit('account-added')
-  if (verifiedUser.value?.email) {
+  if (email) {
     toast.success(t('googleAuth.toastConnected'), {
-      description: verifiedUser.value.email,
+      description: email,
     })
   }
 }
@@ -313,6 +352,8 @@ function handleDoneSuccess() {
       >
         <!-- Centered M3 Modal Dialog -->
         <div
+          ref="dialogCardRef"
+          tabindex="-1"
           class="m3-dialog-card relative flex flex-col w-full max-w-lg rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container-high)] shadow-2xl outline-none max-h-[calc(100dvh-32px)] overflow-hidden select-none"
           role="dialog"
           aria-modal="true"

@@ -5,6 +5,7 @@ import M3Button from './ui/M3Button.vue'
 import M3Icon from './ui/M3Icon.vue'
 import M3TextField from './ui/M3TextField.vue'
 import { displayNameFromEmail, getCustomDisplayName, saveCustomDisplayName } from '../utils/avatar'
+import { useDialogFocusTrap } from '../utils/useDialogFocusTrap'
 
 const { t } = useI18n()
 
@@ -20,6 +21,8 @@ const emit = defineEmits<{
 }>()
 
 const localDisplayName = ref('')
+const dialogCardRef = ref<HTMLElement | null>(null)
+useDialogFocusTrap(() => props.modelValue, dialogCardRef, { onEscape: close })
 
 watch(
   () => [props.modelValue, props.accountEmail],
@@ -61,7 +64,9 @@ function handleReset() {
         @click.self="close"
       >
         <div
-          class="m3-dialog-card relative flex w-full max-w-md flex-col items-center justify-center gap-5 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container-high)] p-8 text-center shadow-2xl"
+          ref="dialogCardRef"
+          tabindex="-1"
+          class="m3-dialog-card relative flex w-full max-w-md flex-col items-center justify-center gap-5 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container-high)] p-8 text-center shadow-2xl outline-none"
           role="dialog"
           aria-modal="true"
           aria-labelledby="edit-display-name-title"

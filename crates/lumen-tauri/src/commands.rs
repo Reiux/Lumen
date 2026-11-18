@@ -46,24 +46,29 @@ pub struct AppState {
     pub is_uploading: Arc<AtomicBool>,
     pub pending_watch_files: Arc<std::sync::Mutex<Vec<PendingUploadBatch>>>,
     pub watcher: Arc<tokio::sync::Mutex<Option<lumen_core::watcher::FolderWatcher>>>,
+    pub tray_available: Arc<AtomicBool>,
+    pub update_checker: UpdateChecker,
+    pub run_seq: Arc<std::sync::atomic::AtomicU64>,
+    pub log_seq: Arc<std::sync::atomic::AtomicU64>,
 }
 
 pub fn sync_folder_watcher(state: &AppState) {
-    let cfg = state.config_manager.get_config();
-    let mut folders = std::collections::HashMap::new();
-    if cfg.preferences.watch_folders_enabled {
-        for c in &cfg.preferences.watched_folder_configs {
-            if c.enabled {
-                folders.insert(std::path::PathBuf::from(&c.path), c.include_subfolders);
-            }
-        }
-    }
-    let filter_unsupported = !cfg.preferences.disable_unsupported_files_filter;
-    let exclude_pattern = cfg.preferences.exclude_pattern.clone();
+    let config_manager = state.config_manager.clone();
     let watcher_arc = state.watcher.clone();
     tauri::async_runtime::spawn(async move {
         let mut lock = watcher_arc.lock().await;
         if let Some(ref mut w) = *lock {
+            let cfg = config_manager.get_config();
+            let mut folders = std::collections::HashMap::new();
+            if cfg.preferences.watch_folders_enabled {
+                for c in &cfg.preferences.watched_folder_configs {
+                    if c.enabled {
+                        folders.insert(std::path::PathBuf::from(&c.path), c.include_subfolders);
+                    }
+                }
+            }
+            let filter_unsupported = !cfg.preferences.disable_unsupported_files_filter;
+            let exclude_pattern = cfg.preferences.exclude_pattern.clone();
             w.set_filter_options(filter_unsupported, exclude_pattern);
             let _ = w.set_folders(folders);
         }
@@ -92,7 +97,7 @@ pub fn get_settings(state: tauri::State<AppState>) -> Preferences {
         set_date_from_filename: cfg.preferences.set_date_from_filename,
         exclude_pattern: cfg.preferences.exclude_pattern,
         minimize_to_tray: cfg.preferences.minimize_to_tray,
-        launch_on_startup: is_launch_on_startup_active() || cfg.preferences.launch_on_startup,
+        launch_on_startup: is_launch_on_startup_active(),
         notify_on_complete: cfg.preferences.notify_on_complete,
         use_local_hash_cache: cfg.preferences.use_local_hash_cache,
         upload_speed_limit_kbps: cfg.preferences.upload_speed_limit_kbps,
@@ -296,9 +301,15 @@ fn is_launch_on_startup_active() -> bool {
     }
     #[cfg(target_os = "linux")]
     {
-        let autostart_dir = if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+        let autostart_dir = if let Some(xdg) = std::env::var("XDG_CONFIG_HOME")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+        {
             std::path::PathBuf::from(xdg).join("autostart")
-        } else if let Ok(home) = std::env::var("HOME") {
+        } else if let Some(home) = std::env::var("HOME")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+        {
             std::path::PathBuf::from(home).join(".config").join("autostart")
         } else {
             std::path::PathBuf::from(".config").join("autostart")
@@ -312,11 +323,8 @@ fn is_launch_on_startup_active() -> bool {
 }
 
 #[tauri::command]
-pub fn get_launch_on_startup(state: tauri::State<AppState>) -> bool {
-    if is_launch_on_startup_active() {
-        return true;
-    }
-    state.config_manager.get_config().preferences.launch_on_startup
+pub fn get_launch_on_startup(_state: tauri::State<AppState>) -> bool {
+    is_launch_on_startup_active()
 }
 
 #[tauri::command]
@@ -326,15 +334,16 @@ pub fn set_launch_on_startup(v: bool, state: tauri::State<AppState>) -> Result<(
         use winreg::enums::*;
         use winreg::RegKey;
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-        if let Ok((key, _)) = hkcu.create_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run") {
-            if v {
-                if let Ok(exe) = std::env::current_exe() {
-                    let exe_str = format!("\"{}\"", exe.to_string_lossy());
-                    let _ = key.set_value("Lumen", &exe_str);
-                }
-            } else {
-                let _ = key.delete_value("Lumen");
-            }
+        let (key, _) = hkcu
+            .create_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run")
+            .map_err(|e| format!("Failed to open Run registry key: {}", e))?;
+        if v {
+            let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+            let exe_str = format!("\"{}\"", exe.to_string_lossy());
+            key.set_value("Lumen", &exe_str)
+                .map_err(|e| format!("Failed to set startup registry entry: {}", e))?;
+        } else {
+            let _ = key.delete_value("Lumen");
         }
     }
     #[cfg(target_os = "macos")]
@@ -343,42 +352,64 @@ pub fn set_launch_on_startup(v: bool, state: tauri::State<AppState>) -> Result<(
             let launch_agents = std::path::PathBuf::from(&home).join("Library").join("LaunchAgents");
             let plist_path = launch_agents.join("com.reiux.lumen.plist");
             if v {
-                let _ = std::fs::create_dir_all(&launch_agents);
-                if let Ok(exe) = std::env::current_exe() {
-                    let escaped_exe = escape_xml_entity(&exe.to_string_lossy());
-                    let plist_content = format!(
-                        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n    <key>Label</key>\n    <string>com.reiux.lumen</string>\n    <key>ProgramArguments</key>\n    <array>\n        <string>{}</string>\n    </array>\n    <key>RunAtLoad</key>\n    <true/>\n    <key>ProcessType</key>\n    <string>Interactive</string>\n</dict>\n</plist>",
-                        escaped_exe
-                    );
-                    let _ = std::fs::write(&plist_path, plist_content);
-                }
+                std::fs::create_dir_all(&launch_agents).map_err(|e| e.to_string())?;
+                let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+                let escaped_exe = escape_xml_entity(&exe.to_string_lossy());
+                let plist_content = format!(
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n    <key>Label</key>\n    <string>com.reiux.lumen</string>\n    <key>ProgramArguments</key>\n    <array>\n        <string>{}</string>\n    </array>\n    <key>RunAtLoad</key>\n    <true/>\n    <key>ProcessType</key>\n    <string>Interactive</string>\n</dict>\n</plist>",
+                    escaped_exe
+                );
+                std::fs::write(&plist_path, plist_content).map_err(|e| e.to_string())?;
             } else if plist_path.exists() {
-                let _ = std::fs::remove_file(&plist_path);
+                std::fs::remove_file(&plist_path).map_err(|e| e.to_string())?;
             }
         }
     }
     #[cfg(target_os = "linux")]
     {
-        let autostart_dir = if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+        let autostart_dir = if let Some(xdg) = std::env::var("XDG_CONFIG_HOME")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+        {
             std::path::PathBuf::from(xdg).join("autostart")
-        } else if let Ok(home) = std::env::var("HOME") {
+        } else if let Some(home) = std::env::var("HOME")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+        {
             std::path::PathBuf::from(home).join(".config").join("autostart")
         } else {
             std::path::PathBuf::from(".config").join("autostart")
         };
         let desktop_file = autostart_dir.join("lumen.desktop");
         if v {
-            let _ = std::fs::create_dir_all(&autostart_dir);
-            if let Ok(exe) = std::env::current_exe() {
-                let clean_exe = exe.to_string_lossy().replace(['\r', '\n'], "").replace('"', "\\\"");
-                let desktop_entry = format!(
-                    "[Desktop Entry]\nType=Application\nName=Lumen\nComment=Lumen Google Photos Backup\nExec=\"{}\"\nTerminal=false\nCategories=Utility;\n",
-                    clean_exe
-                );
-                let _ = std::fs::write(&desktop_file, desktop_entry);
-            }
+            std::fs::create_dir_all(&autostart_dir).map_err(|e| e.to_string())?;
+            let launch_path = std::env::var("APPIMAGE")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+                .map(std::path::PathBuf::from)
+                .unwrap_or(std::env::current_exe().map_err(|e| e.to_string())?);
+            let escaped_exe = launch_path
+                .to_string_lossy()
+                .chars()
+                .filter(|c| !c.is_control())
+                .fold(String::new(), |mut acc, c| {
+                    match c {
+                        '\\' => acc.push_str("\\\\"),
+                        '"' => acc.push_str("\\\""),
+                        '$' => acc.push_str("\\$"),
+                        '`' => acc.push_str("\\`"),
+                        '%' => acc.push_str("%%"),
+                        other => acc.push(other),
+                    }
+                    acc
+                });
+            let desktop_entry = format!(
+                "[Desktop Entry]\nType=Application\nName=Lumen\nComment=Lumen Google Photos Backup\nExec=\"{}\"\nTerminal=false\nCategories=Utility;\n",
+                escaped_exe
+            );
+            std::fs::write(&desktop_file, desktop_entry).map_err(|e| e.to_string())?;
         } else if desktop_file.exists() {
-            let _ = std::fs::remove_file(&desktop_file);
+            std::fs::remove_file(&desktop_file).map_err(|e| e.to_string())?;
         }
     }
     state.config_manager.update(|cfg| {
@@ -559,7 +590,10 @@ pub fn set_album_nickname(
     nickname: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    state.album_registry.set(&account, &nickname, &key).map_err(|e| e.to_string())
+    state
+        .album_registry
+        .set_nickname(&account, &key, &nickname)
+        .map_err(|e| e.to_string())
 }
 
 // -------------------------------------------------------------
@@ -804,6 +838,84 @@ pub fn remove_credentials(email: String, state: tauri::State<AppState>) -> Resul
     state.config_manager.remove_credential(&email)
 }
 
+async fn exchange_oauth_token_for_credential(
+    raw_token: &str,
+    proxy: Option<&str>,
+) -> Result<(String, String), String> {
+    let clean = normalize_oauth_token(raw_token).map_err(|e| e.to_string())?;
+    let client = create_http_client(proxy)?;
+    let android_id = generate_android_id();
+    let exchange = exchange_embedded_setup_token(&client, EMBEDDED_SETUP_AUTH_ENDPOINT, &clean, &android_id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if exchange.email.is_empty() || exchange.email.eq_ignore_ascii_case("unknown@example.com") {
+        return Err("Google token exchange returned invalid or missing account email.".to_string());
+    }
+
+    let cred = build_google_photos_credential(&exchange.email, &exchange.master_token, &android_id);
+    Ok((exchange.email, cred))
+}
+
+async fn persist_validated_credential(
+    email: String,
+    full_credential: String,
+    proxy: Option<&str>,
+    app: &AppHandle,
+    state: &tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let custom_endpoint = std::env::var("LUMEN_API_ENDPOINT")
+        .ok()
+        .filter(|s| !s.trim().is_empty());
+    lumen_core::api::validate_google_photos_credential(
+        &full_credential,
+        proxy,
+        custom_endpoint.as_deref(),
+    )
+    .await
+    .map_err(|e| format!("Google Photos authorization (Stage 2) failed: {}", e))?;
+
+    let save_status = state
+        .config_manager
+        .save_credential(&email, &full_credential)
+        .map_err(|e| e.to_string())?;
+
+    if !save_status.keyring_saved {
+        let _ = app.emit(
+            "log:entry",
+            LogEntry {
+                id: format!("keyring-warn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis()),
+                timestamp: chrono_iso(),
+                level: "WARN".to_string(),
+                category: "Auth".to_string(),
+                user_message: Some("OS keyring unavailable; saving credentials directly to configuration file with mode 0600 permissions.".to_string()),
+                ..Default::default()
+            },
+        );
+    }
+
+    Ok(email)
+}
+
+async fn validate_and_add_oauth_token(
+    raw_oauth_token: String,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let raw = raw_oauth_token.trim();
+    if raw.is_empty() {
+        return Err("Credential input cannot be empty".to_string());
+    }
+    if looks_like_auth_string(raw) {
+        return Err("Browser sign-in returned an unexpected credential string instead of an OAuth token.".to_string());
+    }
+
+    let prefs = state.config_manager.get_preferences();
+    let proxy = (!prefs.proxy.trim().is_empty()).then_some(prefs.proxy.clone());
+    let (email, full_credential) = exchange_oauth_token_for_credential(raw, proxy.as_deref()).await?;
+    persist_validated_credential(email, full_credential, proxy.as_deref(), &app, &state).await
+}
+
 #[tauri::command]
 pub async fn validate_and_add_credentials(
     raw_input: String,
@@ -831,52 +943,10 @@ pub async fn validate_and_add_credentials(
         }
         (email.to_string(), raw.to_string())
     } else {
-        let clean = normalize_oauth_token(raw).map_err(|e| e.to_string())?;
-        let client = create_http_client(proxy.as_deref())?;
-        let android_id = generate_android_id();
-        let exchange = exchange_embedded_setup_token(&client, EMBEDDED_SETUP_AUTH_ENDPOINT, &clean, &android_id)
-            .await
-            .map_err(|e| e.to_string())?;
-
-        if exchange.email.is_empty() || exchange.email.eq_ignore_ascii_case("unknown@example.com") {
-            return Err("Google token exchange returned invalid or missing account email.".to_string());
-        }
-
-        let cred = build_google_photos_credential(&exchange.email, &exchange.master_token, &android_id);
-        (exchange.email, cred)
+        exchange_oauth_token_for_credential(raw, proxy.as_deref()).await?
     };
 
-    let custom_endpoint = std::env::var("LUMEN_API_ENDPOINT")
-        .ok()
-        .filter(|s| !s.trim().is_empty());
-    lumen_core::api::validate_google_photos_credential(
-        &full_credential,
-        proxy.as_deref(),
-        custom_endpoint.as_deref(),
-    )
-    .await
-    .map_err(|e| format!("Google Photos authorization (Stage 2) failed: {}", e))?;
-
-    let save_status = state
-        .config_manager
-        .save_credential(&email, &full_credential)
-        .map_err(|e| e.to_string())?;
-
-    if !save_status.keyring_saved {
-        let _ = app.emit(
-            "log:entry",
-            LogEntry {
-                id: format!("keyring-warn-{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis()),
-                timestamp: chrono_iso(),
-                level: "WARN".to_string(),
-                category: "Auth".to_string(),
-                user_message: Some("OS keyring unavailable; saving credentials directly to configuration file with mode 0600 permissions.".to_string()),
-                ..Default::default()
-            },
-        );
-    }
-
-    Ok(email)
+    persist_validated_credential(email, full_credential, proxy.as_deref(), &app, &state).await
 }
 
 #[tauri::command]
@@ -921,7 +991,7 @@ pub async fn start_browser_sign_in(
         let _ = app.emit("browser-signin:close-failed", ());
     }
 
-    validate_and_add_credentials(token, app, state).await
+    validate_and_add_oauth_token(token, app, state).await
 }
 
 #[tauri::command]
@@ -1032,17 +1102,28 @@ pub fn export_logs(format: String, state: tauri::State<AppState>) -> String {
     }
 }
 
-#[tauri::command]
-pub async fn check_for_updates(manual: bool) -> UpdateInfo {
-    let checker = UpdateChecker::new();
+pub async fn run_update_check(
+    config_manager: &ConfigManager,
+    checker: &UpdateChecker,
+    redirect_url: &str,
+    manual: bool,
+) -> UpdateInfo {
+    let last_check = config_manager.get_config().preferences.last_update_check;
+    let now_sec = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let should_persist_check = manual || last_check == 0 || (now_sec - last_check) >= (12 * 3600);
+
     let info = checker
-        .check_for_updates(
-            DEFAULT_RELEASES_URL,
-            env!("CARGO_PKG_VERSION"),
-            manual,
-            0,
-        )
+        .check_for_updates(redirect_url, env!("CARGO_PKG_VERSION"), manual, last_check)
         .await;
+
+    if should_persist_check && info.error.is_none() {
+        let _ = config_manager.update(|cfg| {
+            cfg.preferences.last_update_check = now_sec;
+        });
+    }
 
     UpdateInfo {
         current_version: info.current_version,
@@ -1050,29 +1131,36 @@ pub async fn check_for_updates(manual: bool) -> UpdateInfo {
         has_update: info.has_update,
         release_url: info.release_url,
         release_notes: info.release_notes,
-        published_at: chrono_iso(),
+        published_at: String::new(),
         checked_at: chrono_iso(),
         error: info.error,
     }
 }
 
 #[tauri::command]
-pub async fn check_for_updates_with_redirect_url(redirect_url: String, manual: bool) -> UpdateInfo {
-    let checker = UpdateChecker::new();
-    let info = checker
-        .check_for_updates(&redirect_url, env!("CARGO_PKG_VERSION"), manual, 0)
-        .await;
+pub async fn check_for_updates(manual: bool, state: tauri::State<'_, AppState>) -> Result<UpdateInfo, String> {
+    Ok(run_update_check(
+        &state.config_manager,
+        &state.update_checker,
+        DEFAULT_RELEASES_URL,
+        manual,
+    )
+    .await)
+}
 
-    UpdateInfo {
-        current_version: info.current_version,
-        latest_version: info.latest_version,
-        has_update: info.has_update,
-        release_url: info.release_url,
-        release_notes: info.release_notes,
-        published_at: chrono_iso(),
-        checked_at: chrono_iso(),
-        error: info.error,
-    }
+#[tauri::command]
+pub async fn check_for_updates_with_redirect_url(
+    redirect_url: String,
+    manual: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<UpdateInfo, String> {
+    Ok(run_update_check(
+        &state.config_manager,
+        &state.update_checker,
+        &redirect_url,
+        manual,
+    )
+    .await)
 }
 
 #[tauri::command]
@@ -1125,8 +1213,8 @@ pub fn is_debug_build() -> bool {
 }
 
 #[tauri::command]
-pub fn is_tray_available() -> bool {
-    true
+pub fn is_tray_available(state: tauri::State<AppState>) -> bool {
+    state.tray_available.load(Ordering::Relaxed)
 }
 
 // -------------------------------------------------------------
@@ -1182,31 +1270,35 @@ pub async fn pick_watched_folder(app: AppHandle) -> String {
 // -------------------------------------------------------------
 
 pub fn drain_ready_pending_batches(app: &AppHandle, state: &AppState) {
-    if state.is_uploading.load(Ordering::SeqCst) {
-        return;
-    }
-
-    let cfg = state.config_manager.get_config();
-    let watch_allowed = cfg.preferences.watch_folders_enabled
-        && (!cfg.preferences.schedule_enabled
-            || lumen_core::safety::is_within_schedule(
-                cfg.preferences.schedule_start_hour,
-                cfg.preferences.schedule_end_hour,
-            ))
-        && (!cfg.preferences.pause_on_battery || !lumen_core::safety::is_running_on_battery());
-
-    let next_batch = {
-        let mut pending = state.pending_watch_files.lock().unwrap();
-        if !cfg.preferences.watch_folders_enabled {
-            pending.retain(|b| !b.is_watched);
+    loop {
+        if state.is_uploading.load(Ordering::SeqCst) {
+            return;
         }
-        pending
-            .iter()
-            .position(|b| !b.is_watched || watch_allowed)
-            .map(|idx| pending.remove(idx))
-    };
 
-    if let Some(batch) = next_batch {
+        let cfg = state.config_manager.get_config();
+        let watch_allowed = cfg.preferences.watch_folders_enabled
+            && (!cfg.preferences.schedule_enabled
+                || lumen_core::safety::is_within_schedule(
+                    cfg.preferences.schedule_start_hour,
+                    cfg.preferences.schedule_end_hour,
+                ))
+            && (!cfg.preferences.pause_on_battery || !lumen_core::safety::is_running_on_battery());
+
+        let next_batch = {
+            let mut pending = state.pending_watch_files.lock().unwrap();
+            if !cfg.preferences.watch_folders_enabled {
+                pending.retain(|b| !b.is_watched);
+            }
+            pending
+                .iter()
+                .position(|b| !b.is_watched || watch_allowed)
+                .map(|idx| pending.remove(idx))
+        };
+
+        let Some(batch) = next_batch else {
+            return;
+        };
+
         if batch.is_watched {
             let _ = app.emit(
                 "folder-watch:detected",
@@ -1216,14 +1308,21 @@ pub fn drain_ready_pending_batches(app: &AppHandle, state: &AppState) {
                 }),
             );
         }
-        let _ = execute_upload(
+
+        match execute_upload(
             batch.files,
             app.clone(),
             state.clone(),
             batch.is_watched,
             batch.dry_run_override,
             batch.recursive_override,
-        );
+        ) {
+            Ok(()) => return,
+            Err(e) => {
+                tracing::warn!("Pending upload batch failed to start: {}", e);
+                let _ = app.emit("upload:error", e);
+            }
+        }
     }
 }
 
@@ -1259,6 +1358,51 @@ pub fn execute_upload(
             recursive_override,
         });
         return Ok(());
+    }
+
+    let mut files = files;
+    if is_watched && files.len() > 1 {
+        let mut group_order: Vec<(String, String, String, bool)> = Vec::new();
+        let mut groups: std::collections::HashMap<(String, String, String, bool), Vec<String>> =
+            std::collections::HashMap::new();
+        for f in files {
+            let key = match find_watched_folder_config_for_path(&f, &state) {
+                Some(fc) => (
+                    fc.account_email,
+                    fc.album_mode,
+                    fc.album_name_or_key,
+                    fc.include_subfolders,
+                ),
+                None => (String::new(), String::new(), String::new(), false),
+            };
+            if !groups.contains_key(&key) {
+                group_order.push(key.clone());
+            }
+            groups.entry(key).or_default().push(f);
+        }
+        let mut iter = group_order.into_iter();
+        if let Some(first_key) = iter.next() {
+            files = groups.remove(&first_key).unwrap_or_default();
+            let remaining: Vec<PendingUploadBatch> = iter
+                .filter_map(|k| groups.remove(&k))
+                .filter(|g| !g.is_empty())
+                .map(|g| PendingUploadBatch {
+                    files: g,
+                    is_watched: true,
+                    dry_run_override,
+                    recursive_override,
+                })
+                .collect();
+            if !remaining.is_empty() {
+                let mut pending = state.pending_watch_files.lock().unwrap();
+                for (offset, b) in remaining.into_iter().enumerate() {
+                    let insert_at = offset.min(pending.len());
+                    pending.insert(insert_at, b);
+                }
+            }
+        } else {
+            files = Vec::new();
+        }
     }
 
     state.upload_cancel.store(false, Ordering::SeqCst);
@@ -1331,6 +1475,8 @@ pub fn execute_upload(
     let album_registry = state.album_registry.clone();
     let config_manager = state.config_manager.clone();
     let logs = state.logs.clone();
+    let log_seq = state.log_seq.clone();
+    let run_id = format!("run-{}", state.run_seq.fetch_add(1, Ordering::Relaxed));
     let app_clone = app.clone();
     let state_for_drain = state.clone();
 
@@ -1395,23 +1541,12 @@ pub fn execute_upload(
                 if e.contains("cancelled") {
                     let _ = app_clone.emit("scan:cancelled", ());
                 }
-                is_uploading_flag.store(false, Ordering::SeqCst);
                 let _ = app_clone.emit("uploadStop", ());
+                is_uploading_flag.store(false, Ordering::SeqCst);
                 spawn_drain_pending_watch_files(app_clone.clone(), state_for_drain.clone());
                 return;
             }
         };
-
-        for w in preflight_warnings {
-            let _ = app_clone.emit(
-                "uploadWarning",
-                crate::models::PreflightWarning {
-                    paths: w.paths.into_iter().map(|p| p.to_string_lossy().to_string()).collect(),
-                    code: w.code,
-                    message: w.message,
-                },
-            );
-        }
 
         // For watched folder triggers, ensure each work item maps to its watched folder's account
         if is_watched {
@@ -1453,7 +1588,7 @@ pub fn execute_upload(
             album_name,
             album_auto_mode,
             custom_endpoint_base: std::env::var("LUMEN_API_ENDPOINT").ok(),
-            dry_run: dry_run_override.unwrap_or(cfg.preferences.dry_run),
+            dry_run: dry_run_override.unwrap_or(if is_watched { false } else { cfg.preferences.dry_run }),
             schedule_enabled: cfg.preferences.schedule_enabled,
             schedule_start_hour: cfg.preferences.schedule_start_hour,
             schedule_end_hour: cfg.preferences.schedule_end_hour,
@@ -1475,7 +1610,10 @@ pub fn execute_upload(
         let event_handle = tokio::spawn({
             let app_clone = app_clone.clone();
             let logs = logs.clone();
+            let log_seq = log_seq.clone();
+            let run_id = run_id.clone();
             let config_mgr_for_events = config_mgr_for_events.clone();
+            let mut pending_warnings = Some(preflight_warnings);
             async move {
                 while let Some(ev) = event_rx.recv().await {
                     match ev {
@@ -1489,6 +1627,18 @@ pub fn execute_upload(
                                 },
                             );
                             let _ = app_clone.emit("uploadTotalBytes", total_bytes);
+                            if let Some(warnings) = pending_warnings.take() {
+                                for w in warnings {
+                                    let _ = app_clone.emit(
+                                        "uploadWarning",
+                                        crate::models::PreflightWarning {
+                                            paths: w.paths.into_iter().map(|p| p.to_string_lossy().to_string()).collect(),
+                                            code: w.code,
+                                            message: w.message,
+                                        },
+                                    );
+                                }
+                            }
                         }
                         UploadEvent::FileCompleted(res) => {
                             let file_name = res.path.file_name()
@@ -1519,11 +1669,13 @@ pub fn execute_upload(
                                 .duration_since(std::time::UNIX_EPOCH)
                                 .unwrap_or_default()
                                 .as_millis();
+                            let seq = log_seq.fetch_add(1, Ordering::Relaxed);
                             let log_entry = LogEntry {
-                                id: format!("log-{}", log_id),
+                                id: format!("log-{}-{}", log_id, seq),
                                 timestamp: chrono_iso(),
                                 level: if is_error { "ERROR".to_string() } else { "INFO".to_string() },
                                 category: "Upload".to_string(),
+                                run_id: Some(run_id.clone()),
                                 file_name: Some(file_name),
                                 file_path: Some(path_str),
                                 size_bytes: Some(res.size_bytes as u64),
@@ -1582,14 +1734,19 @@ pub fn execute_upload(
                             };
                             let _ = app_clone.emit("albumError", error_model);
                         }
-                        UploadEvent::AccountBlocked { reason, email, message } => {
+                        UploadEvent::AccountBlocked {
+                            reason,
+                            email,
+                            message,
+                            resume_at,
+                        } => {
                             let _ = app_clone.emit(
                                 "account:blocked",
                                 AccountBlockedEvent {
                                     reason,
                                     email,
                                     message,
-                                    resume_at: None,
+                                    resume_at,
                                 },
                             );
                         }
@@ -1606,14 +1763,26 @@ pub fn execute_upload(
                         }
                     }
                 }
+                if let Some(warnings) = pending_warnings.take() {
+                    for w in warnings {
+                        let _ = app_clone.emit(
+                            "uploadWarning",
+                            crate::models::PreflightWarning {
+                                paths: w.paths.into_iter().map(|p| p.to_string_lossy().to_string()).collect(),
+                                code: w.code,
+                                message: w.message,
+                            },
+                        );
+                    }
+                }
             }
         });
 
         let _ = engine.run_upload(items, upload_opts, event_tx).await;
         let _ = event_handle.await;
 
-        is_uploading_flag.store(false, Ordering::SeqCst);
         let _ = app_clone.emit("uploadStop", ());
+        is_uploading_flag.store(false, Ordering::SeqCst);
 
         spawn_drain_pending_watch_files(app_clone.clone(), state_for_drain.clone());
     });
@@ -1671,7 +1840,8 @@ pub async fn scan_for_review(
     state: tauri::State<'_, AppState>,
 ) -> Result<ReviewSummary, String> {
     let cfg = state.config_manager.get_config();
-    let recursive = recursive.unwrap_or(cfg.preferences.recursive);
+    state.scan_cancel.store(false, Ordering::SeqCst);
+    let scan_cancel = state.scan_cancel.clone();
 
     tokio::task::spawn_blocking(move || {
         let has_folder = files.iter().any(|f| {
@@ -1679,6 +1849,7 @@ pub async fn scan_for_review(
                 .map(|m| m.is_dir())
                 .unwrap_or(false)
         });
+        let recursive = recursive.unwrap_or(cfg.preferences.recursive || has_folder);
         let path_bufs: Vec<PathBuf> = files.iter().map(PathBuf::from).collect();
         let scan_opts = ScanOptions {
             recursive,
@@ -1687,11 +1858,10 @@ pub async fn scan_for_review(
             ..Default::default()
         };
 
-        let cancelled = Arc::new(AtomicBool::new(false));
         let scanned_files = scan_directories_incremental(
             &path_bufs,
             &scan_opts,
-            cancelled,
+            scan_cancel,
             |_| {},
         )?;
 
@@ -1710,7 +1880,12 @@ pub async fn scan_for_review(
             let p = item.primary_path();
             let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
             let path = p.to_string_lossy().to_string();
-            let size_bytes = std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+            let size_bytes: u64 = item
+                .all_paths()
+                .iter()
+                .filter_map(|ap| std::fs::metadata(ap).ok())
+                .map(|m| m.len())
+                .sum();
             total_bytes += size_bytes;
             review_items.push(ReviewItem {
                 name,
@@ -1920,30 +2095,39 @@ pub fn add_token_binding_alias_from_adb(_email: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn get_matugen_status() -> crate::matugen::MatugenStatus {
+pub async fn get_matugen_status() -> crate::matugen::MatugenStatus {
     #[cfg(target_os = "linux")]
     {
-        if let Some((path, colors)) = crate::matugen::linux::find_active_color_source() {
-            crate::matugen::MatugenStatus {
-                supported: true,
-                available: true,
-                active_path: Some(path.to_string_lossy().to_string()),
-                colors: Some(colors),
+        tokio::task::spawn_blocking(|| {
+            if let Some((path, colors)) = crate::matugen::linux::find_active_color_source() {
+                crate::matugen::MatugenStatus {
+                    supported: true,
+                    available: true,
+                    active_path: Some(path.to_string_lossy().to_string()),
+                    colors: Some(colors),
+                }
+            } else {
+                let has_cli = std::path::Path::new("/usr/bin/matugen").exists()
+                    || std::process::Command::new("which")
+                        .arg("matugen")
+                        .output()
+                        .map(|o| o.status.success())
+                        .unwrap_or(false);
+                crate::matugen::MatugenStatus {
+                    supported: true,
+                    available: has_cli,
+                    active_path: None,
+                    colors: None,
+                }
             }
-        } else {
-            let has_cli = std::path::Path::new("/usr/bin/matugen").exists()
-                || std::process::Command::new("which")
-                    .arg("matugen")
-                    .output()
-                    .map(|o| o.status.success())
-                    .unwrap_or(false);
-            crate::matugen::MatugenStatus {
-                supported: true,
-                available: has_cli,
-                active_path: None,
-                colors: None,
-            }
-        }
+        })
+        .await
+        .unwrap_or(crate::matugen::MatugenStatus {
+            supported: true,
+            available: false,
+            active_path: None,
+            colors: None,
+        })
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -1952,10 +2136,15 @@ pub fn get_matugen_status() -> crate::matugen::MatugenStatus {
 }
 
 #[tauri::command]
-pub fn get_matugen_colors() -> Option<std::collections::HashMap<String, String>> {
+pub async fn get_matugen_colors() -> Option<std::collections::HashMap<String, String>> {
     #[cfg(target_os = "linux")]
     {
-        crate::matugen::linux::find_active_color_source().map(|(_, colors)| colors)
+        tokio::task::spawn_blocking(|| {
+            crate::matugen::linux::find_active_color_source().map(|(_, colors)| colors)
+        })
+        .await
+        .ok()
+        .flatten()
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -1964,8 +2153,8 @@ pub fn get_matugen_colors() -> Option<std::collections::HashMap<String, String>>
 }
 
 #[tauri::command]
-pub fn reload_matugen_colors() -> Option<std::collections::HashMap<String, String>> {
-    get_matugen_colors()
+pub async fn reload_matugen_colors() -> Option<std::collections::HashMap<String, String>> {
+    get_matugen_colors().await
 }
 
 fn chrono_iso() -> String {

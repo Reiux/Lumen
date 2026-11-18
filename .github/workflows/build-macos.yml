@@ -11,20 +11,19 @@ jobs:
     name: Build macOS Universal
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           targets: x86_64-apple-darwin,aarch64-apple-darwin
 
       - name: Install Protoc
-        uses: arduino/setup-protoc@v3
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -36,9 +35,9 @@ jobs:
       - name: Build Frontend
         run: npm run build --prefix frontend
 
-      - name: Build Tauri Universal Bundle (.app)
+      - name: Build Tauri Universal Bundle (.app & .dmg)
         working-directory: crates/lumen-tauri
-        run: npx --prefix ../../frontend tauri build --target universal-apple-darwin --bundles app
+        run: npx --prefix ../../frontend tauri build --target universal-apple-darwin --bundles app,dmg
 
       - name: Build Standalone Universal CLI
         run: |
@@ -58,7 +57,7 @@ jobs:
 
           if [ -d "$APP_PATH" ]; then
             echo "Building styled DMG with dmgbuild..."
-            python3 -m dmgbuild -s scripts/dmg_settings.py -D app="$APP_PATH" -D repo_root="$PWD" "Lumen" "$OUT_DMG"
+            python3 -m dmgbuild -s scripts/dmg_settings.py -D app="$APP_PATH" -D repo_root="$PWD" "Lumen" "$OUT_DMG" || true
           fi
 
           # Fallback to Tauri DMG only if dmgbuild failed to generate the file
@@ -87,7 +86,7 @@ jobs:
           ls -la dist/
 
       - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: lumen-macos-universal
           path: dist/*

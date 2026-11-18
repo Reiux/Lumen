@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Browser } from '@wailsio/runtime'
 
@@ -70,6 +70,10 @@ let holdInterval: ReturnType<typeof setInterval> | null = null
 let holdStartTime = 0
 
 function onLogoMouseDown() {
+  if (holdInterval) {
+    clearInterval(holdInterval)
+    holdInterval = null
+  }
   holdStartTime = Date.now()
   holdInterval = setInterval(() => {
     const elapsed = Date.now() - holdStartTime
@@ -89,11 +93,18 @@ const lastChecked = ref<Date | null>(null)
 if (typeof localStorage !== 'undefined') {
   const stored = localStorage.getItem('lumen_last_check')
   if (stored) {
-    try {
-      lastChecked.value = new Date(stored)
-    } catch {
-      // ignore
+    const parsed = new Date(stored)
+    if (!Number.isNaN(parsed.getTime())) {
+      lastChecked.value = parsed
     }
+  }
+}
+
+async function handleAutoCheckUpdates(enabled: boolean) {
+  try {
+    await setAutoCheckUpdates(enabled)
+  } catch {
+    toast.error(t('settings.saveFailed'))
   }
 }
 
@@ -104,8 +115,10 @@ const lastCheckedFormatted = computed(() => {
   return lastChecked.value.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + ' · ' + lastChecked.value.toLocaleDateString()
 })
 
+let startupPunchTimer: ReturnType<typeof setTimeout> | null = null
+
 onMounted(async () => {
-  setTimeout(() => {
+  startupPunchTimer = setTimeout(() => {
     triggerWordmarkPunch()
   }, 220)
   try {
@@ -116,12 +129,31 @@ onMounted(async () => {
   }
 })
 
+onUnmounted(() => {
+  if (startupPunchTimer) {
+    clearTimeout(startupPunchTimer)
+    startupPunchTimer = null
+  }
+  if (holdInterval) {
+    clearInterval(holdInterval)
+    holdInterval = null
+  }
+  if (tapTimer) {
+    clearTimeout(tapTimer)
+    tapTimer = null
+  }
+  if (punchAnimId) {
+    cancelAnimationFrame(punchAnimId)
+    punchAnimId = null
+  }
+})
+
 async function openRepo() {
   try {
     await Browser.OpenURL(repoUrl)
   } catch (err) {
     console.error('Failed to open repository URL:', err)
-    window.open(repoUrl, '_blank')
+    window.open(repoUrl, '_blank', 'noopener,noreferrer')
   }
 }
 
@@ -131,7 +163,7 @@ async function openDevProfile() {
     await Browser.OpenURL(url)
   } catch (err) {
     console.error('Failed to open developer profile:', err)
-    window.open(url, '_blank')
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 }
 
@@ -141,28 +173,30 @@ async function openGotohpRepo() {
     await Browser.OpenURL(url)
   } catch (err) {
     console.error('Failed to open gotohp repository:', err)
-    window.open(url, '_blank')
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 }
 
 async function checkForUpdates() {
   if (isCheckingUpdates.value) return
   isCheckingUpdates.value = true
-  lastChecked.value = new Date()
-  if (typeof localStorage !== 'undefined') {
-    localStorage.setItem('lumen_last_check', lastChecked.value.toISOString())
-  }
 
   try {
     const info = await ConfigManager.CheckForUpdates(true)
     updateResult.value = info
     if (info.error) {
       toast.error(t('about.toastUpdateCheckError', { error: info.error }))
-    } else if (info.hasUpdate) {
-      showUpdateModal.value = true
-      toast.info(t('about.toastUpdateAvailable', { version: info.latestVersion.replace(/^v/i, '') }))
     } else {
-      toast.success(t('about.toastLatestVersion', { version: info.currentVersion || appVersion.value }))
+      lastChecked.value = new Date()
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('lumen_last_check', lastChecked.value.toISOString())
+      }
+      if (info.hasUpdate) {
+        showUpdateModal.value = true
+        toast.info(t('about.toastUpdateAvailable', { version: info.latestVersion.replace(/^v/i, '') }))
+      } else {
+        toast.success(t('about.toastLatestVersion', { version: info.currentVersion || appVersion.value }))
+      }
     }
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -314,7 +348,7 @@ function disableDevOptions() {
             id="auto-updates-toggle"
             :model-value="preferencesState.autoCheckUpdates"
             :aria-label="t('about.autoUpdatesAria')"
-            @update:model-value="setAutoCheckUpdates"
+            @update:model-value="handleAutoCheckUpdates"
           />
         </div>
 

@@ -15,8 +15,17 @@ fn main() {
     // Check if an external payload.tar.gz is provided in crate root or target
     let local_payload = PathBuf::from("payload.tar.gz");
     if local_payload.exists() {
+        let f = File::open(&local_payload).expect("failed to open local payload.tar.gz");
+        let gz = flate2::read::GzDecoder::new(f);
+        let mut archive = tar::Archive::new(gz);
+        let entries = archive
+            .entries()
+            .expect("local payload.tar.gz is corrupt or truncated (invalid gzip/tar)");
+        for entry in entries {
+            entry.expect("local payload.tar.gz contains a corrupt/truncated tar entry");
+        }
         fs::copy(&local_payload, &out_payload).expect("failed to copy local payload.tar.gz");
-    } else if !out_payload.exists() {
+    } else {
         // Create a dummy valid tar.gz archive for tests and development
         let file = File::create(&out_payload).expect("failed to create placeholder payload.tar.gz");
         let enc = GzEncoder::new(file, Compression::default());

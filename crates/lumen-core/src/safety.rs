@@ -1,5 +1,5 @@
 use std::sync::{Arc, LazyLock, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
@@ -47,8 +47,20 @@ pub struct AccountBlockedEvent {
 
 pub struct CircuitBreaker {
     state: Arc<RwLock<CircuitState>>,
+    pause_until: Arc<RwLock<Option<Instant>>>,
     blocked_event: Arc<RwLock<Option<AccountBlockedEvent>>>,
     on_blocked: Arc<dyn Fn(AccountBlockedEvent) + Send + Sync>,
+}
+
+fn error_kind_reason(kind: ErrorKind) -> &'static str {
+    match kind {
+        ErrorKind::None => "NONE",
+        ErrorKind::SignInRequired => "SIGN_IN_REQUIRED",
+        ErrorKind::AccountRestricted => "ACCOUNT_RESTRICTED",
+        ErrorKind::RateLimited => "RATE_LIMITED",
+        ErrorKind::Transient => "TRANSIENT",
+        ErrorKind::Fatal => "FATAL",
+    }
 }
 
 impl CircuitBreaker {
@@ -58,6 +70,7 @@ impl CircuitBreaker {
     {
         Self {
             state: Arc::new(RwLock::new(CircuitState::Active)),
+            pause_until: Arc::new(RwLock::new(None)),
             blocked_event: Arc::new(RwLock::new(None)),
             on_blocked: Arc::new(on_blocked),
         }
@@ -71,41 +84,88 @@ impl CircuitBreaker {
         *self.state.read().unwrap() == CircuitState::Blocked
     }
 
-    pub fn trip(&self, kind: ErrorKind, email: &str, message: &str) {
-        let mut state = self.state.write().unwrap();
-        if *state == CircuitState::Blocked {
-            return;
+    pub fn pause_remaining(&self) -> Option<Duration> {
+        let now = Instant::now();
+        {
+            let state = self.state.read().unwrap();
+            if *state != CircuitState::Paused {
+                return None;
+            }
+            let until = (*self.pause_until.read().unwrap())?;
+            if until > now {
+                return Some(until.duration_since(now));
+            }
         }
-        *state = CircuitState::Blocked;
 
-        let event = AccountBlockedEvent {
-            reason: format!("{:?}", kind).to_uppercase(),
-            email: email.to_string(),
-            message: message.to_string(),
-            resume_at: None,
+        // Re-check under write locks before resetting so a concurrent pause() isn't clobbered
+        let mut state = self.state.write().unwrap();
+        if *state != CircuitState::Paused {
+            return None;
+        }
+        let mut pause_until = self.pause_until.write().unwrap();
+        let now = Instant::now();
+        match *pause_until {
+            Some(until) if until > now => Some(until.duration_since(now)),
+            _ => {
+                *state = CircuitState::Active;
+                *pause_until = None;
+                None
+            }
+        }
+    }
+
+    pub fn trip(&self, kind: ErrorKind, email: &str, message: &str) {
+        let event = {
+            let mut state = self.state.write().unwrap();
+            if *state == CircuitState::Blocked {
+                return;
+            }
+            *state = CircuitState::Blocked;
+            *self.pause_until.write().unwrap() = None;
+
+            let event = AccountBlockedEvent {
+                reason: error_kind_reason(kind).to_string(),
+                email: email.to_string(),
+                message: message.to_string(),
+                resume_at: None,
+            };
+            *self.blocked_event.write().unwrap() = Some(event.clone());
+            event
         };
-        *self.blocked_event.write().unwrap() = Some(event.clone());
         (self.on_blocked)(event);
     }
 
     pub fn pause(&self, duration: Duration, email: &str, message: &str) {
-        let mut state = self.state.write().unwrap();
-        if *state == CircuitState::Blocked {
-            return;
-        }
-        *state = CircuitState::Paused;
+        let event = {
+            let mut state = self.state.write().unwrap();
+            if *state == CircuitState::Blocked {
+                return;
+            }
+            *state = CircuitState::Paused;
+            let now = Instant::now();
+            let candidate_until = now + duration;
+            let mut pause_until = self.pause_until.write().unwrap();
+            let effective_until = match *pause_until {
+                Some(existing) if existing > candidate_until => existing,
+                _ => candidate_until,
+            };
+            *pause_until = Some(effective_until);
 
-        let resume_at = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as i64
-            + duration.as_millis() as i64;
+            let effective_duration = effective_until.saturating_duration_since(now);
+            let resume_at = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as i64
+                + effective_duration.as_millis() as i64;
 
-        let event = AccountBlockedEvent {
-            reason: "RATE_LIMITED".to_string(),
-            email: email.to_string(),
-            message: message.to_string(),
-            resume_at: Some(resume_at),
+            let event = AccountBlockedEvent {
+                reason: "RATE_LIMITED".to_string(),
+                email: email.to_string(),
+                message: message.to_string(),
+                resume_at: Some(resume_at),
+            };
+            *self.blocked_event.write().unwrap() = Some(event.clone());
+            event
         };
         (self.on_blocked)(event);
     }
@@ -114,6 +174,7 @@ impl CircuitBreaker {
         let mut state = self.state.write().unwrap();
         if *state == CircuitState::Paused {
             *state = CircuitState::Active;
+            *self.pause_until.write().unwrap() = None;
         }
     }
 }
@@ -265,5 +326,24 @@ mod tests {
         // Equal start and end means anytime
         assert!(is_within_schedule_at_hour(0, 5, 5));
         assert!(is_within_schedule_at_hour(12, 5, 5));
+    }
+
+    #[test]
+    fn test_circuit_breaker_emits_expected_reason_codes() {
+        let seen = Arc::new(RwLock::new(Vec::<String>::new()));
+        let seen_cb = seen.clone();
+        let cb = CircuitBreaker::new(move |ev| {
+            seen_cb.write().unwrap().push(ev.reason);
+        });
+        cb.trip(ErrorKind::SignInRequired, "a@example.com", "401");
+        assert_eq!(seen.read().unwrap().as_slice(), &["SIGN_IN_REQUIRED"]);
+
+        let seen2 = Arc::new(RwLock::new(Vec::<String>::new()));
+        let seen2_cb = seen2.clone();
+        let cb2 = CircuitBreaker::new(move |ev| {
+            seen2_cb.write().unwrap().push(ev.reason);
+        });
+        cb2.trip(ErrorKind::AccountRestricted, "a@example.com", "AccountDisabled");
+        assert_eq!(seen2.read().unwrap().as_slice(), &["ACCOUNT_RESTRICTED"]);
     }
 }

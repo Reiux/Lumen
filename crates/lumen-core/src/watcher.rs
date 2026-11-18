@@ -20,13 +20,29 @@ struct FileCandidate {
     zero_byte_checks: usize,
 }
 
+fn normalize_for_ancestors(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| {
+        if let (Some(parent), Some(name)) = (path.parent(), path.file_name()) {
+            if let Ok(canon_parent) = fs::canonicalize(parent) {
+                return canon_parent.join(name);
+            }
+        }
+        path.to_path_buf()
+    })
+}
+
 fn has_nomedia_in_ancestors(path: &Path, watched_roots: &[PathBuf]) -> bool {
-    let matched_root = watched_roots
+    let norm_path = normalize_for_ancestors(path);
+    let norm_roots: Vec<PathBuf> = watched_roots
         .iter()
-        .filter(|root| path.starts_with(root))
+        .map(|root| normalize_for_ancestors(root))
+        .collect();
+    let matched_root = norm_roots
+        .iter()
+        .filter(|root| norm_path.starts_with(root))
         .max_by_key(|root| root.components().count());
 
-    let Some(mut dir) = path.parent() else {
+    let Some(mut dir) = norm_path.parent() else {
         return false;
     };
 
@@ -103,6 +119,8 @@ impl FolderWatcher {
     where
         F: Fn(Vec<PathBuf>) + Send + Sync + 'static,
     {
+        self.stop();
+
         let (tx, mut rx) = mpsc::channel::<PathBuf>(1000);
         let folder_configs = self.folder_configs.clone();
         let cb_roots = self.folder_configs.clone();
@@ -165,9 +183,9 @@ impl FolderWatcher {
                         });
                     }
                     _ = ticker.tick() => {
-                        let candidates: Vec<PathBuf> = {
+                        let candidates: Vec<(PathBuf, FileCandidate)> = {
                             let p = pending.lock().unwrap();
-                            p.keys().cloned().collect()
+                            p.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
                         };
 
                         if candidates.is_empty() {
@@ -178,73 +196,147 @@ impl FolderWatcher {
                         let filter_unsupported = *loop_filter.lock().unwrap();
                         let exclude_pattern = loop_exclude.lock().unwrap().clone();
 
-                        let mut ready = Vec::new();
-                        let mut to_remove = Vec::new();
-
-                        for path in candidates {
-                            let metadata = match fs::symlink_metadata(&path) {
-                                Ok(m) => m,
-                                Err(_) => {
-                                    to_remove.push(path);
-                                    continue;
-                                }
-                            };
-
-                            if !metadata.is_file() || metadata.file_type().is_symlink() {
-                                to_remove.push(path);
-                                continue;
-                            }
-
-                            if metadata.len() == 0 {
-                                let mut p = pending.lock().unwrap();
-                                if let Some(cand) = p.get_mut(&path) {
-                                    cand.zero_byte_checks += 1;
-                                    if cand.zero_byte_checks >= MAX_ZERO_BYTE_CHECKS {
-                                        to_remove.push(path);
-                                    }
-                                }
-                                continue;
-                            }
-
-                            if !should_watch_path(&path, &roots, filter_unsupported, &exclude_pattern) {
-                                to_remove.push(path);
-                                continue;
-                            }
-
-                            // Check readability
-                            if fs::File::open(&path).is_err() {
-                                continue;
-                            }
-
-                            let curr_size = metadata.len() as i64;
-                            let curr_mtime = metadata
-                                .modified()
-                                .unwrap_or(SystemTime::UNIX_EPOCH)
-                                .duration_since(SystemTime::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_nanos() as u64;
-
-                            let mut p = pending.lock().unwrap();
-                            if let Some(cand) = p.get_mut(&path) {
-                                cand.zero_byte_checks = 0;
-                                if cand.size == curr_size && cand.mtime == curr_mtime {
-                                    cand.checks += 1;
-                                } else {
-                                    cand.size = curr_size;
-                                    cand.mtime = curr_mtime;
-                                    cand.checks = 1;
-                                }
-
-                                if cand.checks >= 2 {
-                                    ready.push(path.clone());
-                                    to_remove.push(path);
-                                }
-                            }
+                        struct InspectedCandidate {
+                            path: PathBuf,
+                            size: i64,
+                            mtime: u64,
+                            readable: bool,
+                            remove: bool,
+                            zero_byte: bool,
                         }
 
-                        let mut p = pending.lock().unwrap();
-                        for r in to_remove {
-                            p.remove(&r);
+                        let inspected = tokio::task::spawn_blocking(move || {
+                            let mut results = Vec::with_capacity(candidates.len());
+                            for (path, cand) in candidates {
+                                let metadata = match fs::symlink_metadata(&path) {
+                                    Ok(m) => m,
+                                    Err(_) => {
+                                        results.push(InspectedCandidate {
+                                            path,
+                                            size: cand.size,
+                                            mtime: cand.mtime,
+                                            readable: false,
+                                            remove: true,
+                                            zero_byte: false,
+                                        });
+                                        continue;
+                                    }
+                                };
+
+                                if !metadata.is_file() || metadata.file_type().is_symlink() {
+                                    results.push(InspectedCandidate {
+                                        path,
+                                        size: cand.size,
+                                        mtime: cand.mtime,
+                                        readable: false,
+                                        remove: true,
+                                        zero_byte: false,
+                                    });
+                                    continue;
+                                }
+
+                                if metadata.len() == 0 {
+                                    results.push(InspectedCandidate {
+                                        path,
+                                        size: cand.size,
+                                        mtime: cand.mtime,
+                                        readable: false,
+                                        remove: false,
+                                        zero_byte: true,
+                                    });
+                                    continue;
+                                }
+
+                                if !should_watch_path(&path, &roots, filter_unsupported, &exclude_pattern) {
+                                    results.push(InspectedCandidate {
+                                        path,
+                                        size: cand.size,
+                                        mtime: cand.mtime,
+                                        readable: false,
+                                        remove: true,
+                                        zero_byte: false,
+                                    });
+                                    continue;
+                                }
+
+                                if fs::File::open(&path).is_err() {
+                                    results.push(InspectedCandidate {
+                                        path,
+                                        size: cand.size,
+                                        mtime: cand.mtime,
+                                        readable: false,
+                                        remove: false,
+                                        zero_byte: false,
+                                    });
+                                    continue;
+                                }
+
+                                let curr_size = metadata.len() as i64;
+                                let curr_mtime = metadata
+                                    .modified()
+                                    .unwrap_or(SystemTime::UNIX_EPOCH)
+                                    .duration_since(SystemTime::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_nanos() as u64;
+
+                                results.push(InspectedCandidate {
+                                    path,
+                                    size: curr_size,
+                                    mtime: curr_mtime,
+                                    readable: true,
+                                    remove: false,
+                                    zero_byte: false,
+                                });
+                            }
+                            results
+                        })
+                        .await
+                        .unwrap_or_default();
+
+                        let mut ready = Vec::new();
+                        {
+                            let mut p = pending.lock().unwrap();
+                            for item in inspected {
+                                if item.remove {
+                                    p.remove(&item.path);
+                                    continue;
+                                }
+                                if item.zero_byte {
+                                    let mut drop_zero = false;
+                                    if let Some(cand) = p.get_mut(&item.path) {
+                                        cand.zero_byte_checks += 1;
+                                        if cand.zero_byte_checks >= MAX_ZERO_BYTE_CHECKS {
+                                            drop_zero = true;
+                                        }
+                                    }
+                                    if drop_zero {
+                                        p.remove(&item.path);
+                                    }
+                                    continue;
+                                }
+                                if !item.readable {
+                                    continue;
+                                }
+
+                                let mut is_ready = false;
+                                if let Some(cand) = p.get_mut(&item.path) {
+                                    cand.zero_byte_checks = 0;
+                                    if cand.size == item.size && cand.mtime == item.mtime {
+                                        cand.checks += 1;
+                                    } else {
+                                        cand.size = item.size;
+                                        cand.mtime = item.mtime;
+                                        cand.checks = 1;
+                                    }
+                                    if cand.checks >= 2 {
+                                        is_ready = true;
+                                    }
+                                }
+                                if is_ready {
+                                    p.remove(&item.path);
+                                    ready.push(item.path);
+                                }
+                            }
                         }
 
                         if !ready.is_empty() {
@@ -317,12 +409,12 @@ mod tests {
         fs::write(root.join("Private").join(".nomedia"), b"").unwrap();
 
         let nested = sub.join("img.jpg");
-        assert!(has_nomedia_in_ancestors(&nested, &[root.clone()]));
-        assert!(!should_watch_path(&nested, &[root.clone()], true, ""));
+        assert!(has_nomedia_in_ancestors(&nested, std::slice::from_ref(&root)));
+        assert!(!should_watch_path(&nested, std::slice::from_ref(&root), true, ""));
 
         let regular = root.join("holiday.raw");
-        assert!(!should_watch_path(&regular, &[root.clone()], true, ""));
-        assert!(should_watch_path(&regular, &[root.clone()], false, ""));
-        assert!(!should_watch_path(&regular, &[root.clone()], false, r"\.raw$"));
+        assert!(!should_watch_path(&regular, std::slice::from_ref(&root), true, ""));
+        assert!(should_watch_path(&regular, std::slice::from_ref(&root), false, ""));
+        assert!(!should_watch_path(&regular, std::slice::from_ref(&root), false, r"\.raw$"));
     }
 }

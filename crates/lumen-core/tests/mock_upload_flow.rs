@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tempfile::tempdir;
 use prost::Message;
 use wiremock::{MockServer, Mock, ResponseTemplate};
-use wiremock::matchers::{method, path, header, query_param};
+use wiremock::matchers::{method, path, header, headers, query_param};
 
 use lumen_core::album::AlbumRegistry;
 use lumen_core::config::ConfigManager;
@@ -823,4 +823,590 @@ async fn test_scenario_7_transient_retry_and_401_invalidation() {
     assert!(!results[0].is_error, "expected retry to succeed: {}", results[0].error_message);
     assert_eq!(results[0].media_key, "retry_media_key");
     assert!(!photo.exists(), "local file should be deleted after successful batch");
+}
+
+/// Scenario 8: Resuming a session where server already received 100% of bytes finalizes cleanly.
+#[tokio::test]
+async fn test_scenario_8_resume_when_server_received_all_bytes_finalizes() {
+    let mock_server = MockServer::start().await;
+    let base_url = mock_server.uri();
+
+    let dir = tempdir().unwrap();
+    let payload = b"already uploaded payload bytes 123456";
+    let photo = create_test_file(dir.path(), "resumed.jpg", payload);
+    let (_raw, sha1_b64) = lumen_core::dedup::calculate_file_sha1(&photo).unwrap();
+
+    let cfg_mgr = Arc::new(ConfigManager::new_with_mock_keyring(dir.path().join("lumen.config")));
+    cfg_mgr
+        .save_credential("user@example.com", "androidId=123&Email=user@example.com&Token=tok")
+        .unwrap();
+
+    let hash_cache = HashCache::open(&dir.path().join("hashes.db")).unwrap();
+    hash_cache
+        .save_upload_session("user@example.com", &sha1_b64, payload.len() as i64, "resume_tok_full")
+        .unwrap();
+    let album_registry = AlbumRegistry::new(dir.path().join("albums.json")).unwrap();
+
+    Mock::given(method("POST"))
+        .and(path("/auth"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("Auth=bearer_ok\nExpiry=3600\n"))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/5084965799730810217"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(helper_empty_remote_matches_bytes()))
+        .mount(&mock_server)
+        .await;
+
+    // Query reports 100% of bytes already received
+    Mock::given(method("POST"))
+        .and(path("/data/upload/uploadmedia/interactive"))
+        .and(header("X-Goog-Upload-Command", "query"))
+        .and(query_param("upload_id", "resume_tok_full"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("x-goog-upload-size-received", payload.len().to_string()),
+        )
+        .mount(&mock_server)
+        .await;
+
+    // Finalize at offset == file_size
+    Mock::given(method("PUT"))
+        .and(path("/data/upload/uploadmedia/interactive"))
+        .and(query_param("upload_id", "resume_tok_full"))
+        .and(header("X-Goog-Upload-Offset", payload.len().to_string()))
+        .and(headers("X-Goog-Upload-Command", vec!["upload", "finalize"]))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(helper_commit_token_bytes()))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/16538846908252377752"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(helper_commit_response_bytes("resumed_full_key")))
+        .mount(&mock_server)
+        .await;
+
+    let engine = UploadEngine::new(cfg_mgr, Some(hash_cache), album_registry);
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(100);
+    let drain = tokio::spawn(async move { while event_rx.recv().await.is_some() {} });
+
+    let results = engine
+        .run_upload(
+            vec![UploadWorkItem::Single {
+                path: photo,
+                account_email: "user@example.com".to_string(),
+            }],
+            UploadOptions {
+                threads: 1,
+                custom_endpoint_base: Some(base_url),
+                ..Default::default()
+            },
+            event_tx,
+        )
+        .await
+        .unwrap();
+    let _ = drain.await;
+
+    assert_eq!(results.len(), 1);
+    assert!(!results[0].is_error, "expected finalize to succeed: {}", results[0].error_message);
+    assert_eq!(results[0].media_key, "resumed_full_key");
+}
+
+/// Scenario 9: Dry run with album_name does not call create/add album endpoints.
+#[tokio::test]
+async fn test_scenario_9_dry_run_skips_album_attachment() {
+    let mock_server = MockServer::start().await;
+    let base_url = mock_server.uri();
+
+    let dir = tempdir().unwrap();
+    let photo = create_test_file(dir.path(), "dryrun.jpg", b"dry run image bytes");
+
+    let cfg_mgr = Arc::new(ConfigManager::new_with_mock_keyring(dir.path().join("lumen.config")));
+    cfg_mgr
+        .save_credential("user@example.com", "androidId=123&Email=user@example.com&Token=tok")
+        .unwrap();
+
+    let hash_cache = HashCache::open(&dir.path().join("hashes.db")).unwrap();
+    let album_registry = AlbumRegistry::new(dir.path().join("albums.json")).unwrap();
+
+    Mock::given(method("POST"))
+        .and(path("/auth"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("Auth=bearer_ok\nExpiry=3600\n"))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/5084965799730810217"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(helper_empty_remote_matches_bytes()))
+        .mount(&mock_server)
+        .await;
+
+    // Album endpoints must never be hit on dry run
+    Mock::given(method("POST"))
+        .and(path("/8386163679468898444"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(0)
+        .mount(&mock_server)
+        .await;
+
+    let engine = UploadEngine::new(cfg_mgr, Some(hash_cache), album_registry);
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(100);
+    let drain = tokio::spawn(async move {
+        let mut events = Vec::new();
+        while let Some(ev) = event_rx.recv().await {
+            events.push(ev);
+        }
+        events
+    });
+
+    let results = engine
+        .run_upload(
+            vec![UploadWorkItem::Single {
+                path: photo,
+                account_email: "user@example.com".to_string(),
+            }],
+            UploadOptions {
+                threads: 1,
+                dry_run: true,
+                album_name: "ShouldNotCreate".to_string(),
+                custom_endpoint_base: Some(base_url),
+                ..Default::default()
+            },
+            event_tx,
+        )
+        .await
+        .unwrap();
+    let events = drain.await.unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert!(!results[0].is_error);
+    assert_eq!(results[0].skip_code, "dry-run");
+    assert!(events.iter().any(|e| matches!(
+        e,
+        UploadEvent::BatchComplete {
+            uploaded: 1,
+            skipped: 0,
+            failed: 0
+        }
+    )));
+}
+
+/// Scenario 10: Album creation failure does not corrupt counts when a skipped duplicate shares the same media_key.
+#[tokio::test]
+async fn test_scenario_10_album_failure_ignores_skipped_duplicate_same_media_key() {
+    let mock_server = MockServer::start().await;
+    let base_url = mock_server.uri();
+
+    let dir = tempdir().unwrap();
+    let cached_dup = create_test_file(dir.path(), "cached_dup.jpg", b"duplicate image bytes");
+    let fresh_photo = create_test_file(dir.path(), "fresh.jpg", b"fresh image bytes");
+    let (_raw, dup_sha1) = lumen_core::dedup::calculate_file_sha1(&cached_dup).unwrap();
+
+    let cfg_mgr = Arc::new(ConfigManager::new_with_mock_keyring(dir.path().join("lumen.config")));
+    cfg_mgr
+        .save_credential("user@example.com", "androidId=123&Email=user@example.com&Token=tok")
+        .unwrap();
+
+    let hash_cache = HashCache::open(&dir.path().join("hashes.db")).unwrap();
+    hash_cache
+        .put(
+            "user@example.com",
+            &dup_sha1,
+            "shared_media_key",
+            b"duplicate image bytes".len() as i64,
+            1000,
+        )
+        .unwrap();
+    let album_registry = AlbumRegistry::new(dir.path().join("albums.json")).unwrap();
+
+    Mock::given(method("POST"))
+        .and(path("/auth"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("Auth=bearer_ok\nExpiry=3600\n"))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/5084965799730810217"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(helper_empty_remote_matches_bytes()))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/data/upload/uploadmedia/interactive"))
+        .respond_with(ResponseTemplate::new(200).insert_header("X-GUploader-UploadID", "tok_album_fail"))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("PUT"))
+        .and(path("/data/upload/uploadmedia/interactive"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(helper_commit_token_bytes()))
+        .mount(&mock_server)
+        .await;
+
+    // Commit returns the exact same media_key as the locally cached duplicate
+    Mock::given(method("POST"))
+        .and(path("/16538846908252377752"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(helper_commit_response_bytes("shared_media_key")))
+        .mount(&mock_server)
+        .await;
+
+    // Album creation fails with 500
+    Mock::given(method("POST"))
+        .and(path("/8386163679468898444"))
+        .respond_with(ResponseTemplate::new(500).set_body_string("album backend error"))
+        .mount(&mock_server)
+        .await;
+
+    let engine = UploadEngine::new(cfg_mgr, Some(hash_cache), album_registry);
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(100);
+    let drain = tokio::spawn(async move {
+        let mut events = Vec::new();
+        while let Some(ev) = event_rx.recv().await {
+            events.push(ev);
+        }
+        events
+    });
+
+    let _results = engine
+        .run_upload(
+            vec![
+                UploadWorkItem::Single {
+                    path: cached_dup,
+                    account_email: "user@example.com".to_string(),
+                },
+                UploadWorkItem::Single {
+                    path: fresh_photo,
+                    account_email: "user@example.com".to_string(),
+                },
+            ],
+            UploadOptions {
+                threads: 1,
+                album_name: "BrokenAlbum".to_string(),
+                custom_endpoint_base: Some(base_url),
+                ..Default::default()
+            },
+            event_tx,
+        )
+        .await
+        .unwrap();
+    let events = drain.await.unwrap();
+
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            UploadEvent::BatchComplete {
+                uploaded: 0,
+                skipped: 1,
+                failed: 1
+            }
+        )),
+        "expected uploaded=0, skipped=1, failed=1 in events: {:?}",
+        events
+    );
+}
+
+/// Scenario 11: Transient commit failure retries commit without re-uploading file bytes.
+#[tokio::test]
+async fn test_scenario_11_commit_retry_reuses_finalize_token() {
+    let mock_server = MockServer::start().await;
+    let base_url = mock_server.uri();
+
+    let dir = tempdir().unwrap();
+    let photo = create_test_file(dir.path(), "commit_retry.jpg", b"payload bytes");
+
+    let cfg_mgr = Arc::new(ConfigManager::new_with_mock_keyring(dir.path().join("lumen.config")));
+    cfg_mgr
+        .save_credential("user@example.com", "androidId=123&Email=user@example.com&Token=tok")
+        .unwrap();
+
+    let hash_cache = HashCache::open(&dir.path().join("hashes.db")).unwrap();
+    let album_registry = AlbumRegistry::new(dir.path().join("albums.json")).unwrap();
+
+    Mock::given(method("POST"))
+        .and(path("/auth"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("Auth=bearer_ok\nExpiry=3600\n"))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/5084965799730810217"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(helper_empty_remote_matches_bytes()))
+        .mount(&mock_server)
+        .await;
+
+    // Upload token and PUT upload must only happen once
+    Mock::given(method("POST"))
+        .and(path("/data/upload/uploadmedia/interactive"))
+        .respond_with(ResponseTemplate::new(200).insert_header("X-GUploader-UploadID", "tok_once"))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("PUT"))
+        .and(path("/data/upload/uploadmedia/interactive"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(helper_commit_token_bytes()))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    // First commit fails with 503, second succeeds
+    Mock::given(method("POST"))
+        .and(path("/16538846908252377752"))
+        .respond_with(ResponseTemplate::new(503).set_body_string("try again"))
+        .up_to_n_times(1)
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/16538846908252377752"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(helper_commit_response_bytes("committed_after_retry")))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let engine = UploadEngine::new(cfg_mgr, Some(hash_cache), album_registry);
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(100);
+    let drain = tokio::spawn(async move { while event_rx.recv().await.is_some() {} });
+
+    let results = engine
+        .run_upload(
+            vec![UploadWorkItem::Single {
+                path: photo,
+                account_email: "user@example.com".to_string(),
+            }],
+            UploadOptions {
+                threads: 1,
+                custom_endpoint_base: Some(base_url),
+                ..Default::default()
+            },
+            event_tx,
+        )
+        .await
+        .unwrap();
+    let _ = drain.await;
+
+    assert_eq!(results.len(), 1);
+    assert!(!results[0].is_error, "expected commit retry to succeed: {}", results[0].error_message);
+    assert_eq!(results[0].media_key, "committed_after_retry");
+}
+
+/// Scenario 12: Live Photo skipped because only photo exists remotely must NOT delete local files when delete_from_host=true.
+#[tokio::test]
+async fn test_scenario_12_live_photo_partial_remote_skip_does_not_delete_local_files() {
+    let mock_server = MockServer::start().await;
+    let base_url = mock_server.uri();
+
+    let dir = tempdir().unwrap();
+    let photo = create_test_file(dir.path(), "IMG_1001.jpg", b"still image bytes");
+    let video = create_test_file(dir.path(), "IMG_1001.mov", b"motion video bytes");
+    let (photo_sha1_raw, _) = lumen_core::dedup::calculate_file_sha1(&photo).unwrap();
+
+    let cfg_mgr = Arc::new(ConfigManager::new_with_mock_keyring(dir.path().join("lumen.config")));
+    cfg_mgr
+        .save_credential("user@example.com", "androidId=123&Email=user@example.com&Token=tok")
+        .unwrap();
+
+    let hash_cache = HashCache::open(&dir.path().join("hashes.db")).unwrap();
+    let album_registry = AlbumRegistry::new(dir.path().join("albums.json")).unwrap();
+
+    Mock::given(method("POST"))
+        .and(path("/auth"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("Auth=bearer_ok\nExpiry=3600\n"))
+        .mount(&mock_server)
+        .await;
+
+    // Return remote match ONLY when the photo SHA1 is queried; video query returns empty match.
+    Mock::given(method("POST"))
+        .and(path("/5084965799730810217"))
+        .and(wiremock::matchers::body_bytes(
+            {
+                let req = lumen_core::proto::lumen::HashCheck {
+                    field1: Some(lumen_core::proto::lumen::hash_check::Field1Type {
+                        field1: Some(lumen_core::proto::lumen::hash_check::field1_type::Field1Type {
+                            sha1_hash: photo_sha1_raw,
+                        }),
+                        field2: Some(lumen_core::proto::lumen::hash_check::field1_type::Field2Type {}),
+                    }),
+                };
+                let mut buf = Vec::new();
+                prost::Message::encode(&req, &mut buf).unwrap();
+                buf
+            },
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(helper_matched_remote_matches_bytes("existing_photo_key")))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/5084965799730810217"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(helper_empty_remote_matches_bytes()))
+        .mount(&mock_server)
+        .await;
+
+    let items = vec![UploadWorkItem::LivePhoto {
+        pair: lumen_core::livephoto::LivePhotoPair {
+            content_identifier: "CID_1001".to_string(),
+            photo_path: photo.clone(),
+            video_path: video.clone(),
+        },
+        account_email: "user@example.com".to_string(),
+    }];
+
+    let engine = UploadEngine::new(cfg_mgr, Some(hash_cache), album_registry);
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(100);
+    let drain = tokio::spawn(async move { while event_rx.recv().await.is_some() {} });
+
+    let results = engine
+        .run_upload(
+            items,
+            UploadOptions {
+                threads: 1,
+                pair_live_photos: true,
+                update_existing_photos_to_live: false,
+                delete_from_host: true,
+                custom_endpoint_base: Some(base_url),
+                ..Default::default()
+            },
+            event_tx,
+        )
+        .await
+        .unwrap();
+    let _ = drain.await;
+
+    assert_eq!(results.len(), 1);
+    assert!(results[0].skipped);
+    assert_eq!(results[0].skip_code, "live-photo-partial-remote");
+    assert!(photo.exists(), "photo must remain when partial Live Photo was skipped");
+    assert!(video.exists(), "un-uploaded video must NOT be deleted by delete_from_host");
+}
+
+/// Scenario 13: TokenManager singleflight & match-only invalidation + force_upload preserves retry session.
+#[tokio::test]
+async fn test_scenario_13_auth_singleflight_and_force_upload_retry_session() {
+    use lumen_core::auth::TokenManager;
+    use lumen_core::api::{Api, ApiOptions};
+
+    let mock_server = MockServer::start().await;
+    let base_url = mock_server.uri();
+
+    // Concurrent bearer_token calls with a shared TokenManager should only hit /auth once
+    Mock::given(method("POST"))
+        .and(path("/auth"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_string("Auth=fresh_tok_1\nExpiry=3600\n")
+                .set_delay(std::time::Duration::from_millis(40)),
+        )
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let tm = TokenManager::new("user@example.com");
+    let mut api = Api::new(
+        ApiOptions {
+            account: "user@example.com".to_string(),
+            custom_endpoint_base: Some(base_url.clone()),
+            ..Default::default()
+        },
+        "androidId=123&Email=user@example.com&Token=tok",
+    )
+    .unwrap();
+    api.set_token_manager(tm.clone());
+    let api = Arc::new(api);
+
+    let (r1, r2, r3) = tokio::join!(api.bearer_token(), api.bearer_token(), api.bearer_token());
+    assert_eq!(r1.unwrap(), "fresh_tok_1");
+    assert_eq!(r2.unwrap(), "fresh_tok_1");
+    assert_eq!(r3.unwrap(), "fresh_tok_1");
+
+    // Stale token invalidation must NOT wipe a newer token
+    tm.set_token("fresh_tok_2".to_string(), std::time::Duration::from_secs(3600));
+    tm.invalidate_if_matches("fresh_tok_1");
+    assert_eq!(tm.get_cached_token().as_deref(), Some("fresh_tok_2"));
+    tm.invalidate_if_matches("fresh_tok_2");
+    assert_eq!(tm.get_cached_token(), None);
+
+    // force_upload=true must clear any prior session initially, then reuse its new session across retries
+    let retry_server = MockServer::start().await;
+    let retry_url = retry_server.uri();
+    let dir = tempdir().unwrap();
+    let photo = create_test_file(dir.path(), "force_retry.jpg", b"force upload retry payload");
+
+    let cfg_mgr = Arc::new(ConfigManager::new_with_mock_keyring(dir.path().join("lumen.config")));
+    cfg_mgr
+        .save_credential("user@example.com", "androidId=123&Email=user@example.com&Token=tok")
+        .unwrap();
+
+    let hash_cache = HashCache::open(&dir.path().join("hashes.db")).unwrap();
+    let album_registry = AlbumRegistry::new(dir.path().join("albums.json")).unwrap();
+
+    Mock::given(method("POST"))
+        .and(path("/auth"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("Auth=bearer_ok\nExpiry=3600\n"))
+        .mount(&retry_server)
+        .await;
+
+    // get_upload_token should only be called ONCE even though first PUT fails 503
+    Mock::given(method("POST"))
+        .and(path("/data/upload/uploadmedia/interactive"))
+        .and(wiremock::matchers::header("X-Upload-Content-Length", "26"))
+        .respond_with(ResponseTemplate::new(200).insert_header("X-GUploader-UploadID", "up_force_1"))
+        .expect(1)
+        .mount(&retry_server)
+        .await;
+
+    // query_upload_status on retry returns 0 so second PUT completes cleanly
+    Mock::given(method("POST"))
+        .and(path("/data/upload/uploadmedia/interactive"))
+        .and(wiremock::matchers::header("X-Goog-Upload-Command", "query"))
+        .respond_with(ResponseTemplate::new(200).insert_header("x-goog-upload-size-received", "0"))
+        .expect(1)
+        .mount(&retry_server)
+        .await;
+
+    Mock::given(method("PUT"))
+        .and(path("/data/upload/uploadmedia/interactive"))
+        .respond_with(ResponseTemplate::new(503).set_body_string("temporary error"))
+        .up_to_n_times(1)
+        .mount(&retry_server)
+        .await;
+
+    Mock::given(method("PUT"))
+        .and(path("/data/upload/uploadmedia/interactive"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(helper_commit_token_bytes()))
+        .mount(&retry_server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path("/16538846908252377752"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(helper_commit_response_bytes("force_retry_key")))
+        .mount(&retry_server)
+        .await;
+
+    let engine = UploadEngine::new(cfg_mgr, Some(hash_cache), album_registry);
+    let (event_tx, mut event_rx) = tokio::sync::mpsc::channel(100);
+    let drain = tokio::spawn(async move { while event_rx.recv().await.is_some() {} });
+
+    let results = engine
+        .run_upload(
+            vec![UploadWorkItem::Single {
+                path: photo,
+                account_email: "user@example.com".to_string(),
+            }],
+            UploadOptions {
+                threads: 1,
+                force_upload: true,
+                custom_endpoint_base: Some(retry_url),
+                ..Default::default()
+            },
+            event_tx,
+        )
+        .await
+        .unwrap();
+    let _ = drain.await;
+
+    assert_eq!(results.len(), 1);
+    assert!(!results[0].is_error, "expected retry upload to succeed: {}", results[0].error_message);
+    assert_eq!(results[0].media_key, "force_retry_key");
 }

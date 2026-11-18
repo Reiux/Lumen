@@ -182,6 +182,9 @@ class UploadManager {
       this.state.totalFiles = totalFiles;
       this.state.totalBytes = totalBytes; // May be 0 initially
       this.state.isDryRun = isDryRun;
+      this.state.isPaused = false;
+      this.state.albumStatus = null;
+      this.state.isCreatingAlbum = false;
       this.state.threads.clear();
       this.state.startTime = Date.now();
       this.state.uploadSpeed = 0;
@@ -286,6 +289,12 @@ class UploadManager {
       this.state.isUploading = false;
       this.preparationActive = false;
       this.state.scanProgress.isScanning = false;
+    });
+
+    Events.On("upload:error", (event: { data?: string } | string) => {
+      const msg = typeof event === 'string' ? event : String(event?.data || 'Failed to start upload batch');
+      this.endPreparation();
+      window.dispatchEvent(new CustomEvent('uploadError', { detail: { Message: msg } }));
     });
 
     // Handle incremental folder scan progress
@@ -423,6 +432,16 @@ class UploadManager {
     }
   }
 
+  public async cancelReviewScan() {
+    this.state.scanProgress.isScanning = false;
+    try {
+      const { ConfigManager } = await import('../../bindings/app/core');
+      await ConfigManager.CancelScan();
+    } catch (e) {
+      console.warn("Failed to cancel review scan:", e);
+    }
+  }
+
   private updateBytesAndSpeed() {
     // Calculate bytes from currently active uploads
     let activeUploadedBytes = 0;
@@ -467,7 +486,16 @@ class UploadManager {
     this.state.totalFiles = 0;
     this.state.uploadedBytes = 0;
     this.state.totalBytes = 0;
+    this.state.uploadSpeed = 0;
     this.state.isDryRun = false;
+    this.state.isPaused = false;
+    this.state.albumStatus = null;
+    this.state.isCreatingAlbum = false;
+    this.completedBytes = 0;
+    this.fileBytes.clear();
+    this.totalBytesAdjustment = 0;
+    this.lastBytesUploaded = 0;
+    this.speedSamples = [];
     this.state.results.success = [];
     this.state.results.fail = [];
     this.state.results.skipped = [];
@@ -479,7 +507,7 @@ class UploadManager {
     this.resetUploadResults();
     this.beginPreparation();
     try {
-      await Events.Emit("startUpload", { files: paths });
+      await Events.Emit("startUpload", { files: paths, dryRun: false });
     } catch (e) {
       this.endPreparation();
       throw e;

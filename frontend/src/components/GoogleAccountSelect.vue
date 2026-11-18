@@ -161,8 +161,8 @@ const selectedInitial = computed(() => {
             size="xs"
             destructive
             icon="close"
-            :aria-label="`Remove ${option}`"
-            :title="`Remove ${option}`"
+            :aria-label="t('accounts.removeAccountAria', { email: option })"
+            :title="t('accounts.removeAccountAria', { email: option })"
             :disabled="removingAccount === option"
             class="!size-8 !min-w-0 !p-0 mr-1"
             @pointerdown.stop.prevent

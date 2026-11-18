@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { uploadManager } from './utils/UploadManager'
 import { formatErrorMessage, formatSkipReason, formatThreadMessage } from './utils/statusTranslation'
@@ -18,10 +18,6 @@ const emit = defineEmits<{
 }>()
 
 const { state } = uploadManager
-
-// Elapsed time ticker
-const elapsedSeconds = ref(0)
-let elapsedInterval: ReturnType<typeof setInterval> | null = null
 
 // Smooth count tween for uploaded files
 const displayUploadedFiles = ref(state.uploadedFiles)
@@ -57,18 +53,7 @@ watch(() => state.uploadedFiles, (newVal) => {
   countAnimationId = requestAnimationFrame(step)
 })
 
-onMounted(() => {
-  elapsedInterval = setInterval(() => {
-    if (state.startTime > 0) {
-      elapsedSeconds.value = Math.floor((Date.now() - state.startTime) / 1000)
-    }
-  }, 1000)
-})
-
 onUnmounted(() => {
-  if (elapsedInterval) {
-    clearInterval(elapsedInterval)
-  }
   if (countAnimationId) {
     cancelAnimationFrame(countAnimationId)
   }
@@ -97,10 +82,10 @@ const progressPercent = computed(() => {
 })
 
 function formatBytes(bytes: number, decimals = 1): string {
-  if (bytes === 0) return '0 B'
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
   const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.min(sizes.length - 1, Math.floor(Math.log(bytes) / Math.log(k)))
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(decimals))} ${sizes[i]}`
 }
 
@@ -155,7 +140,7 @@ interface QueueRowItem {
   id: string
   name: string
   detail: string
-  status: 'uploading' | 'committing' | 'hashing' | 'checking' | 'paused' | 'done' | 'failed' | 'skipped' | 'queued'
+  status: 'uploading' | 'committing' | 'hashing' | 'checking' | 'paused' | 'retrying' | 'done' | 'failed' | 'skipped' | 'queued'
   progressPercent?: number
   isQueued?: boolean
 }
@@ -186,6 +171,8 @@ const queueList = computed<QueueRowItem[]>(() => {
       status = 'committing'
     } else if (rawStatus.includes('pause')) {
       status = 'paused'
+    } else if (rawStatus.includes('retry')) {
+      status = 'retrying'
     } else if (rawStatus.includes('hash')) {
       status = 'hashing'
     } else if (rawStatus.includes('check')) {
@@ -203,7 +190,7 @@ const queueList = computed<QueueRowItem[]>(() => {
       }
     }
 
-    const name = thread.FileName || thread.FilePath.split(/[/\\]/).pop() || `${t('thread.worker')} #${thread.WorkerID}`
+    const name = thread.FileName || thread.FilePath.split(/[/\\]/).pop() || t('thread.worker', { id: thread.WorkerID })
     const sizeStr = thread.BytesTotal > 0 ? formatBytes(thread.BytesTotal) : ''
     const typeStr = getFileType(name)
     const msg = formatThreadMessage(thread.Message, t)
@@ -260,7 +247,17 @@ const queueList = computed<QueueRowItem[]>(() => {
   }
 
   // 5. Queued items
-  const activeCount = threadsList.value.length
+  const activeCount = threadsList.value.filter((th) => {
+    const s = (th.Status || '').toLowerCase()
+    return (
+      !s.includes('completed') &&
+      !s.includes('done') &&
+      !s.includes('skip') &&
+      !s.includes('duplicate') &&
+      !s.includes('fail') &&
+      !s.includes('error')
+    )
+  }).length
   const completedCount = state.uploadedFiles
   const total = effectiveTotalFiles.value
   const remaining = Math.max(0, total - (completedCount + activeCount))
@@ -426,7 +423,7 @@ const totalQueueCount = computed(() => {
                   {{ t('upload.skippedCount', { count: state.results.skipped.length }) }}
                 </span>
                 <span v-if="state.results.fail.length > 0" class="text-[var(--md-sys-color-error)]">
-                  &bull; {{ t('upload.failedCount', { count: state.results.fail.length }) }}
+                  <template v-if="state.results.success.length > 0 || state.results.skipped.length > 0">&bull; </template>{{ t('upload.failedCount', { count: state.results.fail.length }) }}
                 </span>
               </div>
             </div>
@@ -612,6 +609,12 @@ const totalQueueCount = computed(() => {
                 class="px-2.5 py-0.5 rounded-full bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-on-surface-variant)] m3-label-small normal-case"
               >
                 {{ t('upload.paused') }}
+              </span>
+              <span
+                v-else-if="item.status === 'retrying'"
+                class="px-2.5 py-0.5 rounded-full bg-[var(--md-sys-color-tertiary-container)] text-[var(--md-sys-color-on-tertiary-container)] m3-label-small normal-case animate-pulse"
+              >
+                {{ t('upload.retrying') }}
               </span>
               <span
                 v-else-if="item.status === 'done'"

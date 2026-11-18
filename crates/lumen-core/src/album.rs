@@ -1,10 +1,13 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+static TEMP_SEQ: AtomicU64 = AtomicU64::new(1);
 
 pub const ALBUM_BATCH_SIZE: usize = 500;
 pub const ALBUM_LIMIT: usize = 20_000;
@@ -29,6 +32,8 @@ pub struct AlbumRegistryEntry {
     pub album_key: String,
     #[serde(rename = "created_at")]
     pub created_at: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
 }
 
 pub fn normalize_album_account(account: &str) -> String {
@@ -110,6 +115,7 @@ pub struct AlbumRegistry {
     // entries: account -> (normalized_name -> entry)
     entries: Arc<RwLock<HashMap<String, HashMap<String, AlbumRegistryEntry>>>>,
     locks: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
+    save_lock: Arc<Mutex<()>>,
 }
 
 impl AlbumRegistry {
@@ -118,6 +124,7 @@ impl AlbumRegistry {
             file_path,
             entries: Arc::new(RwLock::new(HashMap::new())),
             locks: Arc::new(Mutex::new(HashMap::new())),
+            save_lock: Arc::new(Mutex::new(())),
         };
         reg.load()?;
         Ok(reg)
@@ -128,6 +135,7 @@ impl AlbumRegistry {
             file_path: PathBuf::new(),
             entries: Arc::new(RwLock::new(HashMap::new())),
             locks: Arc::new(Mutex::new(HashMap::new())),
+            save_lock: Arc::new(Mutex::new(())),
         }
     }
 
@@ -164,6 +172,7 @@ impl AlbumRegistry {
         if self.file_path.as_os_str().is_empty() {
             return Ok(());
         }
+        let _save_guard = self.save_lock.lock().unwrap();
         if let Some(parent) = self.file_path.parent() {
             let _ = fs::create_dir_all(parent);
             #[cfg(unix)]
@@ -175,8 +184,15 @@ impl AlbumRegistry {
         let entries = self.entries.read().unwrap();
         let json = serde_json::to_string_pretty(&*entries)
             .map_err(|e| AlbumError::Io(e.to_string()))?;
-        let tmp = self.file_path.with_extension("tmp");
-        let _ = fs::remove_file(&tmp);
+        let seq = TEMP_SEQ.fetch_add(1, Ordering::Relaxed);
+        let file_name = self
+            .file_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("albums.json");
+        let tmp = self
+            .file_path
+            .with_file_name(format!(".{}.tmp.{}.{}", file_name, std::process::id(), seq));
         {
             use std::io::Write;
             let mut opts = fs::OpenOptions::new();
@@ -196,7 +212,10 @@ impl AlbumRegistry {
             f.write_all(json.as_bytes()).map_err(|e| AlbumError::Io(e.to_string()))?;
             f.sync_all().map_err(|e| AlbumError::Io(e.to_string()))?;
         }
-        fs::rename(&tmp, &self.file_path).map_err(|e| AlbumError::Io(e.to_string()))?;
+        if let Err(e) = fs::rename(&tmp, &self.file_path) {
+            let _ = fs::remove_file(&tmp);
+            return Err(AlbumError::Io(e.to_string()));
+        }
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -225,8 +244,37 @@ impl AlbumRegistry {
                 AlbumRegistryEntry {
                     album_key: album_key.to_string(),
                     created_at: now,
+                    display_name: None,
                 },
             );
+        }
+        self.save_locked()
+    }
+
+    pub fn set_nickname(&self, account: &str, album_key: &str, nickname: &str) -> Result<(), AlbumError> {
+        let acct_key = normalize_album_account(account);
+        let clean_key = album_key.trim().to_string();
+        if clean_key.is_empty() {
+            return Ok(());
+        }
+        let clean_nick = nickname.trim();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+
+        {
+            let mut entries = self.entries.write().unwrap();
+            let acct_map = entries.entry(acct_key).or_default();
+            acct_map.retain(|_, entry| entry.album_key != clean_key);
+            if !clean_nick.is_empty() {
+                let name_key = normalize_album_name(clean_nick);
+                acct_map.insert(
+                    name_key,
+                    AlbumRegistryEntry {
+                        album_key: clean_key,
+                        created_at: now,
+                        display_name: Some(clean_nick.to_string()),
+                    },
+                );
+            }
         }
         self.save_locked()
     }
@@ -250,7 +298,7 @@ impl AlbumRegistry {
         let acct_map = entries.get(&acct_key)?;
         for (name, entry) in acct_map {
             if entry.album_key == key {
-                return Some(name.clone());
+                return Some(entry.display_name.clone().unwrap_or_else(|| name.clone()));
             }
         }
         None
@@ -262,7 +310,8 @@ impl AlbumRegistry {
         let mut map = HashMap::new();
         if let Some(acct_map) = entries.get(&acct_key) {
             for (name, entry) in acct_map {
-                map.insert(entry.album_key.clone(), name.clone());
+                let label = entry.display_name.clone().unwrap_or_else(|| name.clone());
+                map.insert(entry.album_key.clone(), label);
             }
         }
         map
@@ -448,5 +497,56 @@ mod tests {
         let album_keys = mgr.add_to_album(&keys, "Vacation").await.unwrap();
         assert_eq!(album_keys[0], "AF1Qip_Vacation");
         assert_eq!(api.created.lock().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_album_registry_concurrent_saves_do_not_collide() {
+        let dir = tempfile::tempdir().unwrap();
+        let reg_path = dir.path().join("album_registry.json");
+        let reg = AlbumRegistry::new(reg_path.clone()).unwrap();
+
+        let mut handles = Vec::new();
+        for i in 0..16 {
+            let r = reg.clone();
+            handles.push(tokio::spawn(async move {
+                r.set(
+                    "user@example.com",
+                    &format!("Album {}", i),
+                    &format!("AF1Qip_key_{}", i),
+                )
+            }));
+        }
+        for h in handles {
+            h.await.unwrap().unwrap();
+        }
+
+        let reloaded = AlbumRegistry::new(reg_path).unwrap();
+        for i in 0..16 {
+            let entry = reloaded.get("user@example.com", &format!("Album {}", i)).unwrap();
+            assert_eq!(entry.album_key, format!("AF1Qip_key_{}", i));
+        }
+    }
+
+    #[test]
+    fn test_album_registry_nickname_replaces_stale_preserves_casing_and_clears() {
+        let reg = AlbumRegistry::in_memory();
+        reg.set_nickname("user@example.com", "AF1Qip_123", "Old Name").unwrap();
+        assert_eq!(
+            reg.find_name_by_key("user@example.com", "AF1Qip_123").as_deref(),
+            Some("Old Name")
+        );
+
+        reg.set_nickname("user@example.com", "AF1Qip_123", "Summer Trip 2026").unwrap();
+        assert_eq!(
+            reg.find_name_by_key("user@example.com", "AF1Qip_123").as_deref(),
+            Some("Summer Trip 2026")
+        );
+        let all = reg.get_all_nicknames("user@example.com");
+        assert_eq!(all.len(), 1);
+        assert_eq!(all.get("AF1Qip_123").map(String::as_str), Some("Summer Trip 2026"));
+
+        reg.set_nickname("user@example.com", "AF1Qip_123", "").unwrap();
+        assert!(reg.find_name_by_key("user@example.com", "AF1Qip_123").is_none());
+        assert!(reg.get_all_nicknames("user@example.com").is_empty());
     }
 }

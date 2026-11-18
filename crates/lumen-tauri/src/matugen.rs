@@ -173,21 +173,25 @@ pub mod linux {
         }
 
         tauri::async_runtime::spawn(async move {
+            let color_file_paths = get_candidate_paths();
             let active = find_active_color_source();
             let watch_dir = match active {
-                Some((ref p, _)) => p.parent().map(|d| d.to_path_buf()),
-                None => {
+                Some((ref p, _)) if color_file_paths.contains(p) => {
+                    p.parent().map(|d| d.to_path_buf())
+                }
+                _ => {
                     if let Ok(home) = std::env::var("HOME") {
+                        let qs_wp_dir = Path::new(&home).join(".local/state/quickshell/user/generated/wallpaper");
                         let qs = Path::new(&home).join(".local/state/quickshell/user/generated");
-                        if qs.is_dir() {
+                        let matugen_dir = Path::new(&home).join(".config/matugen");
+                        if qs_wp_dir.is_dir() {
+                            Some(qs_wp_dir)
+                        } else if qs.is_dir() {
                             Some(qs)
+                        } else if matugen_dir.is_dir() {
+                            Some(matugen_dir)
                         } else {
-                            let matugen_dir = Path::new(&home).join(".config/matugen");
-                            if matugen_dir.is_dir() {
-                                Some(matugen_dir)
-                            } else {
-                                None
-                            }
+                            None
                         }
                     } else {
                         None
@@ -197,6 +201,7 @@ pub mod linux {
 
             let Some(dir) = watch_dir else {
                 tracing::info!("No matugen directory found to watch for dynamic theming");
+                WATCHER_RUNNING.store(false, Ordering::SeqCst);
                 return;
             };
 
@@ -222,12 +227,14 @@ pub mod linux {
                 Ok(w) => w,
                 Err(e) => {
                     tracing::warn!("Failed to create Matugen watcher: {}", e);
+                    WATCHER_RUNNING.store(false, Ordering::SeqCst);
                     return;
                 }
             };
 
             if let Err(e) = watcher.watch(&dir, RecursiveMode::NonRecursive) {
                 tracing::warn!("Failed to watch Matugen directory {:?}: {}", dir, e);
+                WATCHER_RUNNING.store(false, Ordering::SeqCst);
                 return;
             }
 
@@ -241,6 +248,7 @@ pub mod linux {
                     let _ = app_handle.emit("matugen:colors-changed", &colors);
                 }
             }
+            WATCHER_RUNNING.store(false, Ordering::SeqCst);
         });
     }
 }

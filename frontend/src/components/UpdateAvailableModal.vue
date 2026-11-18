@@ -6,6 +6,7 @@ import { ConfigManager } from '../../bindings/app/core'
 import type { UpdateInfo } from '../../bindings/app/core/models'
 import M3Button from './ui/M3Button.vue'
 import M3Icon from './ui/M3Icon.vue'
+import { useDialogFocusTrap } from '../utils/useDialogFocusTrap'
 
 const { t } = useI18n()
 
@@ -18,28 +19,47 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: boolean): void
 }>()
 
+const dialogCardRef = ref<HTMLElement | null>(null)
+useDialogFocusTrap(() => Boolean(props.modelValue && props.updateInfo), dialogCardRef, {
+  onEscape: close,
+})
+
 const notes = ref('')
 const isLoadingNotes = ref(false)
+const lastFetchedVersion = ref('')
 
-watch(() => [props.modelValue, props.updateInfo], async ([open, info]) => {
-  if (open && info && typeof info === 'object' && 'latestVersion' in info) {
+watch(() => [props.modelValue, props.updateInfo] as const, async ([open, info]) => {
+  if (!open) return
+  if (info && typeof info === 'object' && 'latestVersion' in info) {
     const update = info as UpdateInfo
     if (update.releaseNotes) {
       notes.value = update.releaseNotes
+      lastFetchedVersion.value = update.latestVersion || ''
       return
     }
-    if (update.latestVersion && !notes.value) {
+    if (update.latestVersion && update.latestVersion !== lastFetchedVersion.value) {
+      const requestedVersion = update.latestVersion
+      notes.value = ''
       isLoadingNotes.value = true
       try {
-        const fetched = await ConfigManager.GetReleaseNotes(update.latestVersion)
+        const fetched = await ConfigManager.GetReleaseNotes(requestedVersion)
+        if (!props.modelValue || props.updateInfo?.latestVersion !== requestedVersion) {
+          return
+        }
         if (fetched) {
           notes.value = fetched
+          lastFetchedVersion.value = requestedVersion
         }
       } catch (err: unknown) {
+        if (!props.modelValue || props.updateInfo?.latestVersion !== requestedVersion) {
+          return
+        }
         const msg = err instanceof Error ? err.message : String(err)
         notes.value = msg || 'Could not load release notes.'
       } finally {
-        isLoadingNotes.value = false
+        if (props.updateInfo?.latestVersion === requestedVersion || !props.modelValue) {
+          isLoadingNotes.value = false
+        }
       }
     }
   }
@@ -52,7 +72,7 @@ function close() {
 function openDownload() {
   if (props.updateInfo?.releaseUrl) {
     Browser.OpenURL(props.updateInfo.releaseUrl).catch(() => {
-      window.open(props.updateInfo!.releaseUrl, '_blank')
+      window.open(props.updateInfo!.releaseUrl, '_blank', 'noopener,noreferrer')
     })
   }
   close()
@@ -69,7 +89,9 @@ function openDownload() {
         @click.self="close"
       >
         <div
-          class="m3-dialog-card relative flex flex-col w-full max-w-lg rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container-high)] shadow-2xl overflow-hidden select-none"
+          ref="dialogCardRef"
+          tabindex="-1"
+          class="m3-dialog-card relative flex flex-col w-full max-w-lg rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container-high)] shadow-2xl overflow-hidden select-none outline-none"
           role="dialog"
           aria-modal="true"
           aria-labelledby="update-modal-title"

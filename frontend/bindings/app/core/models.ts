@@ -457,7 +457,7 @@ export class Preferences {
     "watchedFolders": string[];
     "watchedFolderConfigs": WatchedFolderConfig[];
     "recentAlbums": string[];
-    "auto_check_updates": boolean;
+    "autoCheckUpdates": boolean;
     "lastUpdateCheck": number;
     "scheduleEnabled"?: boolean;
     "scheduleStartHour"?: number;

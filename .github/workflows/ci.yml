@@ -19,20 +19,19 @@ jobs:
     name: Test & Lint Suite (Linux x64)
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
-
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           components: clippy
 
       - name: Install Protoc
-        uses: arduino/setup-protoc@v3
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -46,9 +45,10 @@ jobs:
       - name: Install Frontend Dependencies
         run: npm ci --prefix frontend --engine-strict=false
 
-      - name: Frontend Tests & Build Check
+      - name: Frontend Tests, Lint & Build Check
         run: |
           npm test --prefix frontend
+          npm run lint --prefix frontend
           npm run build --prefix frontend
 
       - name: Run Workspace Tests
@@ -63,20 +63,19 @@ jobs:
     needs: [test]
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
-
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           targets: x86_64-unknown-linux-gnu
 
       - name: Install Protoc
-        uses: arduino/setup-protoc@v3
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -118,6 +117,9 @@ jobs:
           if [ -n "$APPIMAGE" ] && [ -f "$APPIMAGE" ]; then
             cp "$APPIMAGE" "dist/lumen_${V}_linux_x64.AppImage"
             chmod +x "dist/lumen_${V}_linux_x64.AppImage"
+          else
+            echo "Error: Missing AppImage artifact."
+            exit 1
           fi
 
           # 2. Debian / Ubuntu .deb
@@ -128,6 +130,9 @@ jobs:
           done
           if [ -n "$DEB_FILE" ] && [ -f "$DEB_FILE" ]; then
             cp "$DEB_FILE" "dist/lumen_${V}_linux_x64.deb"
+          else
+            echo "Error: Missing .deb artifact."
+            exit 1
           fi
 
           # 3. Standalone GUI binary
@@ -141,6 +146,9 @@ jobs:
           if [ -n "$GUI_BIN" ]; then
             cp "$GUI_BIN" "dist/lumen_${V}_linux_x64"
             chmod +x "dist/lumen_${V}_linux_x64"
+          else
+            echo "Error: Missing standalone lumen binary."
+            exit 1
           fi
 
           # 4. Standalone CLI binary
@@ -154,12 +162,15 @@ jobs:
           if [ -n "$CLI_BIN" ]; then
             cp "$CLI_BIN" "dist/lumen-cli_${V}_linux_x64"
             chmod +x "dist/lumen-cli_${V}_linux_x64"
+          else
+            echo "Error: Missing standalone lumen-cli binary."
+            exit 1
           fi
 
           ls -la dist/
 
       - name: Upload Dev Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: lumen-dev-linux-x64
           path: dist/*
@@ -171,20 +182,19 @@ jobs:
     needs: [test]
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           targets: x86_64-apple-darwin,aarch64-apple-darwin
 
       - name: Install Protoc
-        uses: arduino/setup-protoc@v3
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -196,9 +206,9 @@ jobs:
       - name: Build Frontend
         run: npm run build --prefix frontend
 
-      - name: Build Tauri Universal Bundle (.app)
+      - name: Build Tauri Universal Bundle (.app & .dmg)
         working-directory: crates/lumen-tauri
-        run: npx --prefix ../../frontend tauri build --debug --target universal-apple-darwin --bundles app
+        run: npx --prefix ../../frontend tauri build --debug --target universal-apple-darwin --bundles app,dmg
 
       - name: Build Standalone Universal CLI
         run: |
@@ -239,6 +249,9 @@ jobs:
             done
             if [ -n "$DMG_FILE" ] && [ -f "$DMG_FILE" ]; then
               cp "$DMG_FILE" "$OUT_DMG"
+            else
+              echo "Error: Failed to produce DMG installer."
+              exit 1
             fi
           fi
 
@@ -246,6 +259,9 @@ jobs:
           if [ -d "$APP_PATH" ]; then
             APP_DIR=$(dirname "$APP_PATH")
             (cd "$APP_DIR" && zip -r "../../../../../dist/lumen_${V}_macos_universal.zip" Lumen.app)
+          else
+            echo "Error: Missing Lumen.app bundle."
+            exit 1
           fi
 
           # 3. Universal CLI binary
@@ -271,7 +287,7 @@ jobs:
           ls -la dist/
 
       - name: Upload Dev Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: lumen-dev-macos-universal
           path: dist/*
@@ -283,20 +299,19 @@ jobs:
     needs: [test]
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           targets: x86_64-pc-windows-msvc
 
       - name: Install Protoc
-        uses: arduino/setup-protoc@v3
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -324,9 +339,11 @@ jobs:
 
       - name: Stage Dev Artifacts
         shell: pwsh
+        env:
+          COMMIT_SHA: ${{ github.sha }}
         run: |
           $CARGO_VER = (Select-String -Path crates/lumen-tauri/Cargo.toml -Pattern '^version = "(.*)"').Matches.Groups[1].Value
-          $SHORT_SHA = "${{ github.sha }}".Substring(0, 7)
+          $SHORT_SHA = $env:COMMIT_SHA.Substring(0, 7)
           $V = "$CARGO_VER-dev.$SHORT_SHA"
           New-Item -ItemType Directory -Force -Path dist
 
@@ -334,24 +351,33 @@ jobs:
           $INSTALLER = if (Test-Path "target/debug/lumen-installer.exe") { "target/debug/lumen-installer.exe" } else { "target/release/lumen-installer.exe" }
           if (Test-Path $INSTALLER) {
             Copy-Item -Path $INSTALLER -Destination "dist/lumen_${V}_windows_x64-setup.exe"
+          } else {
+            Write-Error "Missing Windows x64 installer binary."
+            exit 1
           }
 
           # 2. Standalone GUI executable
           $GUI = if (Test-Path "target/debug/lumen.exe") { "target/debug/lumen.exe" } else { "target/release/lumen.exe" }
           if (Test-Path $GUI) {
             Copy-Item -Path $GUI -Destination "dist/lumen_${V}_windows_x64.exe"
+          } else {
+            Write-Error "Missing Windows x64 GUI binary."
+            exit 1
           }
 
           # 3. Standalone CLI executable
           $CLI = if (Test-Path "target/debug/lumen-cli.exe") { "target/debug/lumen-cli.exe" } else { "target/release/lumen-cli.exe" }
           if (Test-Path $CLI) {
             Copy-Item -Path $CLI -Destination "dist/lumen-cli_${V}_windows_x64.exe"
+          } else {
+            Write-Error "Missing Windows x64 CLI binary."
+            exit 1
           }
 
           Get-ChildItem -Path dist
 
       - name: Upload Dev Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: lumen-dev-windows-x64
           path: dist/*
@@ -363,20 +389,19 @@ jobs:
     needs: [test]
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           targets: aarch64-pc-windows-msvc
 
       - name: Install Protoc
-        uses: arduino/setup-protoc@v3
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -404,9 +429,11 @@ jobs:
 
       - name: Stage Dev Artifacts
         shell: pwsh
+        env:
+          COMMIT_SHA: ${{ github.sha }}
         run: |
           $CARGO_VER = (Select-String -Path crates/lumen-tauri/Cargo.toml -Pattern '^version = "(.*)"').Matches.Groups[1].Value
-          $SHORT_SHA = "${{ github.sha }}".Substring(0, 7)
+          $SHORT_SHA = $env:COMMIT_SHA.Substring(0, 7)
           $V = "$CARGO_VER-dev.$SHORT_SHA"
           New-Item -ItemType Directory -Force -Path dist
 
@@ -414,24 +441,33 @@ jobs:
           $INSTALLER = if (Test-Path "target/aarch64-pc-windows-msvc/debug/lumen-installer.exe") { "target/aarch64-pc-windows-msvc/debug/lumen-installer.exe" } else { "target/aarch64-pc-windows-msvc/release/lumen-installer.exe" }
           if (Test-Path $INSTALLER) {
             Copy-Item -Path $INSTALLER -Destination "dist/lumen_${V}_windows_arm64-setup.exe"
+          } else {
+            Write-Error "Missing Windows ARM64 installer binary."
+            exit 1
           }
 
           # 2. Standalone GUI executable (ARM64)
           $GUI = if (Test-Path "target/aarch64-pc-windows-msvc/debug/lumen.exe") { "target/aarch64-pc-windows-msvc/debug/lumen.exe" } else { "target/aarch64-pc-windows-msvc/release/lumen.exe" }
           if (Test-Path $GUI) {
             Copy-Item -Path $GUI -Destination "dist/lumen_${V}_windows_arm64.exe"
+          } else {
+            Write-Error "Missing Windows ARM64 GUI binary."
+            exit 1
           }
 
           # 3. Standalone CLI executable (ARM64)
           $CLI = if (Test-Path "target/aarch64-pc-windows-msvc/debug/lumen-cli.exe") { "target/aarch64-pc-windows-msvc/debug/lumen-cli.exe" } else { "target/aarch64-pc-windows-msvc/release/lumen-cli.exe" }
           if (Test-Path $CLI) {
             Copy-Item -Path $CLI -Destination "dist/lumen-cli_${V}_windows_arm64.exe"
+          } else {
+            Write-Error "Missing Windows ARM64 CLI binary."
+            exit 1
           }
 
           Get-ChildItem -Path dist
 
       - name: Upload Dev Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: lumen-dev-windows-arm64
           path: dist/*

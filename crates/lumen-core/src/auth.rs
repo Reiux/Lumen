@@ -205,6 +205,7 @@ pub async fn exchange_embedded_setup_token(
 pub struct TokenManager {
     account_email: String,
     inner: Arc<RwLock<TokenState>>,
+    refresh_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 struct TokenState {
@@ -220,7 +221,12 @@ impl TokenManager {
                 access_token: String::new(),
                 expires_at: UNIX_EPOCH,
             })),
+            refresh_lock: Arc::new(tokio::sync::Mutex::new(())),
         }
+    }
+
+    pub fn refresh_lock(&self) -> &Arc<tokio::sync::Mutex<()>> {
+        &self.refresh_lock
     }
 
     pub fn account_email(&self) -> &str {
@@ -256,6 +262,21 @@ impl TokenManager {
             }
             state.access_token.clear();
             state.expires_at = UNIX_EPOCH;
+        }
+    }
+
+    /// Invalidates the cached token only if it still equals `token`, preventing a stale
+    /// 401/403 from an older request from wiping out a concurrently refreshed token.
+    pub fn invalidate_if_matches(&self, token: &str) {
+        if let Ok(mut state) = self.inner.write() {
+            if state.access_token == token {
+                let len = state.access_token.len();
+                if len > 0 {
+                    state.access_token.replace_range(.., &"0".repeat(len));
+                }
+                state.access_token.clear();
+                state.expires_at = UNIX_EPOCH;
+            }
         }
     }
 }

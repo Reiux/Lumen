@@ -8,6 +8,7 @@ import { uploadManager } from '../utils/UploadManager'
 import M3Button from './ui/M3Button.vue'
 import M3Icon from './ui/M3Icon.vue'
 import RemoveAccountModal from './RemoveAccountModal.vue'
+import { useDialogFocusTrap } from '../utils/useDialogFocusTrap'
 
 const { t } = useI18n()
 
@@ -19,8 +20,15 @@ const emit = defineEmits<{
 const blockedState = computed(() => uploadManager.state.accountBlocked)
 const isVisible = computed(() => blockedState.value.isBlocked)
 const showSafetyDialog = ref(false)
+const safetyDialogCardRef = ref<HTMLElement | null>(null)
 const showRemoveModal = ref(false)
 const isRemoving = ref(false)
+
+useDialogFocusTrap(() => showSafetyDialog.value, safetyDialogCardRef, {
+  onEscape: () => {
+    showSafetyDialog.value = false
+  },
+})
 
 const resumeTimeFormatted = computed(() => {
   if (!blockedState.value.resumeAt) return '15m'
@@ -207,7 +215,9 @@ async function removeAccount() {
         @click.self="showSafetyDialog = false"
       >
         <div
-          class="m3-dialog-card relative flex flex-col w-full max-w-md gap-4 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl"
+          ref="safetyDialogCardRef"
+          tabindex="-1"
+          class="m3-dialog-card relative flex flex-col w-full max-w-md gap-4 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl outline-none"
           role="dialog"
           aria-modal="true"
           aria-labelledby="safety-notice-title"
