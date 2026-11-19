@@ -5,7 +5,9 @@ import { Browser, Clipboard, Events } from '@wailsio/runtime'
 import { toast } from 'vue-sonner'
 import { ConfigManager } from '../../bindings/app/core'
 import M3Button from './ui/M3Button.vue'
+import M3ButtonGroup from './ui/M3ButtonGroup.vue'
 import M3Icon from './ui/M3Icon.vue'
+import M3LoadingIndicator from './ui/M3LoadingIndicator.vue'
 import M3TextField from './ui/M3TextField.vue'
 import AccountRiskCard from './AccountRiskCard.vue'
 import { displayNameFromEmail, getAvatarColor, getEmailInitial } from '../utils/avatar'
@@ -404,38 +406,38 @@ function handleDoneSuccess() {
     <Transition name="m3-dialog-modal">
       <div
         v-if="isOpen"
-        class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 select-none overflow-y-auto"
+        class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center p-4 select-none overflow-y-auto"
         style="--wails-draggable: none"
         @click.self="isOpen = false"
       >
-        <!-- Centered M3 Modal Dialog -->
+        <!-- Centered M3E Modal Dialog -->
         <div
           ref="dialogCardRef"
           tabindex="-1"
-          class="m3-dialog-card relative flex flex-col w-full max-w-lg rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container-high)] shadow-2xl outline-none max-h-[calc(100dvh-32px)] overflow-hidden select-none"
+          class="m3-dialog-card relative flex flex-col w-full max-w-lg rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] shadow-2xl outline-none focus-visible:outline-[3px] focus-visible:outline-[var(--md-sys-color-primary)] max-h-[calc(100dvh-32px)] overflow-hidden select-none"
           role="dialog"
           aria-modal="true"
           aria-labelledby="google-auth-title"
           style="--wails-draggable: none"
         >
-          <!-- Sticky Header -->
-          <div class="sticky top-0 z-20 flex shrink-0 items-center justify-between border-b border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-high)] px-6 py-4">
-            <div class="flex items-center gap-3">
-              <div class="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-primary)]">
+          <!-- Sticky M3E Header -->
+          <div class="sticky top-0 z-20 flex shrink-0 items-center justify-between gap-3 bg-[var(--md-sys-color-surface-container-high)] px-6 pt-5 pb-4">
+            <div class="flex items-center gap-3.5 min-w-0">
+              <div class="flex size-12 shrink-0 items-center justify-center rounded-[16px] bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
                 <M3Icon
                   name="lock"
                   :filled="true"
-                  :size="20"
+                  :size="24"
                 />
               </div>
-              <div class="flex flex-col">
+              <div class="flex flex-col min-w-0">
                 <h2
                   id="google-auth-title"
                   class="m3-headline-small text-[var(--md-sys-color-on-surface)]"
                 >
                   {{ t('googleAuth.title') }}
                 </h2>
-                <p class="m3-body-medium">
+                <p class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)]">
                   {{ t('googleAuth.automatedSignInDesc') }}
                 </p>
               </div>
@@ -443,10 +445,10 @@ function handleDoneSuccess() {
 
             <M3Button
               variant="text"
-              size="xs"
+              size="s"
               icon="close"
               :aria-label="t('googleAuth.closeAria')"
-              class="!size-9 !min-w-0 !p-0"
+              class="!size-10 !min-w-0 !p-0 shrink-0"
               @click="isOpen = false"
             />
           </div>
@@ -454,20 +456,21 @@ function handleDoneSuccess() {
           <!-- Scrollable Body -->
           <div
             ref="dialogBodyRef"
-            class="m3-dialog-body flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-5"
+            class="m3-dialog-body flex-1 overflow-y-auto px-6 py-2 flex flex-col gap-5"
           >
             <!-- Step 1: Account Safety Gate -->
             <div class="flex flex-col gap-2">
               <div class="flex items-center justify-between px-1">
-                <span class="m3-label-small text-[var(--md-sys-color-primary)]">
+                <span class="m3-label-large text-[var(--md-sys-color-on-surface-variant)]">
                   {{ t('googleAuth.step1Title') }}
                 </span>
                 <span
                   v-if="hasAcknowledgedRisk"
-                  class="m3-label-small text-emerald-500 flex items-center gap-1"
+                  class="inline-flex items-center gap-1 rounded-full bg-[var(--md-sys-color-tertiary-container)] text-[var(--md-sys-color-on-tertiary-container)] px-2.5 py-0.5 m3-label-large text-xs"
                 >
                   <M3Icon
                     name="check_circle"
+                    :filled="true"
                     :size="14"
                   />
                   {{ t('googleAuth.confirmed') }}
@@ -476,14 +479,14 @@ function handleDoneSuccess() {
               <AccountRiskCard v-model="hasAcknowledgedRisk" />
             </div>
 
-            <!-- SUCCESS STATE: Visual Confirmation -->
+            <!-- SUCCESS STATE: Visual Confirmation (fully M3 tokenized) -->
             <div
               v-if="verifiedUser"
-              class="flex flex-col items-center justify-center gap-4 rounded-2xl bg-[var(--md-sys-color-surface-container)] p-6 border border-emerald-500/40 text-center animate-fade-in"
+              class="flex flex-col items-center justify-center gap-4 rounded-[20px] bg-[var(--md-sys-color-surface-container)] p-6 text-center animate-fade-in"
             >
               <div class="relative">
                 <div
-                  class="flex size-20 items-center justify-center rounded-full m3-headline-large shadow-lg ring-4 ring-emerald-500/20"
+                  class="flex size-20 items-center justify-center rounded-full m3-headline-large shadow-md ring-4 ring-[var(--md-sys-color-tertiary-container)]"
                   :style="{
                     backgroundColor: getAvatarColor(verifiedUser.email).bg,
                     color: getAvatarColor(verifiedUser.email).text,
@@ -491,7 +494,7 @@ function handleDoneSuccess() {
                 >
                   {{ getEmailInitial(verifiedUser.email) }}
                 </div>
-                <div class="absolute -bottom-1 -right-1 flex size-7 items-center justify-center rounded-full bg-emerald-500 text-white shadow-md">
+                <div class="absolute -bottom-1 -right-1 flex size-7 items-center justify-center rounded-full bg-[var(--md-sys-color-tertiary)] text-[var(--md-sys-color-on-tertiary)] shadow-md">
                   <M3Icon
                     name="check"
                     :size="16"
@@ -503,13 +506,14 @@ function handleDoneSuccess() {
                 <h3 class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
                   {{ displayNameFromEmail(verifiedUser.email) }}
                 </h3>
-                <p class="m3-body-medium m3-mono">
+                <p class="m3-body-medium m3-mono text-[var(--md-sys-color-on-surface-variant)]">
                   {{ verifiedUser.email }}
                 </p>
-                <div class="mt-2 inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-3 py-1 m3-label-large text-emerald-500 mx-auto">
+                <div class="mt-2 inline-flex items-center gap-1.5 rounded-full bg-[var(--md-sys-color-tertiary-container)] px-3 py-1 m3-label-large text-[var(--md-sys-color-on-tertiary-container)] mx-auto">
                   <M3Icon
                     name="verified"
-                    :size="14"
+                    :filled="true"
+                    :size="15"
                   />
                   <span>{{ t('googleAuth.verified') }}</span>
                 </div>
@@ -525,17 +529,17 @@ function handleDoneSuccess() {
             <!-- Step 2: Sign-in Options (Gated until risk is acknowledged) -->
             <div
               v-else
-              class="flex flex-col gap-4 transition-all duration-200"
-              :class="!hasAcknowledgedRisk && 'opacity-40 pointer-events-none select-none filter blur-[0.5px]'"
+              class="flex flex-col gap-4 transition-opacity duration-200"
+              :class="!hasAcknowledgedRisk && 'opacity-40 pointer-events-none select-none'"
             >
               <div class="flex items-center justify-between px-1">
-                <span class="m3-label-small text-[var(--md-sys-color-primary)]">
+                <span class="m3-label-large text-[var(--md-sys-color-on-surface-variant)]">
                   {{ t('googleAuth.step2Title') }}
                 </span>
               </div>
 
               <!-- Primary In-App Google Sign-in Card -->
-              <div class="flex flex-col gap-3 rounded-2xl bg-[var(--md-sys-color-surface-container)] p-4 border border-[var(--md-sys-color-outline-variant)]/30">
+              <div class="flex flex-col gap-3 rounded-[20px] bg-[var(--md-sys-color-surface-container)] p-4">
                 <!-- State: IDLE -->
                 <div
                   v-if="browserState === 'idle'"
@@ -545,7 +549,7 @@ function handleDoneSuccess() {
                     <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
                       {{ t('googleAuth.automatedSignIn') }}
                     </span>
-                    <span class="m3-body-medium leading-relaxed">
+                    <span class="m3-body-medium leading-relaxed text-[var(--md-sys-color-on-surface-variant)]">
                       {{ t('googleAuth.automatedSignInDesc') }}
                     </span>
                   </div>
@@ -554,7 +558,7 @@ function handleDoneSuccess() {
                     variant="filled"
                     size="m"
                     icon="login"
-                    class="w-full justify-center py-2.5 shadow-xs"
+                    class="w-full justify-center shadow-xs"
                     :disabled="!hasAcknowledgedRisk || isValidating"
                     @click="handleEmbeddedSignIn"
                   >
@@ -562,31 +566,27 @@ function handleDoneSuccess() {
                   </M3Button>
                 </div>
 
-                <!-- State: WAITING (Linux popup WebView or External Chromium Fallback) -->
+                <!-- State: WAITING (M3E Loading Indicator) -->
                 <div
                   v-else-if="browserState === 'waiting' || browserState === 'waiting-external'"
                   class="flex flex-col items-center justify-center gap-3 py-3 text-center"
                 >
-                  <div class="flex size-10 items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-primary)] animate-pulse">
-                    <M3Icon
-                      name="sync"
-                      :size="22"
-                      class="animate-spin"
-                    />
+                  <div class="flex size-12 items-center justify-center rounded-[16px] bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
+                    <M3LoadingIndicator size="sm" />
                   </div>
 
                   <div class="flex flex-col gap-1">
                     <h4 class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
                       {{ t('googleAuth.finishInBrowser') }}
                     </h4>
-                    <p class="m3-body-medium max-w-sm">
+                    <p class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)] max-w-sm">
                       {{ t('googleAuth.finishInBrowserDesc') }}
                     </p>
                   </div>
 
                   <div class="flex flex-wrap items-center justify-center gap-2 mt-1">
                     <M3Button
-                      variant="outlined"
+                      variant="tonal"
                       size="s"
                       icon="close"
                       @click="handleCancelBrowserSignIn"
@@ -605,23 +605,23 @@ function handleDoneSuccess() {
                   </div>
                 </div>
 
-                <!-- State: ERROR -->
+                <!-- State: ERROR (clean tonal error-container, >= 40px action targets) -->
                 <div
                   v-else-if="browserState === 'error'"
-                  class="flex flex-col gap-3 rounded-xl border border-[var(--md-sys-color-error)]/40 bg-[var(--md-sys-color-error-container)]/30 p-3.5"
+                  class="flex flex-col gap-3 rounded-[16px] bg-[var(--md-sys-color-error-container)] text-[var(--md-sys-color-on-error-container)] p-4"
                 >
                   <div class="flex items-start gap-2.5">
                     <M3Icon
                       name="error"
                       :filled="true"
-                      :size="18"
-                      class="text-[var(--md-sys-color-error)] shrink-0 mt-0.5"
+                      :size="20"
+                      class="shrink-0 mt-0.5"
                     />
                     <div class="flex flex-col gap-0.5 min-w-0">
-                      <span class="m3-title-medium text-[var(--md-sys-color-error)]">
+                      <span class="m3-title-medium !text-[var(--md-sys-color-on-error-container)]">
                         {{ t('googleAuth.couldNotSignIn') }}
                       </span>
-                      <span class="m3-body-medium text-[var(--md-sys-color-on-surface)] leading-relaxed">
+                      <span class="m3-body-medium !text-[var(--md-sys-color-on-error-container)] leading-relaxed">
                         {{ browserErrorMessage }}
                       </span>
                     </div>
@@ -630,7 +630,7 @@ function handleDoneSuccess() {
                   <div class="flex flex-wrap items-center gap-2 pt-1">
                     <M3Button
                       variant="filled"
-                      size="xs"
+                      size="s"
                       icon="refresh"
                       @click="handleEmbeddedSignIn"
                     >
@@ -639,7 +639,7 @@ function handleDoneSuccess() {
                     <M3Button
                       v-if="hasExternalChromium"
                       variant="tonal"
-                      size="xs"
+                      size="s"
                       icon="open_in_browser"
                       @click="handleExternalBrowserSignIn"
                     >
@@ -647,7 +647,7 @@ function handleDoneSuccess() {
                     </M3Button>
                     <M3Button
                       variant="text"
-                      size="xs"
+                      size="s"
                       icon="key"
                       @click="handleFallbackToManual"
                     >
@@ -664,7 +664,7 @@ function handleDoneSuccess() {
               >
                 <M3Button
                   variant="text"
-                  size="xs"
+                  size="s"
                   :icon="showManualFallback ? 'expand_less' : 'expand_more'"
                   @click="showManualFallback = !showManualFallback"
                 >
@@ -675,7 +675,7 @@ function handleDoneSuccess() {
                   <M3Button
                     v-if="!showManualFallback && hasExternalChromium"
                     variant="text"
-                    size="xs"
+                    size="s"
                     icon="open_in_browser"
                     class="shrink-0 whitespace-nowrap"
                     @click="handleExternalBrowserSignIn"
@@ -685,9 +685,9 @@ function handleDoneSuccess() {
                   <M3Button
                     v-if="showManualFallback"
                     variant="text"
-                    size="xs"
+                    size="s"
                     icon="content_paste"
-                    class="text-[var(--md-sys-color-primary)] shrink-0 whitespace-nowrap"
+                    class="shrink-0 whitespace-nowrap"
                     @click="pasteFromClipboard"
                   >
                     <span>{{ t('googleAuth.pasteClipboard') }}</span>
@@ -700,13 +700,16 @@ function handleDoneSuccess() {
                 v-if="showManualFallback"
                 class="flex flex-col gap-4 animate-fade-in"
               >
-                <!-- Segmented Method Tabs -->
-                <div class="flex rounded-full bg-[var(--md-sys-color-surface-container)] p-1 border border-[var(--md-sys-color-outline-variant)]/30 gap-1">
+                <!-- M3E Connected Button Group Tabs -->
+                <M3ButtonGroup
+                  :connected="true"
+                  class="w-full"
+                >
                   <M3Button
                     size="s"
                     :toggle="true"
                     :selected="authMode === 'oauth'"
-                    :variant="authMode === 'oauth' ? 'tonal' : 'text'"
+                    :variant="authMode === 'oauth' ? 'tonal' : 'outlined'"
                     icon="open_in_browser"
                     class="flex-1 justify-center"
                     @click="authMode = 'oauth'"
@@ -718,26 +721,26 @@ function handleDoneSuccess() {
                     size="s"
                     :toggle="true"
                     :selected="authMode === 'direct'"
-                    :variant="authMode === 'direct' ? 'tonal' : 'text'"
+                    :variant="authMode === 'direct' ? 'tonal' : 'outlined'"
                     icon="terminal"
                     class="flex-1 justify-center"
                     @click="authMode = 'direct'"
                   >
                     <span>{{ t('googleAuth.tabDirect') }}</span>
                   </M3Button>
-                </div>
+                </M3ButtonGroup>
 
                 <!-- Option A: Browser Sign-in Tab -->
                 <div
                   v-if="authMode === 'oauth'"
-                  class="flex flex-col gap-3 rounded-2xl bg-[var(--md-sys-color-surface-container)] p-4 border border-[var(--md-sys-color-outline-variant)]/30"
+                  class="flex flex-col gap-3 rounded-[20px] bg-[var(--md-sys-color-surface-container)] p-4"
                 >
                   <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                     <div class="flex flex-col">
                       <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
                         {{ t('googleAuth.step1Browser') }}
                       </span>
-                      <span class="m3-body-medium">
+                      <span class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)]">
                         {{ t('googleAuth.step1BrowserDesc') }}
                       </span>
                     </div>
@@ -752,7 +755,7 @@ function handleDoneSuccess() {
                     </M3Button>
                   </div>
 
-                  <div class="rounded-xl border border-[var(--md-sys-color-outline-variant)]/20 bg-[var(--md-sys-color-surface-container-low)] p-3 m3-body-medium leading-relaxed">
+                  <div class="rounded-[16px] bg-[var(--md-sys-color-surface-container-low)] p-3.5 m3-body-medium text-[var(--md-sys-color-on-surface-variant)] leading-relaxed">
                     <ol class="list-decimal space-y-1 pl-4">
                       <li>{{ t('googleAuth.instr1') }} <strong class="text-[var(--md-sys-color-on-surface)]">{{ t('googleAuth.instr1Bold') }}</strong>.</li>
                       <li>{{ t('googleAuth.instr2') }}</li>
@@ -775,11 +778,11 @@ function handleDoneSuccess() {
                     />
                     <M3Button
                       variant="text"
-                      size="xs"
+                      size="s"
                       icon="content_paste"
                       :aria-label="t('googleAuth.pasteClipboard')"
                       :title="t('googleAuth.pasteClipboard')"
-                      class="!absolute right-2 top-3.5 !size-9 !min-w-0 !p-0"
+                      class="!absolute right-1.5 top-2.5 !size-10 !min-w-0 !p-0"
                       @click="pasteFromClipboard"
                     />
                   </div>
@@ -788,13 +791,13 @@ function handleDoneSuccess() {
                 <!-- Option B: Direct Token / Credential Tab -->
                 <div
                   v-else
-                  class="flex flex-col gap-3 rounded-2xl bg-[var(--md-sys-color-surface-container)] p-4 border border-[var(--md-sys-color-outline-variant)]/30"
+                  class="flex flex-col gap-3 rounded-[20px] bg-[var(--md-sys-color-surface-container)] p-4"
                 >
                   <div class="flex flex-col">
                     <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
                       {{ t('googleAuth.directTitle') }}
                     </span>
-                    <span class="m3-body-medium mt-0.5 leading-relaxed">
+                    <span class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)] mt-0.5 leading-relaxed">
                       {{ t('googleAuth.directDesc') }}
                     </span>
                   </div>
@@ -813,39 +816,39 @@ function handleDoneSuccess() {
                     />
                     <M3Button
                       variant="text"
-                      size="xs"
+                      size="s"
                       icon="content_paste"
                       :aria-label="t('googleAuth.pasteClipboard')"
                       :title="t('googleAuth.pasteClipboard')"
-                      class="!absolute right-2 top-2.5 !size-9 !min-w-0 !p-0"
+                      class="!absolute right-1.5 top-2 !size-10 !min-w-0 !p-0"
                       @click="pasteFromClipboard"
                     />
                   </div>
                 </div>
               </div>
 
-              <!-- Error Banner -->
+              <!-- Validation Error Banner (tonal error-container + on-error-container) -->
               <div
                 v-if="validationError"
-                class="flex items-start gap-2.5 rounded-xl border border-[var(--md-sys-color-error)]/50 bg-[var(--md-sys-color-error-container)] p-3 m3-body-medium text-[var(--md-sys-color-on-error-container)] shadow-xs"
+                class="flex items-start gap-3 rounded-[16px] bg-[var(--md-sys-color-error-container)] px-4 py-3.5 m3-body-medium text-[var(--md-sys-color-on-error-container)]"
                 role="alert"
               >
                 <M3Icon
                   name="error"
                   :filled="true"
-                  :size="18"
-                  class="shrink-0 mt-0.5 text-[var(--md-sys-color-error)]"
+                  :size="20"
+                  class="shrink-0 mt-0.5"
                 />
                 <div class="flex flex-col min-w-0">
-                  <span class="m3-title-medium">{{ t('googleAuth.validationFailed') }}</span>
-                  <span class="m3-body-medium leading-relaxed opacity-95">{{ validationError }}</span>
+                  <span class="m3-title-medium !text-[var(--md-sys-color-on-error-container)]">{{ t('googleAuth.validationFailed') }}</span>
+                  <span class="m3-body-medium !text-[var(--md-sys-color-on-error-container)] leading-relaxed">{{ validationError }}</span>
                 </div>
               </div>
             </div>
           </div>
 
-          <!-- Sticky Footer -->
-          <div class="sticky bottom-0 z-20 shrink-0 border-t border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-high)] px-6 py-4 flex items-center justify-end gap-2.5">
+          <!-- Sticky M3E Footer -->
+          <div class="sticky bottom-0 z-20 shrink-0 bg-[var(--md-sys-color-surface-container-high)] px-6 pt-4 pb-6 flex items-center justify-end gap-2">
             <template v-if="verifiedUser">
               <M3Button
                 variant="filled"
@@ -858,8 +861,8 @@ function handleDoneSuccess() {
             </template>
             <template v-else>
               <M3Button
-                variant="outlined"
-                size="m"
+                variant="text"
+                size="s"
                 :disabled="isValidating"
                 @click="isOpen = false"
               >

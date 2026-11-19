@@ -2848,72 +2848,81 @@ onUnmounted(() => {
       @account-added="handleAccountAdded"
     />
 
-    <!-- Album Name Input State (Modal Dialog with Scrim & Spatial Spring) -->
+    <!-- Album Name Input State (M3E Modal Dialog) -->
     <Teleport to="body">
       <Transition name="m3-dialog-modal">
         <div
           v-if="showAlbumInput"
-          class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 select-none overflow-y-auto"
+          class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center p-4 select-none overflow-y-auto"
           style="--wails-draggable: none"
           @click.self="cancelAlbumUpload"
         >
           <div
             ref="albumDialogCardRef"
             tabindex="-1"
-            class="m3-dialog-card relative flex w-full max-w-md flex-col items-center justify-center gap-5 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container-high)] p-8 text-center shadow-2xl outline-none"
+            class="m3-dialog-card relative flex w-full max-w-[460px] flex-col gap-5 rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl outline-none focus-visible:outline-[3px] focus-visible:outline-[var(--md-sys-color-primary)]"
             role="dialog"
             aria-modal="true"
             aria-labelledby="album-dialog-title"
+            aria-describedby="album-dialog-desc"
             @click.stop
           >
-            <div class="flex size-16 items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-primary)]">
-              <M3Icon
-                name="folder_special"
-                :filled="true"
-                :size="32"
-              />
-            </div>
-            <div class="flex flex-col gap-1">
-              <h2
-                id="album-dialog-title"
-                class="m3-headline-small text-[var(--md-sys-color-on-surface)] select-none"
-              >
-                {{ pendingFiles.length > 0 ? t('dialogs.album.titleBackup') : t('dialogs.album.titleOptions') }}
-              </h2>
-              <p class="m3-body-medium select-none">
-                {{ pendingFiles.length > 0 ? t('dialogs.album.itemsSelected', { count: pendingFileCount }) : t('dialogs.album.organizeSubtitle') }}
-              </p>
+            <!-- M3E Centered Hero Icon + Headline -->
+            <div class="flex flex-col items-center text-center gap-3">
+              <div class="flex size-14 items-center justify-center rounded-[20px] bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
+                <M3Icon
+                  name="folder_special"
+                  :filled="true"
+                  :size="28"
+                />
+              </div>
+              <div class="flex flex-col gap-1">
+                <h2
+                  id="album-dialog-title"
+                  class="m3-headline-small text-[var(--md-sys-color-on-surface)] select-none"
+                >
+                  {{ pendingFiles.length > 0 ? t('dialogs.album.titleBackup') : t('dialogs.album.titleOptions') }}
+                </h2>
+                <p
+                  id="album-dialog-desc"
+                  class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)] select-none"
+                >
+                  {{ pendingFiles.length > 0 ? t('dialogs.album.itemsSelected', { count: pendingFileCount }) : t('dialogs.album.organizeSubtitle') }}
+                </p>
+              </div>
             </div>
 
-            <!-- Mode selector pills -->
-            <div class="flex flex-wrap items-center justify-center gap-2">
-              <M3Button
-                size="xs"
-                :toggle="true"
-                :selected="albumTargetMode === 'none' && !albumNameOrKey"
-                :variant="albumTargetMode === 'none' && !albumNameOrKey ? 'filled' : 'outlined'"
-                @click="albumTargetMode = 'none'; albumNameOrKey = ''"
-              >
-                {{ t('dialogs.album.none') }}
-              </M3Button>
-              <M3Button
-                size="xs"
-                :toggle="true"
-                :selected="albumTargetMode === 'auto'"
-                :variant="albumTargetMode === 'auto' ? 'filled' : 'outlined'"
-                @click="albumTargetMode = 'auto'; albumNameOrKey = ''"
-              >
-                {{ t('dialogs.album.autoByFolder') }}
-              </M3Button>
-              <M3Button
-                size="xs"
-                :toggle="true"
-                :selected="albumTargetMode === 'custom' || !!albumNameOrKey"
-                :variant="albumTargetMode === 'custom' || !!albumNameOrKey ? 'filled' : 'outlined'"
-                @click="albumTargetMode = 'custom'"
-              >
-                {{ t('dialogs.album.namedAlbum') }}
-              </M3Button>
+            <!-- M3E Connected Button Group Mode Selector -->
+            <div class="flex justify-center">
+              <M3ButtonGroup :connected="true">
+                <M3Button
+                  size="s"
+                  :toggle="true"
+                  :selected="albumTargetMode === 'none' && !albumNameOrKey"
+                  :variant="albumTargetMode === 'none' && !albumNameOrKey ? 'tonal' : 'outlined'"
+                  @click="albumTargetMode = 'none'; albumNameOrKey = ''"
+                >
+                  {{ t('dialogs.album.none') }}
+                </M3Button>
+                <M3Button
+                  size="s"
+                  :toggle="true"
+                  :selected="albumTargetMode === 'auto'"
+                  :variant="albumTargetMode === 'auto' ? 'tonal' : 'outlined'"
+                  @click="albumTargetMode = 'auto'; albumNameOrKey = ''"
+                >
+                  {{ t('dialogs.album.autoByFolder') }}
+                </M3Button>
+                <M3Button
+                  size="s"
+                  :toggle="true"
+                  :selected="albumTargetMode === 'custom' || !!albumNameOrKey"
+                  :variant="albumTargetMode === 'custom' || !!albumNameOrKey ? 'tonal' : 'outlined'"
+                  @click="albumTargetMode = 'custom'"
+                >
+                  {{ t('dialogs.album.namedAlbum') }}
+                </M3Button>
+              </M3ButtonGroup>
             </div>
 
             <div
@@ -2930,21 +2939,24 @@ onUnmounted(() => {
                 autofocus
                 @keydown.enter="confirmAlbumUpload"
               />
-              <p class="m3-body-medium px-1 whitespace-normal break-words">
+              <p class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)] px-1 whitespace-normal break-words">
                 {{ t('dialogs.album.helpText') }}
               </p>
               <div class="px-1 text-left">
                 <button
                   type="button"
-                  class="inline-flex items-center gap-1 m3-body-medium text-[var(--md-sys-color-primary)] hover:underline focus:outline-none cursor-pointer"
+                  class="inline-flex items-center gap-1.5 m3-label-large text-[var(--md-sys-color-primary)] hover:underline focus-visible:outline-[2px] focus-visible:outline-[var(--md-sys-color-primary)] rounded cursor-pointer"
                   @click="showAlbumKeyHelp = !showAlbumKeyHelp"
                 >
-                  <M3Icon name="help_outline" :size="13" />
+                  <M3Icon
+                    name="help_outline"
+                    :size="15"
+                  />
                   <span>{{ t('dialogs.album.whereKey') }}</span>
                 </button>
                 <div
                   v-if="showAlbumKeyHelp"
-                  class="mt-1.5 p-2.5 rounded-xl bg-[var(--md-sys-color-surface-container-highest)]/70 m3-body-medium whitespace-normal break-words"
+                  class="mt-2 p-3.5 rounded-[16px] bg-[var(--md-sys-color-surface-container)] m3-body-medium text-[var(--md-sys-color-on-surface-variant)] whitespace-normal break-words leading-relaxed"
                 >
                   {{ t('dialogs.album.keyHelp') }}
                 </div>
@@ -2953,13 +2965,13 @@ onUnmounted(() => {
               <!-- Editable Nickname if using an AF1Qip album key -->
               <div
                 v-if="isInputAnAlbumKey"
-                class="flex flex-col gap-2 rounded-2xl bg-[var(--md-sys-color-surface-container)] p-4 sm:p-5 text-left border border-[var(--md-sys-color-outline-variant)]/30 mt-2"
+                class="flex flex-col gap-2 rounded-[20px] bg-[var(--md-sys-color-surface-container)] p-4 text-left mt-1"
               >
                 <div class="flex flex-col gap-0.5">
                   <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
                     {{ t('dialogs.album.nickname') }}
                   </span>
-                  <span class="m3-body-medium">
+                  <span class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)]">
                     {{ t('dialogs.album.nicknameSubtitle') }}
                   </span>
                 </div>
@@ -2980,19 +2992,19 @@ onUnmounted(() => {
             <!-- Recent Albums Quick-select Chips -->
             <div
               v-if="(albumTargetMode === 'custom' || albumNameOrKey) && recentAlbums.length > 0"
-              class="flex w-full flex-col gap-1.5 text-left"
+              class="flex w-full flex-col gap-2 text-left"
             >
-              <span class="m3-label-small text-[var(--md-sys-color-on-surface-variant)]">
+              <span class="m3-label-large text-[var(--md-sys-color-on-surface-variant)] px-1">
                 {{ t('dialogs.album.recentAlbums') }}
               </span>
               <div class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
                 <M3Button
                   v-for="recent in recentAlbums"
                   :key="recent"
-                  size="xs"
+                  size="s"
                   :toggle="true"
                   :selected="albumNameOrKey === recent"
-                  :variant="albumNameOrKey === recent ? 'filled' : 'outlined'"
+                  :variant="albumNameOrKey === recent ? 'tonal' : 'outlined'"
                   icon="folder"
                   @click="onSelectRecentAlbum(recent)"
                 >
@@ -3004,17 +3016,17 @@ onUnmounted(() => {
                   >
                     <M3Icon
                       name="close"
-                      :size="12"
+                      :size="14"
                     />
                   </span>
                 </M3Button>
               </div>
             </div>
 
-            <div class="flex gap-3 mt-1">
+            <!-- M3E Action Row: right-aligned Text Cancel (non-destructive) + Primary Filled Pill -->
+            <div class="flex w-full items-center justify-end gap-2 pt-1">
               <M3Button
-                variant="outlined"
-                destructive
+                variant="text"
                 size="s"
                 @click="cancelAlbumUpload"
               >
@@ -3022,7 +3034,7 @@ onUnmounted(() => {
               </M3Button>
               <M3Button
                 variant="filled"
-                size="s"
+                size="m"
                 :disabled="albumTargetMode === 'custom' && !albumNameOrKey.trim()"
                 @click="confirmAlbumUpload"
               >

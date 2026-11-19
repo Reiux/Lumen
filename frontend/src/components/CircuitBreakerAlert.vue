@@ -241,7 +241,7 @@ async function removeAccount() {
     <Transition name="m3-dialog-modal">
       <div
         v-if="showSafetyDialog"
-        class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center bg-black/65 backdrop-blur-xs p-4 select-none overflow-y-auto"
+        class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center p-4 select-none overflow-y-auto"
         @click.self="showSafetyDialog = false"
       >
         <div

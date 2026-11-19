@@ -54,20 +54,21 @@ function formatBytes(bytes: number, decimals = 1): string {
     <Transition name="m3-dialog-modal">
       <div
         v-if="open && summary"
-        class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 select-none overflow-y-auto"
+        class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center p-4 select-none overflow-y-auto"
         @click.self="emit('cancel')"
       >
         <div
           ref="dialogCardRef"
           tabindex="-1"
-          class="m3-dialog-card relative flex flex-col gap-4 w-full max-w-lg rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl border border-[var(--md-sys-color-outline-variant)]/40 max-h-[85vh] outline-none"
+          class="m3-dialog-card relative flex flex-col gap-5 w-full max-w-lg rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl max-h-[85vh] outline-none focus-visible:outline-[3px] focus-visible:outline-[var(--md-sys-color-primary)]"
           role="dialog"
           aria-modal="true"
           aria-labelledby="review-confirm-title"
+          aria-describedby="review-confirm-desc"
         >
-          <!-- Header -->
-          <div class="flex items-center gap-3 text-[var(--md-sys-color-primary)]">
-            <div class="flex size-11 items-center justify-center rounded-[18px] bg-[var(--md-sys-color-primary-container)]">
+          <!-- M3E Header -->
+          <div class="flex items-center gap-3.5">
+            <div class="flex size-12 shrink-0 items-center justify-center rounded-[16px] bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
               <M3Icon
                 name="cloud_upload"
                 :filled="true"
@@ -88,14 +89,17 @@ function formatBytes(bytes: number, decimals = 1): string {
           </div>
 
           <!-- Description -->
-          <p class="m3-body-medium">
+          <p
+            id="review-confirm-desc"
+            class="m3-body-medium leading-relaxed text-[var(--md-sys-color-on-surface-variant)]"
+          >
             {{ t('dialogs.review.description') }}
           </p>
 
-          <!-- Include Subfolders Toggle (folder selections only, rescans on change) -->
+          <!-- Include Subfolders Toggle (tonal surface-container, no border hack) -->
           <div
             v-if="summary.hasFolder"
-            class="flex items-center justify-between gap-4 rounded-2xl border border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-lowest)] px-4 py-3"
+            class="flex items-center justify-between gap-4 rounded-[20px] bg-[var(--md-sys-color-surface-container)] px-4 py-3.5"
           >
             <div class="flex flex-col pr-2">
               <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
@@ -120,31 +124,40 @@ function formatBytes(bytes: number, decimals = 1): string {
             </div>
           </div>
 
-          <!-- Scrollable files list -->
-          <div class="flex flex-col max-h-64 overflow-y-auto rounded-2xl bg-[var(--md-sys-color-surface-container)] border border-[var(--md-sys-color-outline-variant)]/30 divide-y divide-[var(--md-sys-color-outline-variant)]/20">
+          <!-- M3E Grouped Segmented File List (4px gaps, 20px outer / 4px inner corners, no divide-y borders) -->
+          <div class="flex flex-col gap-1 max-h-64 overflow-y-auto pr-0.5">
             <div
               v-for="(item, idx) in summary.items"
               :key="idx"
-              class="flex items-center justify-between p-3 gap-3 hover:bg-[var(--md-sys-color-surface-container-highest)]/40 transition-colors"
+              class="flex items-center justify-between px-4 py-3 gap-3 bg-[var(--md-sys-color-surface-container)] hover:bg-[var(--md-sys-color-surface-container-highest)] transition-colors"
+              :class="[
+                summary.items.length === 1
+                  ? 'rounded-[20px]'
+                  : idx === 0
+                    ? 'rounded-t-[20px] rounded-b-[4px]'
+                    : idx === summary.items.length - 1
+                      ? 'rounded-t-[4px] rounded-b-[20px]'
+                      : 'rounded-[4px]',
+              ]"
             >
               <div class="flex flex-col min-w-0 pr-2">
                 <span class="m3-label-large text-[var(--md-sys-color-on-surface)] truncate font-mono">
                   {{ item.name || item.path.split(/[/\\]/).pop() || t('upload.unknownFile') }}
                 </span>
-                <span class="m3-body-small text-[var(--md-sys-color-outline)] truncate">
+                <span class="m3-body-small text-[var(--md-sys-color-on-surface-variant)] truncate">
                   {{ item.path }}
                 </span>
               </div>
-              <span class="m3-label-small text-[var(--md-sys-color-on-surface-variant)] tabular-nums shrink-0">
+              <span class="rounded-full bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)] px-2.5 py-0.5 m3-label-large text-xs tabular-nums shrink-0">
                 {{ formatBytes(item.sizeBytes) }}
               </span>
             </div>
           </div>
 
-          <!-- Actions: Cancel and Start Backup -->
-          <div class="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2">
+          <!-- M3E Actions: Text Cancel + Primary Filled Pill -->
+          <div class="flex flex-col sm:flex-row items-center justify-end gap-2 pt-1">
             <M3Button
-              variant="outlined"
+              variant="text"
               size="s"
               class="w-full sm:w-auto"
               @click="emit('cancel')"
@@ -153,7 +166,7 @@ function formatBytes(bytes: number, decimals = 1): string {
             </M3Button>
             <M3Button
               variant="filled"
-              size="s"
+              size="m"
               icon="cloud_upload"
               class="w-full sm:w-auto"
               @click="emit('confirm')"

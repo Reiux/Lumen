@@ -1361,44 +1361,59 @@ watch(() => settings.value.dryRun, (newValue, oldValue) => {
       <Transition name="m3-dialog-modal">
         <div
           v-if="showDeleteConfirm"
-          class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 select-none"
+          class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center p-4 select-none overflow-y-auto"
           style="--wails-draggable: none"
           @click.self="cancelDeleteFromHost"
         >
           <div
             ref="deleteDialogCardRef"
             tabindex="-1"
-            class="m3-dialog-card relative flex w-full max-w-md flex-col gap-5 rounded-[28px] border border-[var(--md-sys-color-error)]/40 bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl outline-none"
+            class="m3-dialog-card relative flex w-full max-w-[440px] flex-col gap-5 rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl outline-none focus-visible:outline-[3px] focus-visible:outline-[var(--md-sys-color-primary)]"
             role="alertdialog"
             aria-modal="true"
             aria-labelledby="delete-confirm-title"
+            aria-describedby="delete-confirm-desc"
           >
-            <div class="flex items-center gap-3">
-              <div class="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-[var(--md-sys-color-error-container)] text-[var(--md-sys-color-error)]">
+            <!-- M3E Centered Hero Icon + Headline -->
+            <div class="flex flex-col items-center text-center gap-3">
+              <div class="flex size-14 items-center justify-center rounded-[20px] bg-[var(--md-sys-color-error-container)] text-[var(--md-sys-color-on-error-container)]">
                 <M3Icon
-                  name="warning"
-                  :size="24"
+                  name="delete_forever"
+                  :size="28"
                   :filled="true"
                 />
               </div>
-              <h3
-                id="delete-confirm-title"
-                class="m3-headline-small text-[var(--md-sys-color-on-surface)]"
-              >
-                {{ t('settings.deleteConfirmTitle') }}
-              </h3>
+              <div class="flex flex-col gap-1.5">
+                <h3
+                  id="delete-confirm-title"
+                  class="m3-headline-small text-[var(--md-sys-color-on-surface)]"
+                >
+                  {{ t('settings.deleteConfirmTitle') }}
+                </h3>
+                <p
+                  id="delete-confirm-desc"
+                  class="m3-body-medium leading-relaxed text-[var(--md-sys-color-on-surface-variant)]"
+                >
+                  {{ t('settings.deleteConfirmP1') }}
+                </p>
+              </div>
             </div>
 
-            <div class="flex flex-col gap-3 text-[var(--md-sys-color-on-surface-variant)] m3-body-medium leading-relaxed">
-              <p>
-                {{ t('settings.deleteConfirmP1') }}
-              </p>
-              <p>
+            <!-- Tonal Error Warning Callout -->
+            <div class="flex items-start gap-3 rounded-[16px] bg-[var(--md-sys-color-error-container)] px-4 py-3.5 text-[var(--md-sys-color-on-error-container)]">
+              <M3Icon
+                name="warning"
+                :filled="true"
+                :size="20"
+                class="shrink-0 mt-0.5"
+              />
+              <p class="m3-body-medium leading-snug !text-[var(--md-sys-color-on-error-container)]">
                 {{ t('settings.deleteConfirmP2') }}
               </p>
             </div>
 
-            <div class="flex items-center justify-end gap-2 pt-2">
+            <!-- M3E Action Row -->
+            <div class="flex items-center justify-end gap-2 pt-1">
               <M3Button
                 variant="text"
                 size="s"
@@ -1409,7 +1424,7 @@ watch(() => settings.value.dryRun, (newValue, oldValue) => {
               <M3Button
                 variant="filled"
                 destructive
-                size="s"
+                size="m"
                 icon="delete_forever"
                 @click="confirmDeleteFromHost"
               >
@@ -1421,86 +1436,101 @@ watch(() => settings.value.dryRun, (newValue, oldValue) => {
       </Transition>
     </Teleport>
 
-    <!-- Language Selection Modal Dialog (M3 Selection Dialog) -->
+    <!-- Language Selection Modal Dialog (M3E Selection Dialog with Grouped Segmented List) -->
     <Teleport to="body">
       <Transition name="m3-dialog-modal">
         <div
           v-if="showLanguageDialog"
-          class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 select-none backdrop-blur-xs"
+          class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center p-4 select-none overflow-y-auto"
           style="--wails-draggable: none"
           @click.self="showLanguageDialog = false"
         >
           <div
             ref="languageDialogCardRef"
             tabindex="-1"
-            class="m3-dialog-card relative flex w-full max-w-sm flex-col gap-4 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl outline-none"
+            class="m3-dialog-card relative flex w-full max-w-[400px] flex-col gap-5 rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl outline-none focus-visible:outline-[3px] focus-visible:outline-[var(--md-sys-color-primary)]"
             role="dialog"
             aria-modal="true"
             aria-labelledby="language-dialog-title"
+            aria-describedby="language-dialog-desc"
           >
-            <!-- Dialog Header -->
-            <div class="flex items-center gap-3.5">
-              <div class="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-primary)]">
+            <!-- M3E Centered Hero Icon + Headline -->
+            <div class="flex flex-col items-center text-center gap-3">
+              <div class="flex size-14 items-center justify-center rounded-[20px] bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
                 <M3Icon
                   name="language"
-                  :size="24"
+                  :filled="true"
+                  :size="28"
                 />
               </div>
-              <div class="flex flex-col min-w-0">
+              <div class="flex flex-col gap-1">
                 <h3
                   id="language-dialog-title"
                   class="m3-headline-small text-[var(--md-sys-color-on-surface)]"
                 >
                   {{ t('settings.selectLanguage') }}
                 </h3>
-                <span class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)] leading-snug">
+                <span
+                  id="language-dialog-desc"
+                  class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)] leading-snug"
+                >
                   {{ t('settings.selectLanguageSubtitle') }}
                 </span>
               </div>
             </div>
 
-            <!-- Scrollable Language List with M3 Selection Tiles -->
-            <div class="flex flex-col gap-1.5 max-h-72 overflow-y-auto py-1 pr-0.5">
+            <!-- M3E Grouped Segmented Language List (4px gaps, 20px outer / 4px inner corners) -->
+            <div
+              role="radiogroup"
+              :aria-label="t('settings.selectLanguage')"
+              class="flex flex-col gap-1 max-h-72 overflow-y-auto pr-0.5"
+            >
               <button
                 v-for="lang in availableLanguages"
                 :key="lang.code"
                 type="button"
-                class="flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left transition-all cursor-pointer border"
+                role="radio"
+                :aria-checked="currentLanguage === lang.code"
+                class="flex items-center justify-between gap-3 rounded-[4px] first:rounded-t-[20px] last:rounded-b-[20px] px-4 py-3.5 text-left transition-colors cursor-pointer outline-none focus-visible:outline-[3px] focus-visible:outline-[var(--md-sys-color-primary)] focus-visible:outline-offset-[-3px]"
                 :class="currentLanguage === lang.code
-                  ? 'border-[var(--md-sys-color-primary)]/50 bg-[var(--md-sys-color-primary-container)]/30 text-[var(--md-sys-color-on-surface)] shadow-xs'
-                  : 'border-transparent hover:bg-[var(--md-sys-color-surface-container-highest)]/60 text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'"
+                  ? 'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]'
+                  : 'bg-[var(--md-sys-color-surface-container)] text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container-highest)]'"
                 @click="selectLanguage(lang.code)"
               >
                 <div class="flex flex-col min-w-0">
-                  <span class="m3-title-medium leading-tight text-[var(--md-sys-color-on-surface)]">
+                  <span
+                    class="m3-title-medium leading-tight"
+                    :class="currentLanguage === lang.code ? 'text-[var(--md-sys-color-on-primary-container)]' : 'text-[var(--md-sys-color-on-surface)]'"
+                  >
                     {{ lang.nativeName }}
                   </span>
                   <span
                     v-if="lang.englishName !== lang.nativeName"
-                    class="m3-body-small opacity-70 mt-0.5"
+                    class="m3-body-small mt-0.5"
+                    :class="currentLanguage === lang.code ? '!text-[var(--md-sys-color-on-primary-container)]/80' : 'text-[var(--md-sys-color-on-surface-variant)]'"
                   >
                     {{ lang.englishName }}
                   </span>
                 </div>
 
-                <!-- Radio Check Indicator -->
+                <!-- Selection Indicator -->
                 <div
-                  class="flex size-5 shrink-0 items-center justify-center rounded-full border transition-all"
+                  class="flex size-6 shrink-0 items-center justify-center rounded-full transition-colors"
                   :class="currentLanguage === lang.code
-                    ? 'border-[var(--md-sys-color-primary)] bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)]'
-                    : 'border-[var(--md-sys-color-outline)] bg-transparent'"
+                    ? 'bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)]'
+                    : 'border-2 border-[var(--md-sys-color-outline)] bg-transparent'"
                 >
                   <M3Icon
                     v-if="currentLanguage === lang.code"
                     name="check"
-                    :size="14"
+                    :size="15"
                   />
                 </div>
               </button>
             </div>
 
             <!-- Dialog Actions -->
-            <div class="flex items-center justify-end gap-2 pt-2 border-t border-[var(--md-sys-color-outline-variant)]/20">
+            <div class="flex items-center justify-end gap-2 pt-1">
               <M3Button
                 variant="text"
                 size="s"
@@ -1514,5 +1544,4 @@ watch(() => settings.value.dryRun, (newValue, oldValue) => {
       </Transition>
     </Teleport>
   </div>
-
 </template>

@@ -1130,7 +1130,24 @@ button:not(.no-state-layer):active:not(:disabled)::before,
   }
 }
 
-/* Modal transition for Vue transitions (Google Auth & Album Prompt) */
+/* Modal transition for Vue transitions (M3E: spatial spring enter, fast-effects exit, effects scrim fade) */
+.m3-dialog-wrapper {
+  transition: opacity var(--md-sys-motion-duration-fast-effects, 150ms) var(--md-sys-motion-easing-fast-effects, cubic-bezier(0.31, 0.94, 0.34, 1.00));
+}
+
+.m3-dialog-modal-enter-from,
+.m3-dialog-modal-leave-to {
+  opacity: 0;
+}
+
+.m3-dialog-modal-enter-active {
+  transition: opacity var(--md-sys-motion-duration-default-effects, 200ms) var(--md-sys-motion-easing-default-effects, cubic-bezier(0.34, 0.80, 0.34, 1.00));
+}
+
+.m3-dialog-modal-leave-active {
+  transition: opacity var(--md-sys-motion-duration-fast-effects, 150ms) var(--md-sys-motion-easing-fast-effects, cubic-bezier(0.31, 0.94, 0.34, 1.00));
+}
+
 .m3-dialog-card {
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
@@ -1138,32 +1155,32 @@ button:not(.no-state-layer):active:not(:disabled)::before,
 }
 
 .m3-dialog-modal-enter-active .m3-dialog-card {
-  animation: m3-dialog-card-enter var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial) forwards;
+  animation: m3-dialog-card-enter var(--md-sys-motion-duration-default-spatial, 500ms) var(--md-sys-motion-easing-default-spatial, cubic-bezier(0.38, 1.21, 0.22, 1.00)) forwards;
 }
 
 .m3-dialog-modal-leave-active .m3-dialog-card {
-  animation: m3-dialog-card-exit var(--md-sys-motion-duration-effects-fast) var(--md-sys-motion-easing-effects) forwards;
+  animation: m3-dialog-card-exit var(--md-sys-motion-duration-fast-effects, 150ms) var(--md-sys-motion-easing-fast-effects, cubic-bezier(0.31, 0.94, 0.34, 1.00)) forwards;
 }
 
 @keyframes m3-dialog-card-enter {
   from {
     opacity: 0;
-    transform: scale(0.92);
+    transform: translateY(10px) scale(0.94);
   }
   to {
     opacity: 1;
-    transform: scale(1);
+    transform: translateY(0) scale(1);
   }
 }
 
 @keyframes m3-dialog-card-exit {
   from {
     opacity: 1;
-    transform: scale(1);
+    transform: translateY(0) scale(1);
   }
   to {
     opacity: 0;
-    transform: scale(0.95);
+    transform: translateY(6px) scale(0.96);
   }
 }
 
@@ -1248,15 +1265,15 @@ button:not(.no-state-layer):active:not(:disabled)::before,
   overscroll-behavior: contain;
 }
 
-/* Scrims & Modal Overlays: restored blur with opaque fallback */
+/* Scrims & Modal Overlays: unified M3E scrim with subtle blur */
 .m3-dialog-wrapper,
 .m3-dialog-overlay {
-  background-color: rgba(0, 0, 0, 0.68);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background-color: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
-/* Dialog content elevation pseudo-elements */
+/* Dialog content elevation pseudo-elements (neutral M3 Level 3 elevation, seed-agnostic) */
 .m3-dialog-card {
   position: relative;
   isolation: isolate;
@@ -1268,8 +1285,8 @@ button:not(.no-state-layer):active:not(:disabled)::before,
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  box-shadow: 0 24px 48px -8px rgba(0, 0, 0, 0.55),
-              0 0 48px -12px oklch(0.78 0.14 245 / 20%);
+  box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.42),
+              0 4px 12px -2px rgba(0, 0, 0, 0.24);
   opacity: 1;
   pointer-events: none;
   z-index: -1;

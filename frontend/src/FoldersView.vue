@@ -11,6 +11,7 @@ import M3Button from './components/ui/M3Button.vue'
 import M3Icon from './components/ui/M3Icon.vue'
 import M3Switch from './components/ui/M3Switch.vue'
 import M3TextField from './components/ui/M3TextField.vue'
+import { useDialogFocusTrap } from './utils/useDialogFocusTrap'
 
 const emit = defineEmits<{
   (e: 'uploadFolder', path: string): void
@@ -32,6 +33,11 @@ const pendingBacklog = ref<{ folder: string; count: number; account: string } | 
 // Broad folder confirmation state
 const pendingBroadFolder = ref<WatchedFolderConfig | null>(null)
 const showBroadWarning = ref(false)
+const broadWarningDialogCardRef = ref<HTMLElement | null>(null)
+
+useDialogFocusTrap(() => showBroadWarning.value, broadWarningDialogCardRef, {
+  onEscape: cancelBroadFolder,
+})
 
 // Expand/collapse per folder card
 const expandedFolders = ref<Record<string, boolean>>({})
@@ -677,38 +683,77 @@ onMounted(() => {
       @confirm="confirmBacklog"
     />
 
-    <!-- Broad Folder Confirmation Modal -->
+    <!-- Broad Folder Confirmation Modal (M3E Alert Dialog) -->
     <Teleport to="body">
       <Transition name="m3-dialog-modal">
         <div
           v-if="showBroadWarning"
-          class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 select-none overflow-y-auto"
+          class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center p-4 select-none overflow-y-auto"
           @click.self="cancelBroadFolder"
         >
           <div
-            class="m3-dialog-card relative flex flex-col gap-4 w-full max-w-md rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl border border-[var(--md-sys-color-outline-variant)]/40"
-            role="dialog"
+            ref="broadWarningDialogCardRef"
+            tabindex="-1"
+            class="m3-dialog-card relative flex flex-col gap-5 w-full max-w-[440px] rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl outline-none focus-visible:outline-[3px] focus-visible:outline-[var(--md-sys-color-primary)]"
+            role="alertdialog"
             aria-modal="true"
+            aria-labelledby="broad-warning-title"
+            aria-describedby="broad-warning-desc"
           >
-            <div class="flex items-center gap-3 text-[var(--md-sys-color-error)]">
-              <div class="flex size-10 items-center justify-center rounded-[16px] bg-[var(--md-sys-color-error-container)]">
-                <M3Icon name="warning" :filled="true" :size="22" />
+            <!-- M3E Centered Hero Icon + Headline -->
+            <div class="flex flex-col items-center text-center gap-3">
+              <div class="flex size-14 items-center justify-center rounded-[20px] bg-[var(--md-sys-color-error-container)] text-[var(--md-sys-color-on-error-container)]">
+                <M3Icon
+                  name="warning"
+                  :filled="true"
+                  :size="28"
+                />
               </div>
-              <h3 class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
-                {{ t('folders.broadWarningTitle') }}
-              </h3>
+              <div class="flex flex-col gap-1.5">
+                <h3
+                  id="broad-warning-title"
+                  class="m3-headline-small text-[var(--md-sys-color-on-surface)]"
+                >
+                  {{ t('folders.broadWarningTitle') }}
+                </h3>
+                <p
+                  id="broad-warning-desc"
+                  class="m3-body-medium leading-relaxed text-[var(--md-sys-color-on-surface-variant)]"
+                >
+                  {{ t('folders.broadWarningP1', { path: pendingBroadFolder?.path }) }}
+                </p>
+              </div>
             </div>
-            <p class="m3-body-medium leading-relaxed">
-              {{ t('folders.broadWarningP1', { path: pendingBroadFolder?.path }) }}
-            </p>
-            <p class="m3-body-medium leading-relaxed">
-              {{ t('folders.broadWarningP2') }}
-            </p>
-            <div class="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2">
-              <M3Button variant="text" size="s" @click="cancelBroadFolder">
+
+            <!-- Tonal Warning Callout -->
+            <div class="flex items-start gap-3 rounded-[16px] bg-[var(--md-sys-color-surface-container)] px-4 py-3.5 text-[var(--md-sys-color-on-surface)]">
+              <M3Icon
+                name="folder_special"
+                :filled="true"
+                :size="20"
+                class="shrink-0 mt-0.5 text-[var(--md-sys-color-error)]"
+              />
+              <p class="m3-body-medium leading-snug text-[var(--md-sys-color-on-surface-variant)]">
+                {{ t('folders.broadWarningP2') }}
+              </p>
+            </div>
+
+            <!-- M3E Action Row -->
+            <div class="flex flex-col sm:flex-row items-center justify-end gap-2 pt-1">
+              <M3Button
+                variant="text"
+                size="s"
+                class="w-full sm:w-auto"
+                @click="cancelBroadFolder"
+              >
                 {{ t('settings.cancel') }}
               </M3Button>
-              <M3Button variant="filled" size="s" @click="confirmBroadFolder">
+              <M3Button
+                variant="filled"
+                size="m"
+                class="w-full sm:w-auto"
+                @click="confirmBroadFolder"
+              >
                 {{ t('folders.enableSubfolders') }}
               </M3Button>
             </div>

@@ -59,35 +59,42 @@ function handleReset() {
     <Transition name="m3-dialog-modal">
       <div
         v-if="modelValue"
-        class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 select-none overflow-y-auto"
+        class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center p-4 select-none overflow-y-auto"
         style="--wails-draggable: none"
         @click.self="close"
       >
         <div
           ref="dialogCardRef"
           tabindex="-1"
-          class="m3-dialog-card relative flex w-full max-w-md flex-col items-center justify-center gap-5 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container-high)] p-8 text-center shadow-2xl outline-none"
+          class="m3-dialog-card relative flex w-full max-w-[440px] flex-col gap-5 rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl outline-none focus-visible:outline-[3px] focus-visible:outline-[var(--md-sys-color-primary)]"
           role="dialog"
           aria-modal="true"
           aria-labelledby="edit-display-name-title"
+          aria-describedby="edit-display-name-desc"
         >
-          <div class="flex size-16 items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
-            <M3Icon
-              name="badge"
-              :filled="true"
-              :size="32"
-            />
-          </div>
-          <div class="flex flex-col gap-1">
-            <h2
-              id="edit-display-name-title"
-              class="m3-headline-small text-[var(--md-sys-color-on-surface)] select-none"
-            >
-              {{ t('dialogs.editName.title') }}
-            </h2>
-            <p class="m3-body-medium select-none">
-              {{ t('dialogs.editName.forAccount', { email: accountEmail }) }}
-            </p>
+          <!-- M3E Centered Hero Icon + Headline -->
+          <div class="flex flex-col items-center text-center gap-3">
+            <div class="flex size-14 items-center justify-center rounded-[20px] bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
+              <M3Icon
+                name="badge"
+                :filled="true"
+                :size="28"
+              />
+            </div>
+            <div class="flex flex-col gap-1">
+              <h2
+                id="edit-display-name-title"
+                class="m3-headline-small text-[var(--md-sys-color-on-surface)] select-none"
+              >
+                {{ t('dialogs.editName.title') }}
+              </h2>
+              <p
+                id="edit-display-name-desc"
+                class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)] select-none"
+              >
+                {{ t('dialogs.editName.forAccount', { email: accountEmail }) }}
+              </p>
+            </div>
           </div>
 
           <div class="w-full text-left flex flex-col gap-1.5">
@@ -106,10 +113,11 @@ function handleReset() {
             </span>
           </div>
 
-          <div class="flex w-full items-center justify-between gap-3 mt-1">
+          <!-- M3E Action Row: >= 40px secondary targets + 48px primary pill -->
+          <div class="flex w-full items-center justify-between gap-2 pt-1">
             <M3Button
               variant="text"
-              size="xs"
+              size="s"
               destructive
               @click="handleReset"
             >
@@ -125,7 +133,7 @@ function handleReset() {
               </M3Button>
               <M3Button
                 variant="filled"
-                size="s"
+                size="m"
                 @click="handleSave"
               >
                 {{ t('dialogs.editName.save') }}

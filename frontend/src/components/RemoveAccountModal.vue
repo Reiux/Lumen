@@ -42,42 +42,60 @@ function handleConfirm() {
     <Transition name="m3-dialog-modal">
       <div
         v-if="modelValue"
-        class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 select-none overflow-y-auto"
+        class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center p-4 select-none overflow-y-auto"
         style="--wails-draggable: none"
         @click.self="close"
       >
         <div
           ref="dialogCardRef"
           tabindex="-1"
-          class="m3-dialog-card relative flex w-full max-w-md flex-col items-center justify-center gap-5 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container-high)] p-8 text-center shadow-2xl outline-none"
-          role="dialog"
+          class="m3-dialog-card relative flex w-full max-w-[440px] flex-col gap-5 rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl outline-none focus-visible:outline-[3px] focus-visible:outline-[var(--md-sys-color-primary)]"
+          role="alertdialog"
           aria-modal="true"
           aria-labelledby="remove-account-title"
+          aria-describedby="remove-account-desc"
         >
-          <div class="flex size-16 items-center justify-center rounded-full bg-[var(--md-sys-color-error-container)] text-[var(--md-sys-color-on-error-container)]">
-            <M3Icon
-              name="person_remove"
-              :filled="true"
-              :size="32"
-            />
+          <!-- M3E Centered Hero Icon + Headline -->
+          <div class="flex flex-col items-center text-center gap-3">
+            <div class="flex size-14 items-center justify-center rounded-[20px] bg-[var(--md-sys-color-error-container)] text-[var(--md-sys-color-on-error-container)]">
+              <M3Icon
+                name="person_remove"
+                :filled="true"
+                :size="28"
+              />
+            </div>
+
+            <div class="flex flex-col gap-1.5">
+              <h2
+                id="remove-account-title"
+                class="m3-headline-small text-[var(--md-sys-color-on-surface)] select-none"
+              >
+                {{ t('dialogs.removeAccount.title') }}
+              </h2>
+              <p
+                id="remove-account-desc"
+                class="m3-body-medium leading-relaxed text-[var(--md-sys-color-on-surface-variant)] select-none"
+              >
+                {{ t('dialogs.removeAccount.confirmPrompt', { name: resolvedDisplayName || accountEmail }) }}
+              </p>
+            </div>
           </div>
 
-          <div class="flex flex-col gap-2 text-center">
-            <h2
-              id="remove-account-title"
-              class="m3-headline-small text-[var(--md-sys-color-on-surface)] select-none"
-            >
-              {{ t('dialogs.removeAccount.title') }}
-            </h2>
-            <p class="m3-body-medium select-none">
-              {{ t('dialogs.removeAccount.confirmPrompt', { name: resolvedDisplayName || accountEmail }) }}
-            </p>
-            <p class="m3-body-medium text-[var(--md-sys-color-error)] select-none mt-1 leading-relaxed bg-[var(--md-sys-color-error-container)]/30 rounded-xl p-3 border border-[var(--md-sys-color-error)]/20 text-left">
+          <!-- Tonal Error Warning Container (no arbitrary opacity/border hacks) -->
+          <div class="flex items-start gap-3 rounded-[16px] bg-[var(--md-sys-color-error-container)] px-4 py-3.5 text-[var(--md-sys-color-on-error-container)]">
+            <M3Icon
+              name="warning"
+              :filled="true"
+              :size="20"
+              class="shrink-0 mt-0.5"
+            />
+            <p class="m3-body-medium leading-snug !text-[var(--md-sys-color-on-error-container)] select-none">
               {{ t('dialogs.removeAccount.warning') }}
             </p>
           </div>
 
-          <div class="flex w-full items-center justify-end gap-3 pt-2">
+          <!-- M3E Action Row: secondary text action + larger primary destructive pill -->
+          <div class="flex w-full items-center justify-end gap-2 pt-1">
             <M3Button
               variant="text"
               size="s"
@@ -89,7 +107,7 @@ function handleConfirm() {
             <M3Button
               variant="filled"
               destructive
-              size="s"
+              size="m"
               icon="delete"
               :loading="loading"
               @click="handleConfirm"
