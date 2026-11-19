@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import licensesData from '../../../docs/THIRD_PARTY_LICENSES.json'
+import licensesData from '../assets/third-party-licenses.json'
 import M3Button from './ui/M3Button.vue'
 import M3Icon from './ui/M3Icon.vue'
 import M3TextField from './ui/M3TextField.vue'
