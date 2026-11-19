@@ -20,6 +20,7 @@ mod commands;
 mod matugen;
 mod models;
 mod tray;
+mod webview_signin;
 
 use commands::AppState;
 

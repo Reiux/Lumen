@@ -968,7 +968,7 @@ pub async fn add_google_account(
 }
 
 // -------------------------------------------------------------
-// Automated Chromium CDP Sign-In
+// Automated In-App WebView Sign-In (with CDP module retained)
 // -------------------------------------------------------------
 
 #[tauri::command]
@@ -976,20 +976,12 @@ pub async fn start_browser_sign_in(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
-    let mut session = cdp::CdpSession::launch().await.map_err(|e| e.to_string())?;
+    let prefs = state.config_manager.get_preferences();
+    let proxy = (!prefs.proxy.trim().is_empty()).then_some(prefs.proxy.clone());
 
-    let token = match session.wait_for_google_auth_cookies().await {
-        Ok(t) => t,
-        Err(e) => {
-            session.close();
-            return Err(e.to_string());
-        }
-    };
-
-    let close_ok = session.close();
-    if !close_ok {
-        let _ = app.emit("browser-signin:close-failed", ());
-    }
+    let token = crate::webview_signin::run_webview_sign_in(&app, proxy.as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
 
     validate_and_add_oauth_token(token, app, state).await
 }
@@ -1004,7 +996,8 @@ pub async fn start_browser_sign_in_with_options(
 }
 
 #[tauri::command]
-pub fn cancel_browser_sign_in() -> Result<(), String> {
+pub fn cancel_browser_sign_in(app: AppHandle) -> Result<(), String> {
+    crate::webview_signin::cancel_active_sign_in(&app);
     cdp::cancel_active_browser();
     Ok(())
 }
@@ -1016,12 +1009,12 @@ pub fn was_browser_close_failed() -> bool {
 
 #[tauri::command]
 pub fn has_supported_browser() -> bool {
-    cdp::find_chromium_browser().is_some()
+    true
 }
 
 #[tauri::command]
 pub fn get_supported_browser_name() -> String {
-    cdp::get_supported_browser_name()
+    "Lumen Sign-In Window".to_string()
 }
 
 // -------------------------------------------------------------
