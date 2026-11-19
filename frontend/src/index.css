@@ -1378,10 +1378,13 @@ button:not(.no-state-layer):active:not(:disabled)::before,
   animation: m3-drop-zone-bob 900ms var(--md-sys-motion-easing-default-spatial, cubic-bezier(0.38, 1.21, 0.22, 1.00)) infinite alternate;
 }
 
-/* Action buttons: fade via effects spring (damping 1.0, no overshoot), slide via spatial spring */
+/* Action buttons: fade via effects spring (damping 1.0, no overshoot), collapse/slide via spatial spring */
 .m3-drop-zone-actions {
   transition:
     opacity var(--md-sys-motion-duration-fast-effects, 150ms) var(--md-sys-motion-easing-fast-effects, cubic-bezier(0.31, 0.94, 0.34, 1.00)),
+    max-height var(--md-sys-motion-duration-default-spatial, 500ms) var(--md-sys-motion-easing-default-spatial, cubic-bezier(0.38, 1.21, 0.22, 1.00)),
+    padding-top var(--md-sys-motion-duration-default-spatial, 500ms) var(--md-sys-motion-easing-default-spatial, cubic-bezier(0.38, 1.21, 0.22, 1.00)),
+    padding-bottom var(--md-sys-motion-duration-default-spatial, 500ms) var(--md-sys-motion-easing-default-spatial, cubic-bezier(0.38, 1.21, 0.22, 1.00)),
     transform var(--md-sys-motion-duration-fast-spatial, 350ms) var(--md-sys-motion-easing-fast-spatial, cubic-bezier(0.42, 1.67, 0.21, 0.90));
 }
 

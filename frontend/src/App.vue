@@ -926,7 +926,6 @@ const dropZoneRef = ref<HTMLElement | null>(null)
 let dropObserver: MutationObserver | null = null
 let dragCounter = 0
 let isNativeDragging = false
-let dragWatchdogTimer: ReturnType<typeof setTimeout> | null = null
 
 function hasDragFiles(e: DragEvent): boolean {
   if (!e.dataTransfer) return false
@@ -942,22 +941,9 @@ function hasDragFiles(e: DragEvent): boolean {
 }
 
 function clearDragState() {
-  if (dragWatchdogTimer) {
-    clearTimeout(dragWatchdogTimer)
-    dragWatchdogTimer = null
-  }
   dragCounter = 0
   isNativeDragging = false
   isDraggingFiles.value = false
-}
-
-function touchDragWatchdog() {
-  if (dragWatchdogTimer) clearTimeout(dragWatchdogTimer)
-  dragWatchdogTimer = setTimeout(() => {
-    if (isDraggingFiles.value) {
-      clearDragState()
-    }
-  }, 700)
 }
 
 const onDragEnter = (e: DragEvent) => {
@@ -971,7 +957,6 @@ const onDragEnter = (e: DragEvent) => {
   dragCounter++
   isNativeDragging = true
   isDraggingFiles.value = true
-  touchDragWatchdog()
 }
 
 const onDragOver = (e: DragEvent) => {
@@ -987,18 +972,18 @@ const onDragOver = (e: DragEvent) => {
   }
   isNativeDragging = true
   isDraggingFiles.value = true
-  touchDragWatchdog()
 }
 
 const onDragLeave = (e: DragEvent) => {
   if (!hasDragFiles(e)) return
   e.preventDefault()
-  dragCounter--
+  dragCounter = Math.max(0, dragCounter - 1)
 
-  const leftWindow = !e.relatedTarget ||
+  const outOfBounds =
+    (e.clientX !== 0 || e.clientY !== 0) &&
     (e.clientX <= 0 || e.clientY <= 0 || e.clientX >= window.innerWidth || e.clientY >= window.innerHeight)
 
-  if (dragCounter <= 0 || leftWindow) {
+  if (dragCounter <= 0 || outOfBounds) {
     clearDragState()
   }
 }
@@ -1018,7 +1003,6 @@ const onDropZoneDragEnter = (e: DragEvent) => {
   }
   isNativeDragging = true
   isDraggingFiles.value = true
-  touchDragWatchdog()
 }
 
 const onDropZoneDragOver = (e: DragEvent) => {
@@ -1034,12 +1018,14 @@ const onDropZoneDragOver = (e: DragEvent) => {
   }
   isNativeDragging = true
   isDraggingFiles.value = true
-  touchDragWatchdog()
 }
 
 const onDropZoneDragLeave = (e: DragEvent) => {
   e.preventDefault()
-  if (dragCounter <= 0) {
+  const current = e.currentTarget as HTMLElement | null
+  const related = e.relatedTarget as Node | null
+  if (current && related && current.contains(related)) return
+  if (dragCounter <= 0 && !isNativeDragging) {
     clearDragState()
   }
 }
@@ -1565,7 +1551,6 @@ onMounted(async () => {
       if (activeTab.value === 'upload' && displayOptions.value.length > 0) {
         isNativeDragging = true
         isDraggingFiles.value = true
-        touchDragWatchdog()
       }
     }),
 
@@ -2164,7 +2149,7 @@ onUnmounted(() => {
             >
               <!-- Persistent M3E Morphing Icon Tile (80x80: 24px resting -> 40px exact circle on drag-over) -->
               <div
-                class="m3-drop-zone-icon flex size-20 items-center justify-center mb-5"
+                class="m3-drop-zone-icon pointer-events-none flex size-20 items-center justify-center mb-5"
                 :class="
                   isDraggingFiles
                     ? 'is-dragging bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] shadow-lg'
@@ -2180,23 +2165,27 @@ onUnmounted(() => {
 
               <!-- Headline & Supporting Copy -->
               <h2
-                class="m3-headline-small select-none"
+                class="m3-headline-small pointer-events-none select-none"
                 :class="isDraggingFiles ? 'text-[var(--md-sys-color-on-primary-container)]' : 'text-[var(--md-sys-color-on-surface)]'"
               >
                 {{ isDraggingFiles ? t('backup.dropFiles') : t('dropzone.readyToBackup') }}
               </h2>
 
               <p
-                class="m3-body-medium mt-1.5 max-w-[384px] select-none"
+                class="m3-body-medium pointer-events-none mt-1.5 max-w-[384px] select-none"
                 :class="isDraggingFiles ? '!text-[var(--md-sys-color-on-primary-container)]/85' : ''"
               >
                 {{ isDraggingFiles ? t('backup.releaseFiles') : t('backup.dragPrompt') }}
               </p>
 
-              <!-- Action buttons (hidden smoothly while dragging over) -->
+              <!-- Action buttons (collapsed & hidden smoothly while dragging over so icon + text center vertically) -->
               <div
-                class="m3-drop-zone-actions flex flex-col items-center gap-3 mt-6 z-10"
-                :class="isDraggingFiles ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'"
+                class="m3-drop-zone-actions flex flex-col items-center gap-3 overflow-hidden z-10"
+                :class="
+                  isDraggingFiles
+                    ? 'max-h-0 pt-0 pb-0 px-3 opacity-0 scale-95 pointer-events-none'
+                    : 'max-h-40 pt-6 pb-1 px-3 opacity-100 scale-100'
+                "
                 style="--wails-draggable: none"
               >
                 <!-- Connected button group (segmented) for Choose from Files / Choose folder -->

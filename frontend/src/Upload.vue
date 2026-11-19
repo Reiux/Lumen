@@ -570,7 +570,7 @@ const totalQueueCount = computed(() => {
           @drop="onQueueDrop"
         >
           <div
-            class="m3-queue-drop-icon flex size-14 shrink-0 items-center justify-center"
+            class="m3-queue-drop-icon pointer-events-none flex size-14 shrink-0 items-center justify-center"
             :class="
               isQueueDropActive
                 ? 'is-drag-active bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] shadow-md'
@@ -584,18 +584,18 @@ const totalQueueCount = computed(() => {
             />
           </div>
 
-          <div class="flex flex-col items-center gap-1 max-w-[300px]">
+          <div class="pointer-events-none flex flex-col items-center gap-1 max-w-[300px]">
             <span
               class="m3-title-medium"
               :class="isQueueDropActive ? 'text-[var(--md-sys-color-on-primary-container)]' : 'text-[var(--md-sys-color-on-surface)]'"
             >
-              {{ isQueueDropActive ? t('backup.releaseFiles') : t('upload.dropMore') }}
+              {{ isQueueDropActive ? t('backup.dropFiles') : t('upload.dropMore') }}
             </span>
             <span
               v-if="isQueueDropActive"
               class="m3-body-medium !text-[var(--md-sys-color-on-primary-container)]/85"
             >
-              {{ t('backup.dropFiles') }}
+              {{ t('backup.releaseFiles') }}
             </span>
           </div>
         </div>
