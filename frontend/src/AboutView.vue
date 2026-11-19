@@ -7,14 +7,13 @@ const { t } = useI18n()
 import { ConfigManager } from '../bindings/app/core'
 import type { UpdateInfo } from '../bindings/app/core/models'
 import M3Button from './components/ui/M3Button.vue'
-import M3ButtonGroup from './components/ui/M3ButtonGroup.vue'
 import M3Icon from './components/ui/M3Icon.vue'
 import M3Switch from './components/ui/M3Switch.vue'
 import LumenLogo from './components/LumenLogo.vue'
 import UpdateAvailableModal from './components/UpdateAvailableModal.vue'
 import LicensesModal from './components/LicensesModal.vue'
 import { toast } from 'vue-sonner'
-import { preferencesState, refreshLastUpdateCheck, setAutoCheckUpdates, setAutoUpdateIntervalHours } from './utils/configStore'
+import { preferencesState, refreshLastUpdateCheck, setAutoCheckUpdates } from './utils/configStore'
 import { devOptionsState, isDevMode, mockState, setDevOptionsUnlocked, toggleMockMode } from './utils/mockMode'
 import reiuxAvatar from './assets/credits/reiux.png'
 import xob0tAvatar from './assets/credits/xob0t.png'
@@ -101,19 +100,9 @@ if (typeof localStorage !== 'undefined') {
   }
 }
 
-const AUTO_UPDATE_INTERVAL_OPTIONS = [6, 12, 24] as const
-
 async function handleAutoCheckUpdates(enabled: boolean) {
   try {
     await setAutoCheckUpdates(enabled)
-  } catch {
-    toast.error(t('settings.saveFailed'))
-  }
-}
-
-async function handleAutoUpdateInterval(hours: number) {
-  try {
-    await setAutoUpdateIntervalHours(hours)
   } catch {
     toast.error(t('settings.saveFailed'))
   }
@@ -132,22 +121,6 @@ const lastCheckedFormatted = computed(() => {
     return t('about.neverChecked')
   }
   return effectiveLastChecked.value.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + ' · ' + effectiveLastChecked.value.toLocaleDateString()
-})
-
-const nextCheckFormatted = computed(() => {
-  const intervalHours = preferencesState.autoUpdateIntervalHours || 6
-  const lastDate = effectiveLastChecked.value
-  if (!lastDate) {
-    return t('settings.nextUpdateCheckOnLaunch', { hours: intervalHours })
-  }
-  const nextDate = new Date(lastDate.getTime() + intervalHours * 3600 * 1000)
-  if (nextDate.getTime() <= Date.now()) {
-    return t('settings.nextUpdateCheckOnLaunch', { hours: intervalHours })
-  }
-  const sameDay = nextDate.toDateString() === new Date().toDateString()
-  return sameDay
-    ? nextDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-    : `${nextDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · ${nextDate.toLocaleDateString()}`
 })
 
 let startupPunchTimer: ReturnType<typeof setTimeout> | null = null
@@ -389,39 +362,9 @@ function disableDevOptions() {
           />
         </div>
 
-        <div
-          v-if="preferencesState.autoCheckUpdates"
-          class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-[18px] bg-[var(--md-sys-color-surface-container-low)] px-4 py-3"
-        >
-          <span class="m3-body-medium text-[var(--md-sys-color-on-surface)]">
-            {{ t('settings.autoCheckWhileRunning') }}
-          </span>
-          <M3ButtonGroup :connected="true">
-            <M3Button
-              v-for="hours in AUTO_UPDATE_INTERVAL_OPTIONS"
-              :key="hours"
-              size="s"
-              :toggle="true"
-              :selected="preferencesState.autoUpdateIntervalHours === hours"
-              :variant="preferencesState.autoUpdateIntervalHours === hours ? 'tonal' : 'outlined'"
-              @click="handleAutoUpdateInterval(hours)"
-            >
-              {{ hours === 6 ? t('settings.every6HoursRecommended') : hours === 12 ? t('settings.every12Hours') : t('settings.every24Hours') }}
-            </M3Button>
-          </M3ButtonGroup>
-        </div>
-
         <div class="flex items-center justify-between rounded-[18px] bg-[var(--md-sys-color-surface-container-low)] px-4 py-3 m3-body-medium">
           <span class="text-[var(--md-sys-color-on-surface)]">{{ t('about.lastChecked') }}</span>
           <span class="tabular-nums text-[var(--md-sys-color-on-surface)]">{{ lastCheckedFormatted }}</span>
-        </div>
-
-        <div
-          v-if="preferencesState.autoCheckUpdates"
-          class="flex items-center justify-between rounded-[18px] bg-[var(--md-sys-color-surface-container-low)] px-4 py-3 m3-body-medium"
-        >
-          <span class="text-[var(--md-sys-color-on-surface)]">{{ t('about.nextCheck') }}</span>
-          <span class="tabular-nums text-[var(--md-sys-color-on-surface-variant)]">{{ nextCheckFormatted }}</span>
         </div>
       </div>
     </div>

@@ -29,8 +29,6 @@ import {
   setSaver,
   setNotifyOnComplete,
   setAutoCheckUpdates,
-  setAutoUpdateIntervalHours,
-  refreshLastUpdateCheck,
 } from './utils/configStore'
 import { useDialogFocusTrap } from './utils/useDialogFocusTrap'
 
@@ -252,7 +250,6 @@ onMounted(async () => {
       ConfigManager.IsTrayAvailable(),
       ConfigManager.HasBattery().catch(() => false),
       refreshActiveAccount(),
-      refreshLastUpdateCheck(),
     ])
     if (isUnmounted) return
     hasBattery.value = !!batteryPresent
@@ -605,9 +602,7 @@ function selectLanguage(lang: string) {
   showLanguageDialog.value = false
 }
 
-const AUTO_UPDATE_INTERVAL_OPTIONS = [6, 12, 24] as const
 const autoCheckUpdatesEnabled = computed(() => preferencesState.autoCheckUpdates)
-const autoUpdateIntervalHours = computed(() => preferencesState.autoUpdateIntervalHours)
 
 async function handleAutoCheckUpdates(enabled: boolean) {
   try {
@@ -616,32 +611,6 @@ async function handleAutoCheckUpdates(enabled: boolean) {
     toast.error(t('settings.saveFailed'))
   }
 }
-
-async function handleAutoUpdateInterval(hours: number) {
-  try {
-    await setAutoUpdateIntervalHours(hours)
-  } catch {
-    toast.error(t('settings.saveFailed'))
-  }
-}
-
-const nextUpdateCheckLabel = computed(() => {
-  const intervalHours = preferencesState.autoUpdateIntervalHours || 6
-  const lastSec = preferencesState.lastUpdateCheck
-  if (!lastSec || lastSec <= 0) {
-    return t('settings.nextUpdateCheckOnLaunch', { hours: intervalHours })
-  }
-  const nextDate = new Date((lastSec + intervalHours * 3600) * 1000)
-  const now = Date.now()
-  if (nextDate.getTime() <= now) {
-    return t('settings.nextUpdateCheckOnLaunch', { hours: intervalHours })
-  }
-  const sameDay = nextDate.toDateString() === new Date(now).toDateString()
-  const formatted = sameDay
-    ? nextDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-    : `${nextDate.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} · ${nextDate.toLocaleDateString()}`
-  return t('settings.nextUpdateCheck', { time: formatted })
-})
 
 watch(() => settings.value.scheduleEnabled, (newValue, oldValue) => {
   if (isHydrating.value || suppressWatchDepth > 0) return
@@ -1266,59 +1235,24 @@ watch(() => settings.value.dryRun, (newValue, oldValue) => {
             </div>
 
             <!-- Automatic Update Checks -->
-            <div class="flex flex-col gap-3 p-5">
-              <div class="flex items-center justify-between gap-4">
-                <div class="flex flex-col pr-2">
-                  <label
-                    for="settings-auto-updates-switch"
-                    class="m3-title-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
-                  >
-                    {{ t('settings.autoCheckUpdates') }}
-                  </label>
-                  <span class="m3-body-medium mt-0.5">
-                    {{ t('settings.autoCheckUpdatesSubtitle') }}
-                  </span>
-                </div>
-                <M3Switch
-                  id="settings-auto-updates-switch"
-                  :model-value="autoCheckUpdatesEnabled"
-                  :aria-label="t('settings.autoCheckUpdates')"
-                  @update:model-value="handleAutoCheckUpdates"
-                />
+            <div class="flex items-center justify-between gap-4 p-5">
+              <div class="flex flex-col pr-2">
+                <label
+                  for="settings-auto-updates-switch"
+                  class="m3-title-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
+                >
+                  {{ t('settings.autoCheckUpdates') }}
+                </label>
+                <span class="m3-body-medium mt-0.5">
+                  {{ t('settings.autoCheckUpdatesSubtitle') }}
+                </span>
               </div>
-
-              <!-- Running check interval + suggested schedule -->
-              <div
-                v-if="autoCheckUpdatesEnabled"
-                class="flex flex-col gap-2.5 rounded-[16px] bg-[var(--md-sys-color-surface-container-high)]/70 p-3.5"
-              >
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                  <span class="m3-label-large text-[var(--md-sys-color-on-surface)]">
-                    {{ t('settings.autoCheckWhileRunning') }}
-                  </span>
-                  <M3ButtonGroup :connected="true">
-                    <M3Button
-                      v-for="hours in AUTO_UPDATE_INTERVAL_OPTIONS"
-                      :key="hours"
-                      size="s"
-                      :toggle="true"
-                      :selected="autoUpdateIntervalHours === hours"
-                      :variant="autoUpdateIntervalHours === hours ? 'tonal' : 'outlined'"
-                      @click="handleAutoUpdateInterval(hours)"
-                    >
-                      {{ hours === 6 ? t('settings.every6HoursRecommended') : hours === 12 ? t('settings.every12Hours') : t('settings.every24Hours') }}
-                    </M3Button>
-                  </M3ButtonGroup>
-                </div>
-                <div class="flex items-center gap-1.5 m3-body-small text-[var(--md-sys-color-on-surface-variant)]">
-                  <M3Icon
-                    name="schedule"
-                    :size="15"
-                    class="text-[var(--md-sys-color-primary)] shrink-0"
-                  />
-                  <span>{{ nextUpdateCheckLabel }}</span>
-                </div>
-              </div>
+              <M3Switch
+                id="settings-auto-updates-switch"
+                :model-value="autoCheckUpdatesEnabled"
+                :aria-label="t('settings.autoCheckUpdates')"
+                @update:model-value="handleAutoCheckUpdates"
+              />
             </div>
 
             <!-- Upload schedule / Quiet hours -->
