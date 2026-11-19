@@ -622,6 +622,12 @@ impl ConfigManager {
     }
 }
 
+pub const CONFIG_DIR_NAME: &str = if cfg!(debug_assertions) {
+    "lumen-dev"
+} else {
+    "lumen"
+};
+
 pub fn get_user_config_dir() -> PathBuf {
     if let Some(proj_dirs) = directories::BaseDirs::new() {
         proj_dirs.config_dir().to_path_buf()
@@ -644,47 +650,49 @@ pub fn determine_config_path(override_path: Option<&Path>) -> PathBuf {
         }
     }
 
-    // 2. User config directory: prefer ~/.config/lumen/lumen.config
+    // 2. User config directory: separate dev (`lumen-dev`) and release (`lumen`) directories
     let user_config = get_user_config_dir();
-    let lumen_dir = user_config.join("lumen");
+    let lumen_dir = user_config.join(CONFIG_DIR_NAME);
     let lumen_config = lumen_dir.join("lumen.config");
 
     if lumen_config.exists() {
         return lumen_config;
     }
 
-    // 4. Migration check: legacy gotohp directory
-    let legacy_dir = user_config.join("gotohp");
-    let legacy_config = legacy_dir.join("gotohp.config");
+    // 3. Migration check: legacy gotohp directory (release channel only; never touch release/gotohp from dev builds)
+    if !cfg!(debug_assertions) {
+        let legacy_dir = user_config.join("gotohp");
+        let legacy_config = legacy_dir.join("gotohp.config");
 
-    if legacy_config.exists() {
-        let legacy_meta = fs::symlink_metadata(&legacy_config).ok();
-        if let Some(m) = legacy_meta {
-            if m.is_file() && !m.file_type().is_symlink() {
-                let _ = fs::create_dir_all(&lumen_dir);
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    let _ = fs::set_permissions(&lumen_dir, fs::Permissions::from_mode(0o700));
-                }
-                if secure_copy_file(&legacy_config, &lumen_config).is_ok() {
-                    for (legacy_name, target_name) in [
-                        ("hash_cache.db", "hash_cache.db"),
-                        ("hashes.db", "hashes.db"),
-                        ("album_registry.json", "album_registry.json"),
-                        ("albums.json", "albums.json"),
-                    ] {
-                        let legacy_file = legacy_dir.join(legacy_name);
-                        let target_file = lumen_dir.join(target_name);
-                        if !target_file.exists() {
-                            let _ = secure_copy_file(&legacy_file, &target_file);
-                        }
+        if legacy_config.exists() {
+            let legacy_meta = fs::symlink_metadata(&legacy_config).ok();
+            if let Some(m) = legacy_meta {
+                if m.is_file() && !m.file_type().is_symlink() {
+                    let _ = fs::create_dir_all(&lumen_dir);
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        let _ = fs::set_permissions(&lumen_dir, fs::Permissions::from_mode(0o700));
                     }
-                    return lumen_config;
+                    if secure_copy_file(&legacy_config, &lumen_config).is_ok() {
+                        for (legacy_name, target_name) in [
+                            ("hash_cache.db", "hash_cache.db"),
+                            ("hashes.db", "hashes.db"),
+                            ("album_registry.json", "album_registry.json"),
+                            ("albums.json", "albums.json"),
+                        ] {
+                            let legacy_file = legacy_dir.join(legacy_name);
+                            let target_file = lumen_dir.join(target_name);
+                            if !target_file.exists() {
+                                let _ = secure_copy_file(&legacy_file, &target_file);
+                            }
+                        }
+                        return lumen_config;
+                    }
                 }
             }
+            return legacy_config;
         }
-        return legacy_config;
     }
 
     lumen_config

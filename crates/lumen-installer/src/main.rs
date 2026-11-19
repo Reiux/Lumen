@@ -12,11 +12,29 @@ use tauri_plugin_dialog::DialogExt;
 
 const EMBEDDED_PAYLOAD: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/payload.tar.gz"));
 
+const IS_DEV_CHANNEL: bool = cfg!(debug_assertions);
+const APP_DISPLAY_NAME: &str = if IS_DEV_CHANNEL { "Lumen Dev" } else { "Lumen" };
+#[cfg(windows)]
+const UNINSTALL_REG_KEY_NAME: &str = if IS_DEV_CHANNEL { "LumenDev" } else { "Lumen" };
+#[cfg(windows)]
+const SHORTCUT_FILENAME: &str = if IS_DEV_CHANNEL { "Lumen Dev.lnk" } else { "Lumen.lnk" };
+#[cfg(windows)]
+const STARTUP_REG_VALUE_NAME: &str = if IS_DEV_CHANNEL { "Lumen Dev" } else { "Lumen" };
+#[cfg(windows)]
+const INSTALL_DIR_NAME_WIN: &str = if IS_DEV_CHANNEL { "Lumen Dev" } else { "Lumen" };
+#[cfg(unix)]
+const INSTALL_DIR_NAME_UNIX: &str = if IS_DEV_CHANNEL { "Lumen-dev" } else { "Lumen" };
+const CONFIG_DIR_NAME: &str = if IS_DEV_CHANNEL { "lumen-dev" } else { "lumen" };
+#[cfg(windows)]
+const WINDOWS_MAIN_EXE_NAME: &str = if IS_DEV_CHANNEL { "Lumen-dev.exe" } else { "Lumen.exe" };
+
 #[derive(Serialize)]
 pub struct SetupInfo {
     pub is_uninstall: bool,
     pub is_installed: bool,
     pub is_update: bool,
+    pub is_dev: bool,
+    pub app_name: String,
     pub installed_version: String,
     pub current_version: String,
     pub default_path: String,
@@ -34,11 +52,19 @@ struct InstalledAppInfo {
 fn app_binary_names() -> &'static [&'static str] {
     #[cfg(windows)]
     {
-        &["Lumen.exe", "lumen.exe"]
+        if IS_DEV_CHANNEL {
+            &["Lumen-dev.exe", "lumen-dev.exe"]
+        } else {
+            &["Lumen.exe", "lumen.exe"]
+        }
     }
     #[cfg(not(windows))]
     {
-        &["Lumen", "lumen"]
+        if IS_DEV_CHANNEL {
+            &["Lumen-dev", "lumen-dev", "Lumen", "lumen"]
+        } else {
+            &["Lumen", "lumen"]
+        }
     }
 }
 
@@ -138,7 +164,7 @@ fn get_hkcu_modern_install() -> Option<(PathBuf, String)> {
     let uninstall_root = hkcu
         .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall")
         .ok()?;
-    let app_key = uninstall_root.open_subkey("Lumen").ok()?;
+    let app_key = uninstall_root.open_subkey(UNINSTALL_REG_KEY_NAME).ok()?;
     let version = app_key
         .get_value::<String, _>("DisplayVersion")
         .unwrap_or_default();
@@ -168,6 +194,12 @@ fn is_modern_v2_dir(candidate: &Path, modern: Option<&(PathBuf, String)>) -> boo
 }
 
 fn get_legacy_nsis_info() -> Option<InstalledAppInfo> {
+    // Dev channel is strictly isolated from release installs and must never
+    // detect, update, or remove a legacy v1.x NSIS release installation.
+    if IS_DEV_CHANNEL {
+        return None;
+    }
+
     let current_exe_dir = env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
@@ -340,8 +372,7 @@ fn has_any_modern_install_marker(dir: &Path) -> bool {
     }
     #[cfg(windows)]
     {
-        dir.join("Lumen.exe").is_file()
-            || dir.join("lumen.exe").is_file()
+        find_app_binary(dir).is_some()
             || dir.join("lumen-cli.exe").is_file()
             || dir.join("uninstall.exe").is_file()
     }
@@ -362,7 +393,7 @@ fn get_modern_installed_info_with_opts(include_current_dir: bool) -> Option<Inst
     #[cfg(windows)]
     {
         if let Some((p, version)) = get_hkcu_modern_install() {
-            let has_bin = p.join("Lumen.exe").is_file() || p.join("lumen.exe").is_file();
+            let has_bin = find_app_binary(&p).is_some();
             let has_partial = include_current_dir && has_any_modern_install_marker(&p);
             if has_bin || has_partial {
                 if !include_current_dir {
@@ -454,17 +485,17 @@ fn get_config_display_path() -> String {
     #[cfg(windows)]
     {
         if let Ok(appdata) = env::var("APPDATA") {
-            return format!("{}\\Lumen", appdata);
+            return format!("{}\\{}", appdata, CONFIG_DIR_NAME);
         }
-        return "%APPDATA%\\Lumen".to_string();
+        return format!("%APPDATA%\\{}", CONFIG_DIR_NAME);
     }
     #[cfg(target_os = "macos")]
     {
-        "~/Library/Application Support/lumen".to_string()
+        format!("~/Library/Application Support/{}", CONFIG_DIR_NAME)
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        "~/.config/lumen".to_string()
+        format!("~/.config/{}", CONFIG_DIR_NAME)
     }
 }
 
@@ -488,17 +519,22 @@ fn get_default_install_dir() -> PathBuf {
     #[cfg(windows)]
     {
         if let Ok(local_appdata) = env::var("LOCALAPPDATA") {
-            return PathBuf::from(local_appdata).join("Programs").join("Lumen");
+            return PathBuf::from(local_appdata)
+                .join("Programs")
+                .join(INSTALL_DIR_NAME_WIN);
         }
-        PathBuf::from("C:\\Program Files\\Lumen")
+        PathBuf::from("C:\\Program Files").join(INSTALL_DIR_NAME_WIN)
     }
 
     #[cfg(unix)]
     {
         if let Ok(home) = env::var("HOME") {
-            return PathBuf::from(home).join(".local").join("share").join("Lumen");
+            return PathBuf::from(home)
+                .join(".local")
+                .join("share")
+                .join(INSTALL_DIR_NAME_UNIX);
         }
-        env::temp_dir().join("Lumen")
+        env::temp_dir().join(INSTALL_DIR_NAME_UNIX)
     }
 }
 
@@ -547,6 +583,8 @@ fn get_setup_info() -> SetupInfo {
         is_uninstall,
         is_installed,
         is_update,
+        is_dev: IS_DEV_CHANNEL,
+        app_name: APP_DISPLAY_NAME.to_string(),
         installed_version,
         current_version,
         default_path,
@@ -764,14 +802,19 @@ fn is_app_running() -> bool {
         const CREATE_NO_WINDOW: u32 = 0x08000000;
 
         let cur_exe_escaped = escape_powershell_single_quote(&current_exe_str);
+        let proc_filter = if IS_DEV_CHANNEL {
+            "Name = 'Lumen-dev.exe' or Name = 'lumen-dev.exe'"
+        } else {
+            "Name = 'Lumen.exe' or Name = 'lumen.exe'"
+        };
         let script = format!(
             "$curPid = {}; \
              $curExe = '{}'; \
-             $procs = Get-CimInstance Win32_Process -Filter \"Name = 'Lumen.exe' or Name = 'lumen.exe'\" -ErrorAction SilentlyContinue | Where-Object {{ $_.ProcessId -ne $curPid -and $_.ExecutablePath -and $_.ExecutablePath.ToLower() -ne $curExe.ToLower() }}; \
+             $procs = Get-CimInstance Win32_Process -Filter \"{}\" -ErrorAction SilentlyContinue | Where-Object {{ $_.ProcessId -ne $curPid -and $_.ExecutablePath -and $_.ExecutablePath.ToLower() -ne $curExe.ToLower() }}; \
              foreach ($p in $procs) {{ \
                  Write-Output \"$($p.ProcessId)|$($p.ExecutablePath)\" \
              }}",
-            current_pid, cur_exe_escaped
+            current_pid, cur_exe_escaped, proc_filter
         );
 
         let output = if let Some(ps_path) = get_system_powershell() {
@@ -849,16 +892,21 @@ fn kill_running_app() -> Result<(), String> {
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
         let cur_exe_escaped = escape_powershell_single_quote(&current_exe_str);
+        let proc_filter = if IS_DEV_CHANNEL {
+            "Name = 'Lumen-dev.exe' or Name = 'lumen-dev.exe'"
+        } else {
+            "Name = 'Lumen.exe' or Name = 'lumen.exe' or Name = 'lumen-cli.exe'"
+        };
         let script = format!(
             "$curPid = {}; \
              $curExe = '{}'; \
-             $procs = Get-CimInstance Win32_Process -Filter \"Name = 'Lumen.exe' or Name = 'lumen.exe' or Name = 'lumen-cli.exe'\" -ErrorAction SilentlyContinue | Where-Object {{ $_.ProcessId -ne $curPid }}; \
+             $procs = Get-CimInstance Win32_Process -Filter \"{}\" -ErrorAction SilentlyContinue | Where-Object {{ $_.ProcessId -ne $curPid }}; \
              foreach ($p in $procs) {{ \
                  if ($p.ExecutablePath -and $p.ExecutablePath -ne $curExe) {{ \
                      try {{ Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }} catch {{}} \
                  }} \
              }}",
-            current_pid, cur_exe_escaped
+            current_pid, cur_exe_escaped, proc_filter
         );
 
         if let Some(ps_path) = get_system_powershell() {
@@ -934,7 +982,9 @@ async fn start_install(
 
     #[cfg(windows)]
     {
-        remove_legacy_nsis_installation(Some(&dest_path));
+        if !IS_DEV_CHANNEL {
+            remove_legacy_nsis_installation(Some(&dest_path));
+        }
     }
 
     // 1. Extract embedded payload securely (preventing Tar Slip and symlink escapes)
@@ -970,16 +1020,21 @@ async fn start_install(
         entry.unpack_in(&dest_path).map_err(|e| format!("Failed to unpack {}: {}", entry_path.display(), e))?;
     }
 
-    // Standardize executable name on Windows and resolve primary app binary per OS
+    // Standardize executable name on Windows per channel (Lumen.exe vs Lumen-dev.exe)
     #[cfg(windows)]
-    let main_exe = if dest_path.join("Lumen.exe").is_file() {
-        dest_path.join("Lumen.exe")
-    } else if dest_path.join("lumen.exe").is_file() {
-        let target = dest_path.join("Lumen.exe");
-        let _ = fs::rename(dest_path.join("lumen.exe"), &target);
-        target
-    } else {
-        dest_path.join("Lumen.exe")
+    let main_exe = {
+        let target = dest_path.join(WINDOWS_MAIN_EXE_NAME);
+        if target.is_file() {
+            target
+        } else if dest_path.join("lumen.exe").is_file() {
+            let _ = fs::rename(dest_path.join("lumen.exe"), &target);
+            target
+        } else if dest_path.join("Lumen.exe").is_file() {
+            let _ = fs::rename(dest_path.join("Lumen.exe"), &target);
+            target
+        } else {
+            target
+        }
     };
     #[cfg(not(windows))]
     let main_exe = find_app_binary(&dest_path).unwrap_or_else(|| dest_path.join("lumen"));
@@ -1023,7 +1078,7 @@ async fn start_install(
                 .join("Start Menu")
                 .join("Programs");
             let _ = fs::create_dir_all(&start_menu);
-            let lnk_path = start_menu.join("Lumen.lnk");
+            let lnk_path = start_menu.join(SHORTCUT_FILENAME);
             let _ = create_windows_shortcut(&main_exe, &lnk_path);
         }
 
@@ -1032,7 +1087,7 @@ async fn start_install(
             if let Ok(userprofile) = env::var("USERPROFILE") {
                 let desktop_dir = PathBuf::from(userprofile).join("Desktop");
                 let _ = fs::create_dir_all(&desktop_dir);
-                let desktop_lnk = desktop_dir.join("Lumen.lnk");
+                let desktop_lnk = desktop_dir.join(SHORTCUT_FILENAME);
                 let _ = create_windows_shortcut(&main_exe, &desktop_lnk);
             }
         }
@@ -1044,7 +1099,7 @@ async fn start_install(
             let hkcu = RegKey::predef(HKEY_CURRENT_USER);
             if let Ok((run_key, _)) = hkcu.create_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run") {
                 let exe_str = format!("\"{}\"", main_exe.to_string_lossy());
-                let _ = run_key.set_value("Lumen", &exe_str);
+                let _ = run_key.set_value(STARTUP_REG_VALUE_NAME, &exe_str);
             }
         }
 
@@ -1069,7 +1124,9 @@ async fn start_uninstall(purge_config: bool) -> Result<(), String> {
 
     #[cfg(windows)]
     {
-        remove_legacy_nsis_installation(modern_info.as_ref().map(|m| m.dir.as_path()));
+        if !IS_DEV_CHANNEL {
+            remove_legacy_nsis_installation(modern_info.as_ref().map(|m| m.dir.as_path()));
+        }
     }
 
     let install_dir = modern_info
@@ -1086,13 +1143,13 @@ async fn start_uninstall(purge_config: bool) -> Result<(), String> {
                 .join("Windows")
                 .join("Start Menu")
                 .join("Programs")
-                .join("Lumen.lnk");
+                .join(SHORTCUT_FILENAME);
             let _ = fs::remove_file(start_menu_lnk);
         }
 
         // 3. Remove Desktop shortcut
         if let Ok(userprofile) = env::var("USERPROFILE") {
-            let desktop_lnk = PathBuf::from(userprofile).join("Desktop").join("Lumen.lnk");
+            let desktop_lnk = PathBuf::from(userprofile).join("Desktop").join(SHORTCUT_FILENAME);
             let _ = fs::remove_file(desktop_lnk);
         }
 
@@ -1102,25 +1159,27 @@ async fn start_uninstall(purge_config: bool) -> Result<(), String> {
             use winreg::RegKey;
             let hkcu = RegKey::predef(HKEY_CURRENT_USER);
             if let Ok(run_key) = hkcu.open_subkey_with_flags("Software\\Microsoft\\Windows\\CurrentVersion\\Run", KEY_SET_VALUE) {
-                let _ = run_key.delete_value("Lumen");
+                let _ = run_key.delete_value(STARTUP_REG_VALUE_NAME);
             }
         }
 
         // 5. Remove Windows Registry Uninstall key
         let _ = unregister_windows_uninstall();
 
-        // 6. Optional: Purge configuration & local cache
+        // 6. Optional: Purge configuration & local cache (strictly scoped to current channel)
         if purge_config {
             if let Ok(appdata) = env::var("APPDATA") {
-                let lumen_config_dir = PathBuf::from(&appdata).join("Lumen");
-                let _ = fs::remove_dir_all(lumen_config_dir);
-                let legacy_dir = PathBuf::from(&appdata).join("lumen");
-                if legacy_dir.exists() {
-                    let _ = fs::remove_dir_all(legacy_dir);
+                let channel_config_dir = PathBuf::from(&appdata).join(CONFIG_DIR_NAME);
+                let _ = fs::remove_dir_all(channel_config_dir);
+                if !IS_DEV_CHANNEL {
+                    let legacy_cap_dir = PathBuf::from(&appdata).join("Lumen");
+                    if legacy_cap_dir.exists() {
+                        let _ = fs::remove_dir_all(legacy_cap_dir);
+                    }
                 }
             }
             if let Ok(userprofile) = env::var("USERPROFILE") {
-                let lumen_config_dir = PathBuf::from(userprofile).join(".config").join("lumen");
+                let lumen_config_dir = PathBuf::from(userprofile).join(".config").join(CONFIG_DIR_NAME);
                 let _ = fs::remove_dir_all(lumen_config_dir);
             }
         }
@@ -1145,7 +1204,7 @@ async fn start_uninstall(purge_config: bool) -> Result<(), String> {
         if !is_running_from_install_dir {
             // Running as setup installer outside the install dir: delete everything directly!
             if install_dir.exists() {
-                let _ = fs::remove_file(install_dir.join("Lumen.exe"));
+                let _ = fs::remove_file(install_dir.join(WINDOWS_MAIN_EXE_NAME));
                 let _ = fs::remove_file(install_dir.join("lumen.exe"));
                 let _ = fs::remove_file(install_dir.join("lumen-cli.exe"));
                 let _ = fs::remove_file(install_dir.join("uninstall.exe"));
@@ -1159,7 +1218,7 @@ async fn start_uninstall(purge_config: bool) -> Result<(), String> {
         } else {
             // Running as uninstall.exe inside the install dir:
             // Delete main binaries immediately, then schedule deletion of uninstall.exe and dir if dedicated
-            let _ = fs::remove_file(install_dir.join("Lumen.exe"));
+            let _ = fs::remove_file(install_dir.join(WINDOWS_MAIN_EXE_NAME));
             let _ = fs::remove_file(install_dir.join("lumen.exe"));
             let _ = fs::remove_file(install_dir.join("lumen-cli.exe"));
             schedule_self_deletion(&install_dir, is_dedicated);
@@ -1175,16 +1234,18 @@ async fn start_uninstall(purge_config: bool) -> Result<(), String> {
                     let mac_config_dir = PathBuf::from(&home)
                         .join("Library")
                         .join("Application Support")
-                        .join("lumen");
+                        .join(CONFIG_DIR_NAME);
                     let _ = fs::remove_dir_all(mac_config_dir);
                 }
-                let lumen_config_dir = PathBuf::from(home).join(".config").join("lumen");
+                let lumen_config_dir = PathBuf::from(home).join(".config").join(CONFIG_DIR_NAME);
                 let _ = fs::remove_dir_all(lumen_config_dir);
             }
         }
         if install_dir.exists() {
             let _ = fs::remove_file(install_dir.join("Lumen"));
             let _ = fs::remove_file(install_dir.join("lumen"));
+            let _ = fs::remove_file(install_dir.join("Lumen-dev"));
+            let _ = fs::remove_file(install_dir.join("lumen-dev"));
             let _ = fs::remove_file(install_dir.join("lumen-cli"));
             let _ = fs::remove_file(install_dir.join("uninstall"));
             let _ = fs::remove_file(install_dir.join("uninstall.exe"));
@@ -1434,11 +1495,15 @@ fn register_windows_uninstall(
     use winreg::RegKey;
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let reg_path = format!(
+        "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{}",
+        UNINSTALL_REG_KEY_NAME
+    );
     let (key, _) = hkcu
-        .create_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Lumen")
+        .create_subkey(&reg_path)
         .map_err(|e| e.to_string())?;
 
-    key.set_value("DisplayName", &"Lumen").map_err(|e| e.to_string())?;
+    key.set_value("DisplayName", &APP_DISPLAY_NAME).map_err(|e| e.to_string())?;
     key.set_value("DisplayVersion", &installer_app_version()).map_err(|e| e.to_string())?;
     key.set_value("Publisher", &"Reiux").map_err(|e| e.to_string())?;
     key.set_value("InstallLocation", &install_dir.to_string_lossy().to_string())
@@ -1460,6 +1525,9 @@ fn register_windows_uninstall(
 
 #[cfg(windows)]
 fn remove_legacy_nsis_installation(modern_dir: Option<&Path>) {
+    if IS_DEV_CHANNEL {
+        return;
+    }
     use std::os::windows::process::CommandExt;
     use std::process::Command;
     use winreg::enums::*;
@@ -1702,9 +1770,15 @@ fn unregister_windows_uninstall() -> Result<(), String> {
     use winreg::RegKey;
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let _ = hkcu.delete_subkey_all("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Lumen");
-    let _ = hkcu.delete_subkey_all("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ReiuxLumen");
-    let _ = hkcu.delete_subkey_all("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\gotohp");
+    let reg_path = format!(
+        "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{}",
+        UNINSTALL_REG_KEY_NAME
+    );
+    let _ = hkcu.delete_subkey_all(&reg_path);
+    if !IS_DEV_CHANNEL {
+        let _ = hkcu.delete_subkey_all("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ReiuxLumen");
+        let _ = hkcu.delete_subkey_all("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\gotohp");
+    }
 
     Ok(())
 }

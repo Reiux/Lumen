@@ -60,7 +60,6 @@ pub fn was_browser_close_failed() -> bool {
     BROWSER_CLOSE_FAILED.load(Ordering::SeqCst)
 }
 
-#[allow(dead_code)]
 pub fn find_chromium_browser() -> Option<PathBuf> {
     let home = std::env::var("HOME").unwrap_or_default();
     let user_flatpak_brave = format!("{}/.local/share/flatpak/exports/bin/com.brave.Browser", home);
@@ -149,7 +148,6 @@ pub fn find_chromium_browser() -> Option<PathBuf> {
     None
 }
 
-#[allow(dead_code)]
 pub fn get_supported_browser_name() -> String {
     if let Some(path) = find_chromium_browser() {
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
@@ -232,7 +230,6 @@ struct CdpResponse {
     result: Option<StorageGetCookiesResult>,
 }
 
-#[allow(dead_code)]
 pub struct CdpSession {
     session_id: u64,
     child: Child,
@@ -245,7 +242,6 @@ pub struct CdpSession {
 #[allow(dead_code)]
 pub type ActiveSession = Arc<Mutex<Option<Child>>>;
 
-#[allow(dead_code)]
 impl CdpSession {
     pub async fn launch() -> Result<Self> {
         let browser_path = find_chromium_browser()

@@ -444,6 +444,22 @@ export function WasBrowserCloseFailed(): $CancellablePromise<boolean> {
     return $Call.ByID(1455959379);
 }
 
+export function IsInlineEmbeddedSignInSupported(): $CancellablePromise<boolean> {
+    return $Call.ByID(9999999903);
+}
+
+export function StartEmbeddedSignIn(bounds?: { x: number; y: number; width: number; height: number } | null): $CancellablePromise<string> {
+    return $Call.ByID(9999999904, bounds);
+}
+
+export function UpdateEmbeddedSignInBounds(bounds: { x: number; y: number; width: number; height: number }): $CancellablePromise<void> {
+    return $Call.ByID(9999999905, bounds);
+}
+
+export function StartExternalBrowserSignIn(): $CancellablePromise<string> {
+    return $Call.ByID(9999999906);
+}
+
 export function OpenDevTools(): $CancellablePromise<void> {
     return $Call.ByID(9999999901);
 }

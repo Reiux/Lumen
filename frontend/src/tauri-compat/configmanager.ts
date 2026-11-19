@@ -544,6 +544,40 @@ export const ConfigManager = {
     }
   },
 
+  async IsInlineEmbeddedSignInSupported(): Promise<boolean> {
+    if (hasTauri()) {
+      return (await tauriInvoke<boolean>('is_inline_embedded_sign_in_supported')) || false;
+    }
+    return false;
+  },
+
+  async StartEmbeddedSignIn(
+    bounds?: { x: number; y: number; width: number; height: number } | null
+  ): Promise<string> {
+    if (hasTauri()) {
+      return (await tauriInvoke<string>('start_embedded_sign_in', { bounds: bounds ?? null })) || '';
+    }
+    return 'mock@example.com';
+  },
+
+  async UpdateEmbeddedSignInBounds(bounds: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }): Promise<void> {
+    if (hasTauri()) {
+      return tauriInvoke('update_embedded_sign_in_bounds', { bounds });
+    }
+  },
+
+  async StartExternalBrowserSignIn(): Promise<string> {
+    if (hasTauri()) {
+      return (await tauriInvoke<string>('start_external_browser_sign_in')) || '';
+    }
+    return 'mock@example.com';
+  },
+
   async StartBrowserSignIn(): Promise<string> {
     if (hasTauri()) {
       return (await tauriInvoke<string>('start_browser_sign_in')) || '';

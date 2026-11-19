@@ -275,6 +275,24 @@ fn escape_xml_entity(s: &str) -> String {
         .replace('\'', "&apos;")
 }
 
+const STARTUP_APP_NAME: &str = if cfg!(debug_assertions) {
+    "Lumen Dev"
+} else {
+    "Lumen"
+};
+#[cfg(target_os = "macos")]
+const LAUNCH_AGENT_LABEL: &str = if cfg!(debug_assertions) {
+    "com.reiux.lumen.dev"
+} else {
+    "com.reiux.lumen"
+};
+#[cfg(target_os = "linux")]
+const AUTOSTART_DESKTOP_FILENAME: &str = if cfg!(debug_assertions) {
+    "lumen-dev.desktop"
+} else {
+    "lumen.desktop"
+};
+
 fn is_launch_on_startup_active() -> bool {
     #[cfg(windows)]
     {
@@ -282,7 +300,7 @@ fn is_launch_on_startup_active() -> bool {
         use winreg::RegKey;
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         if let Ok(key) = hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run") {
-            if key.get_value::<String, _>("Lumen").is_ok() {
+            if key.get_value::<String, _>(STARTUP_APP_NAME).is_ok() {
                 return true;
             }
         }
@@ -293,7 +311,7 @@ fn is_launch_on_startup_active() -> bool {
             let plist = std::path::PathBuf::from(home)
                 .join("Library")
                 .join("LaunchAgents")
-                .join("com.reiux.lumen.plist");
+                .join(format!("{}.plist", LAUNCH_AGENT_LABEL));
             if plist.exists() {
                 return true;
             }
@@ -314,7 +332,7 @@ fn is_launch_on_startup_active() -> bool {
         } else {
             std::path::PathBuf::from(".config").join("autostart")
         };
-        let desktop_file = autostart_dir.join("lumen.desktop");
+        let desktop_file = autostart_dir.join(AUTOSTART_DESKTOP_FILENAME);
         if desktop_file.exists() {
             return true;
         }
@@ -340,24 +358,24 @@ pub fn set_launch_on_startup(v: bool, state: tauri::State<AppState>) -> Result<(
         if v {
             let exe = std::env::current_exe().map_err(|e| e.to_string())?;
             let exe_str = format!("\"{}\"", exe.to_string_lossy());
-            key.set_value("Lumen", &exe_str)
+            key.set_value(STARTUP_APP_NAME, &exe_str)
                 .map_err(|e| format!("Failed to set startup registry entry: {}", e))?;
         } else {
-            let _ = key.delete_value("Lumen");
+            let _ = key.delete_value(STARTUP_APP_NAME);
         }
     }
     #[cfg(target_os = "macos")]
     {
         if let Ok(home) = std::env::var("HOME") {
             let launch_agents = std::path::PathBuf::from(&home).join("Library").join("LaunchAgents");
-            let plist_path = launch_agents.join("com.reiux.lumen.plist");
+            let plist_path = launch_agents.join(format!("{}.plist", LAUNCH_AGENT_LABEL));
             if v {
                 std::fs::create_dir_all(&launch_agents).map_err(|e| e.to_string())?;
                 let exe = std::env::current_exe().map_err(|e| e.to_string())?;
                 let escaped_exe = escape_xml_entity(&exe.to_string_lossy());
                 let plist_content = format!(
-                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n    <key>Label</key>\n    <string>com.reiux.lumen</string>\n    <key>ProgramArguments</key>\n    <array>\n        <string>{}</string>\n    </array>\n    <key>RunAtLoad</key>\n    <true/>\n    <key>ProcessType</key>\n    <string>Interactive</string>\n</dict>\n</plist>",
-                    escaped_exe
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n    <key>Label</key>\n    <string>{}</string>\n    <key>ProgramArguments</key>\n    <array>\n        <string>{}</string>\n    </array>\n    <key>RunAtLoad</key>\n    <true/>\n    <key>ProcessType</key>\n    <string>Interactive</string>\n</dict>\n</plist>",
+                    LAUNCH_AGENT_LABEL, escaped_exe
                 );
                 std::fs::write(&plist_path, plist_content).map_err(|e| e.to_string())?;
             } else if plist_path.exists() {
@@ -380,7 +398,7 @@ pub fn set_launch_on_startup(v: bool, state: tauri::State<AppState>) -> Result<(
         } else {
             std::path::PathBuf::from(".config").join("autostart")
         };
-        let desktop_file = autostart_dir.join("lumen.desktop");
+        let desktop_file = autostart_dir.join(AUTOSTART_DESKTOP_FILENAME);
         if v {
             std::fs::create_dir_all(&autostart_dir).map_err(|e| e.to_string())?;
             let launch_path = std::env::var("APPIMAGE")
@@ -404,8 +422,8 @@ pub fn set_launch_on_startup(v: bool, state: tauri::State<AppState>) -> Result<(
                     acc
                 });
             let desktop_entry = format!(
-                "[Desktop Entry]\nType=Application\nName=Lumen\nComment=Lumen Google Photos Backup\nExec=\"{}\"\nTerminal=false\nCategories=Utility;\n",
-                escaped_exe
+                "[Desktop Entry]\nType=Application\nName={}\nComment={} Google Photos Backup\nExec=\"{}\"\nTerminal=false\nCategories=Utility;\n",
+                STARTUP_APP_NAME, STARTUP_APP_NAME, escaped_exe
             );
             std::fs::write(&desktop_file, desktop_entry).map_err(|e| e.to_string())?;
         } else if desktop_file.exists() {
@@ -968,22 +986,68 @@ pub async fn add_google_account(
 }
 
 // -------------------------------------------------------------
-// Automated In-App WebView Sign-In (with CDP module retained)
+// Automated In-App WebView Sign-In & Chromium CDP Fallback
 // -------------------------------------------------------------
 
 #[tauri::command]
-pub async fn start_browser_sign_in(
+pub fn is_inline_embedded_sign_in_supported() -> bool {
+    crate::webview_signin::is_inline_embedded_supported()
+}
+
+#[tauri::command]
+pub async fn start_embedded_sign_in(
+    bounds: Option<crate::webview_signin::SignInBounds>,
     app: AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
     let prefs = state.config_manager.get_preferences();
     let proxy = (!prefs.proxy.trim().is_empty()).then_some(prefs.proxy.clone());
 
-    let token = crate::webview_signin::run_webview_sign_in(&app, proxy.as_deref())
+    let token = crate::webview_signin::run_embedded_webview_sign_in(&app, bounds, proxy.as_deref())
         .await
         .map_err(|e| e.to_string())?;
 
     validate_and_add_oauth_token(token, app, state).await
+}
+
+#[tauri::command]
+pub fn update_embedded_sign_in_bounds(
+    bounds: crate::webview_signin::SignInBounds,
+    app: AppHandle,
+) -> Result<(), String> {
+    crate::webview_signin::update_embedded_bounds(&app, bounds);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn start_external_browser_sign_in(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let mut session = cdp::CdpSession::launch().await.map_err(|e| e.to_string())?;
+
+    let token = match session.wait_for_google_auth_cookies().await {
+        Ok(t) => t,
+        Err(e) => {
+            session.close();
+            return Err(e.to_string());
+        }
+    };
+
+    let close_ok = session.close();
+    if !close_ok {
+        let _ = app.emit("browser-signin:close-failed", ());
+    }
+
+    validate_and_add_oauth_token(token, app, state).await
+}
+
+#[tauri::command]
+pub async fn start_browser_sign_in(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    start_embedded_sign_in(None, app, state).await
 }
 
 #[tauri::command]
@@ -992,7 +1056,7 @@ pub async fn start_browser_sign_in_with_options(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
-    start_browser_sign_in(app, state).await
+    start_embedded_sign_in(None, app, state).await
 }
 
 #[tauri::command]
@@ -1009,12 +1073,12 @@ pub fn was_browser_close_failed() -> bool {
 
 #[tauri::command]
 pub fn has_supported_browser() -> bool {
-    true
+    cdp::find_chromium_browser().is_some()
 }
 
 #[tauri::command]
 pub fn get_supported_browser_name() -> String {
-    "Lumen Sign-In Window".to_string()
+    cdp::get_supported_browser_name()
 }
 
 // -------------------------------------------------------------
