@@ -1469,7 +1469,236 @@ fn encode_base64(bytes: &[u8]) -> String {
 }
 
 #[cfg(windows)]
+fn to_reg_expand_sz(s: &str) -> winreg::RegValue<'static> {
+    let mut bytes: Vec<u8> = s
+        .encode_utf16()
+        .chain(std::iter::once(0u16))
+        .flat_map(|u| u.to_le_bytes())
+        .collect();
+    if bytes.is_empty() {
+        bytes.extend_from_slice(&[0, 0]);
+    }
+    winreg::RegValue {
+        bytes: bytes.into(),
+        vtype: winreg::enums::REG_EXPAND_SZ,
+    }
+}
+
+#[cfg(windows)]
+fn create_aumid_shortcut_com(target_exe: &Path, shortcut_path: &Path, aumid: &str) -> bool {
+    use std::ffi::c_void;
+
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    struct Guid {
+        data1: u32,
+        data2: u16,
+        data3: u16,
+        data4: [u8; 8],
+    }
+
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    struct PropertyKey {
+        fmtid: Guid,
+        pid: u32,
+    }
+
+    #[repr(C)]
+    struct PropVariant {
+        vt: u16,
+        w_reserved1: u16,
+        w_reserved2: u16,
+        w_reserved3: u16,
+        data1: *const u16,
+        data2: usize,
+    }
+
+    #[repr(C)]
+    struct IShellLinkWVtbl {
+        query_interface:
+            unsafe extern "system" fn(*mut c_void, *const Guid, *mut *mut c_void) -> i32,
+        add_ref: unsafe extern "system" fn(*mut c_void) -> u32,
+        release: unsafe extern "system" fn(*mut c_void) -> u32,
+        get_path: *const c_void,
+        get_id_list: *const c_void,
+        set_id_list: *const c_void,
+        get_description: *const c_void,
+        set_description: *const c_void,
+        get_working_directory: *const c_void,
+        set_working_directory: unsafe extern "system" fn(*mut c_void, *const u16) -> i32,
+        get_arguments: *const c_void,
+        set_arguments: unsafe extern "system" fn(*mut c_void, *const u16) -> i32,
+        get_hotkey: *const c_void,
+        set_hotkey: *const c_void,
+        get_show_cmd: *const c_void,
+        set_show_cmd: *const c_void,
+        get_icon_location: *const c_void,
+        set_icon_location: unsafe extern "system" fn(*mut c_void, *const u16, i32) -> i32,
+        set_relative_path: *const c_void,
+        resolve: *const c_void,
+        set_path: unsafe extern "system" fn(*mut c_void, *const u16) -> i32,
+    }
+
+    #[repr(C)]
+    struct IPropertyStoreVtbl {
+        query_interface:
+            unsafe extern "system" fn(*mut c_void, *const Guid, *mut *mut c_void) -> i32,
+        add_ref: unsafe extern "system" fn(*mut c_void) -> u32,
+        release: unsafe extern "system" fn(*mut c_void) -> u32,
+        get_count: *const c_void,
+        get_at: *const c_void,
+        get_value: *const c_void,
+        set_value:
+            unsafe extern "system" fn(*mut c_void, *const PropertyKey, *const PropVariant) -> i32,
+        commit: unsafe extern "system" fn(*mut c_void) -> i32,
+    }
+
+    #[repr(C)]
+    struct IPersistFileVtbl {
+        query_interface:
+            unsafe extern "system" fn(*mut c_void, *const Guid, *mut *mut c_void) -> i32,
+        add_ref: unsafe extern "system" fn(*mut c_void) -> u32,
+        release: unsafe extern "system" fn(*mut c_void) -> u32,
+        get_class_id: *const c_void,
+        is_dirty: *const c_void,
+        load: *const c_void,
+        save: unsafe extern "system" fn(*mut c_void, *const u16, i32) -> i32,
+        save_completed: *const c_void,
+        get_cur_file: *const c_void,
+    }
+
+    #[link(name = "ole32")]
+    extern "system" {
+        fn CoInitializeEx(pv_reserved: *mut c_void, dw_co_init: u32) -> i32;
+        fn CoUninitialize();
+        fn CoCreateInstance(
+            rclsid: *const Guid,
+            p_unk_outer: *mut c_void,
+            dw_cls_context: u32,
+            riid: *const Guid,
+            ppv: *mut *mut c_void,
+        ) -> i32;
+    }
+
+    const COINIT_APARTMENTTHREADED: u32 = 0x2;
+    const CLSCTX_INPROC_SERVER: u32 = 0x1;
+    const VT_LPWSTR: u16 = 31;
+
+    const CLSID_SHELL_LINK: Guid = Guid {
+        data1: 0x00021401,
+        data2: 0x0000,
+        data3: 0x0000,
+        data4: [0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46],
+    };
+    const IID_ISHELL_LINK_W: Guid = Guid {
+        data1: 0x000214F9,
+        data2: 0x0000,
+        data3: 0x0000,
+        data4: [0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46],
+    };
+    const IID_IPROPERTY_STORE: Guid = Guid {
+        data1: 0x886D8EEB,
+        data2: 0x8CF2,
+        data3: 0x4446,
+        data4: [0x8D, 0x02, 0xCD, 0xBA, 0x1D, 0xBD, 0xCF, 0x99],
+    };
+    const IID_IPERSIST_FILE: Guid = Guid {
+        data1: 0x0000010B,
+        data2: 0x0000,
+        data3: 0x0000,
+        data4: [0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46],
+    };
+    const PKEY_APP_USER_MODEL_ID: PropertyKey = PropertyKey {
+        fmtid: Guid {
+            data1: 0x9F4C2855,
+            data2: 0x9F79,
+            data3: 0x4B39,
+            data4: [0xA8, 0xD0, 0xE1, 0xD4, 0x2D, 0xE1, 0xD5, 0xF3],
+        },
+        pid: 5,
+    };
+
+    fn to_wide(s: &str) -> Vec<u16> {
+        s.encode_utf16().chain(std::iter::once(0u16)).collect()
+    }
+
+    let target_wide = to_wide(&target_exe.to_string_lossy());
+    let workdir_wide = target_exe
+        .parent()
+        .map(|p| to_wide(&p.to_string_lossy()))
+        .unwrap_or_else(|| to_wide("."));
+    let shortcut_wide = to_wide(&shortcut_path.to_string_lossy());
+    let aumid_wide = to_wide(aumid);
+    let empty_wide = to_wide("");
+
+    unsafe {
+        let hr_init = CoInitializeEx(std::ptr::null_mut(), COINIT_APARTMENTTHREADED);
+        let should_uninit = hr_init == 0 || hr_init == 1;
+
+        let mut shell_link: *mut c_void = std::ptr::null_mut();
+        let hr = CoCreateInstance(
+            &CLSID_SHELL_LINK,
+            std::ptr::null_mut(),
+            CLSCTX_INPROC_SERVER,
+            &IID_ISHELL_LINK_W,
+            &mut shell_link,
+        );
+        if hr < 0 || shell_link.is_null() {
+            if should_uninit {
+                CoUninitialize();
+            }
+            return false;
+        }
+
+        let sl_vtbl = &**(shell_link as *mut *const IShellLinkWVtbl);
+        let _ = (sl_vtbl.set_path)(shell_link, target_wide.as_ptr());
+        let _ = (sl_vtbl.set_arguments)(shell_link, empty_wide.as_ptr());
+        let _ = (sl_vtbl.set_working_directory)(shell_link, workdir_wide.as_ptr());
+        let _ = (sl_vtbl.set_icon_location)(shell_link, target_wide.as_ptr(), 0);
+
+        let mut prop_store: *mut c_void = std::ptr::null_mut();
+        if (sl_vtbl.query_interface)(shell_link, &IID_IPROPERTY_STORE, &mut prop_store) >= 0
+            && !prop_store.is_null()
+        {
+            let ps_vtbl = &**(prop_store as *mut *const IPropertyStoreVtbl);
+            let pv = PropVariant {
+                vt: VT_LPWSTR,
+                w_reserved1: 0,
+                w_reserved2: 0,
+                w_reserved3: 0,
+                data1: aumid_wide.as_ptr(),
+                data2: 0,
+            };
+            let _ = (ps_vtbl.set_value)(prop_store, &PKEY_APP_USER_MODEL_ID, &pv);
+            let _ = (ps_vtbl.commit)(prop_store);
+            let _ = (ps_vtbl.release)(prop_store);
+        }
+
+        let mut saved = false;
+        let mut persist_file: *mut c_void = std::ptr::null_mut();
+        if (sl_vtbl.query_interface)(shell_link, &IID_IPERSIST_FILE, &mut persist_file) >= 0
+            && !persist_file.is_null()
+        {
+            let pf_vtbl = &**(persist_file as *mut *const IPersistFileVtbl);
+            saved = (pf_vtbl.save)(persist_file, shortcut_wide.as_ptr(), 1) >= 0;
+            let _ = (pf_vtbl.release)(persist_file);
+        }
+
+        let _ = (sl_vtbl.release)(shell_link);
+        if should_uninit {
+            CoUninitialize();
+        }
+        saved
+    }
+}
+
+#[cfg(windows)]
 fn create_windows_shortcut(target_exe: &Path, shortcut_path: &Path) -> Result<(), String> {
+    if create_aumid_shortcut_com(target_exe, shortcut_path, "com.reiux.lumen") {
+        return Ok(());
+    }
+
     use std::os::windows::process::CommandExt;
     use std::process::Command;
 
@@ -1477,8 +1706,8 @@ fn create_windows_shortcut(target_exe: &Path, shortcut_path: &Path) -> Result<()
     let target = escape_powershell_single_quote(&target_exe.to_string_lossy());
     let shortcut = escape_powershell_single_quote(&shortcut_path.to_string_lossy());
     let script = format!(
-        "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('{}'); $s.TargetPath = '{}'; $s.Save()",
-        shortcut, target
+        "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('{}'); $s.TargetPath = '{}'; $s.IconLocation = '{},0'; $s.Save()",
+        shortcut, target, target
     );
     let ps_exe = get_system_powershell()
         .ok_or_else(|| "System PowerShell executable not found".to_string())?;
@@ -1532,9 +1761,16 @@ fn register_windows_uninstall(
     // Windows Action Center shows "Lumen" / "Lumen Dev" + app icon instead of "com.reiux.lumen".
     let icon_path = install_dir.join("app-icon.png");
     let _ = fs::write(&icon_path, WINDOWS_NOTIFICATION_ICON_PNG);
-    if let Ok((aumid_key, _)) = hkcu.create_subkey("Software\\Classes\\AppUserModelId\\com.reiux.lumen") {
-        let _ = aumid_key.set_value("DisplayName", &APP_DISPLAY_NAME);
-        let _ = aumid_key.set_value("IconUri", &icon_path.to_string_lossy().to_string());
+    let icon_path_str = icon_path.to_string_lossy().to_string();
+
+    let aumid_subkey = "Software\\Classes\\AppUserModelId\\com.reiux.lumen";
+    let _ = hkcu.delete_subkey_all(aumid_subkey);
+    let _ = hkcu.delete_subkey_all(
+        "Software\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings\\com.reiux.lumen",
+    );
+    if let Ok((aumid_key, _)) = hkcu.create_subkey(aumid_subkey) {
+        let _ = aumid_key.set_raw_value("DisplayName", &to_reg_expand_sz(APP_DISPLAY_NAME));
+        let _ = aumid_key.set_raw_value("IconUri", &to_reg_expand_sz(&icon_path_str));
         let _ = aumid_key.set_value("IconBackgroundColor", &"FF121316");
     }
 
