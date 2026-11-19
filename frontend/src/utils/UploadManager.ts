@@ -371,7 +371,18 @@ class UploadManager {
       reason: '',
       email: '',
       message: '',
+      resumeAt: undefined,
     };
+  }
+
+  public isUploadBlocked(): boolean {
+    const blocked = this.state.accountBlocked;
+    if (!blocked.isBlocked) return false;
+    if (blocked.reason === 'RATE_LIMITED' && blocked.resumeAt && Date.now() >= blocked.resumeAt) {
+      this.clearAccountBlocked();
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -504,6 +515,7 @@ class UploadManager {
 
   public async upload(paths: string[]) {
     if (!paths || paths.length === 0) return;
+    if (this.isUploadBlocked()) return;
     this.resetUploadResults();
     this.beginPreparation();
     try {

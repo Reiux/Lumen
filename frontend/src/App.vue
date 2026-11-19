@@ -117,7 +117,23 @@ async function handleReviewToggleSubfolders(value: boolean) {
   }
 }
 
+const isUploadBlocked = computed(() => uploadState.accountBlocked.isBlocked)
+
+function notifyIfUploadBlocked(): boolean {
+  if (!uploadManager.isUploadBlocked()) return false
+  const reason = uploadState.accountBlocked.reason
+  if (reason === 'RATE_LIMITED') {
+    toast.warning(t('circuitBreaker.rateLimited'))
+  } else if (reason === 'ACCOUNT_RESTRICTED') {
+    toast.error(t('circuitBreaker.accountRestricted'))
+  } else {
+    toast.warning(t('circuitBreaker.signInRequired'))
+  }
+  return true
+}
+
 async function handleConfirmReview() {
+  if (notifyIfUploadBlocked()) return
   showReviewModal.value = false
   const files = pendingReviewFiles.value
   pendingReviewFiles.value = []
@@ -168,6 +184,7 @@ function handleCancelReview() {
 
 async function initiateUpload(files: string[]) {
   if (!files || files.length === 0) return
+  if (notifyIfUploadBlocked()) return
 
   let cfg: Awaited<ReturnType<typeof ConfigManager.GetSettings>> | null = null
   try {
@@ -247,6 +264,7 @@ async function initiateUpload(files: string[]) {
 }
 
 async function handleStartRealUpload() {
+  if (notifyIfUploadBlocked()) return
   const candidatePaths = uploadState.results.success.map(item =>
     typeof item === 'string' ? item : item.path
   ).filter(Boolean)
@@ -730,6 +748,14 @@ function updateCustomAvatar(email: string) {
 
 watch(selectedOption, async (newValue) => {
   if (newValue) {
+    // Switching to a different healthy account clears a per-account circuit breaker for another email
+    if (
+      uploadState.accountBlocked.isBlocked
+      && uploadState.accountBlocked.email
+      && uploadState.accountBlocked.email.toLowerCase() !== newValue.toLowerCase()
+    ) {
+      uploadManager.clearAccountBlocked()
+    }
     updateCustomAvatar(newValue)
     try {
       await ConfigManager.SetSelected(newValue)
@@ -1027,6 +1053,10 @@ async function handleFilesDropped(files: string[], dropZone = 'regular') {
     return
   }
 
+  if (notifyIfUploadBlocked()) {
+    return
+  }
+
   if (dropZone === 'album') {
     snapshotAlbumModalState()
     pendingFiles.value = files
@@ -1225,8 +1255,13 @@ async function onUploadFolderFromSettings(folderPath: string) {
 
 const isPickingMedia = ref(false)
 
+async function handleAccountAdded() {
+  uploadManager.clearAccountBlocked()
+  await refreshCredentials()
+}
+
 async function handlePickFiles() {
-  if (isPickingMedia.value) return
+  if (isPickingMedia.value || notifyIfUploadBlocked()) return
   isPickingMedia.value = true
   try {
     if (isDevMode() && mockState.enabled) {
@@ -1246,7 +1281,7 @@ async function handlePickFiles() {
 }
 
 async function handlePickFolder() {
-  if (isPickingMedia.value) return
+  if (isPickingMedia.value || notifyIfUploadBlocked()) return
   isPickingMedia.value = true
   try {
     if (isDevMode() && mockState.enabled) {
@@ -1266,6 +1301,7 @@ async function handlePickFolder() {
 }
 
 async function handleRetryAll() {
+  if (notifyIfUploadBlocked()) return
   if (isDevMode() && mockState.enabled) {
     mockState.currentView = 'uploading'
     uploadManager.state.isUploading = true
@@ -1275,6 +1311,7 @@ async function handleRetryAll() {
 }
 
 async function handleRetryItem(filePath: string) {
+  if (notifyIfUploadBlocked()) return
   if (isDevMode() && mockState.enabled) {
     mockState.currentView = 'uploading'
     uploadManager.state.isUploading = true
@@ -2070,7 +2107,13 @@ onUnmounted(() => {
               data-file-drop-target
               data-drop-zone="regular"
               class="drop-zone m3-drop-zone-glow group relative flex w-full min-h-[320px] flex-col items-center justify-center rounded-[28px] border-2 border-dashed p-10 text-center transition-all duration-300 shadow-lg cursor-default select-none"
-              :class="isDraggingFiles ? 'is-dragging border-[var(--md-sys-color-primary)] bg-[var(--md-sys-color-primary-container)]/20 shadow-2xl ring-4 ring-[var(--md-sys-color-primary)]/20' : 'border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container)] hover:border-[var(--md-sys-color-outline)]/80'"
+              :class="[
+                isUploadBlocked
+                  ? 'opacity-50 pointer-events-none border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container)]'
+                  : isDraggingFiles
+                    ? 'is-dragging border-[var(--md-sys-color-primary)] bg-[var(--md-sys-color-primary-container)]/20 shadow-2xl ring-4 ring-[var(--md-sys-color-primary)]/20'
+                    : 'border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container)] hover:border-[var(--md-sys-color-outline)]/80',
+              ]"
               style="--wails-draggable: none"
               @dragenter.prevent="onDropZoneDragEnter"
               @dragover.prevent="onDropZoneDragOver"
@@ -2143,7 +2186,7 @@ onUnmounted(() => {
                         variant="filled"
                         size="m"
                         icon="add"
-                        :disabled="isPickingMedia"
+                        :disabled="isPickingMedia || isUploadBlocked"
                         @click="handlePickFiles"
                       >
                         <span>{{ t('backup.chooseFromFiles') }}</span>
@@ -2153,7 +2196,7 @@ onUnmounted(() => {
                         variant="tonal"
                         size="m"
                         icon="folder"
-                        :disabled="isPickingMedia"
+                        :disabled="isPickingMedia || isUploadBlocked"
                         @click="handlePickFolder"
                       >
                         <span>{{ t('backup.chooseFolder') }}</span>
@@ -2795,7 +2838,7 @@ onUnmounted(() => {
     <!-- Add Account Dialog -->
     <GoogleAuthSetup
       v-model:open="isAccountSetupOpen"
-      @account-added="refreshCredentials"
+      @account-added="handleAccountAdded"
     />
 
     <!-- Album Name Input State (Modal Dialog with Scrim & Spatial Spring) -->

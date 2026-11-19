@@ -452,6 +452,10 @@ export function StartExternalBrowserSignIn(): $CancellablePromise<string> {
     return $Call.ByID(9999999906);
 }
 
+export function HasBattery(): $CancellablePromise<boolean> {
+    return $Call.ByID(9999999907);
+}
+
 export function OpenDevTools(): $CancellablePromise<void> {
     return $Call.ByID(9999999901);
 }

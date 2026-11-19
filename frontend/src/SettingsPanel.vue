@@ -96,6 +96,7 @@ const languageDialogCardRef = ref<HTMLElement | null>(null)
 const hashCacheCount = ref(0)
 const isClearingCache = ref(false)
 const isTrayAvailable = ref(true)
+const hasBattery = ref(false)
 const activeAccountEmail = ref('')
 const proxyError = ref('')
 const excludeError = ref('')
@@ -237,13 +238,15 @@ let isUnmounted = false
 
 onMounted(async () => {
   try {
-    const [config, hashCount, trayAvail] = await Promise.all([
+    const [config, hashCount, trayAvail, batteryPresent] = await Promise.all([
       ConfigManager.GetSettings(),
       ConfigManager.GetHashCacheCount(),
       ConfigManager.IsTrayAvailable(),
+      ConfigManager.HasBattery().catch(() => false),
       refreshActiveAccount(),
     ])
     if (isUnmounted) return
+    hasBattery.value = !!batteryPresent
     settings.value = {
       proxy: config.proxy || '',
       useQuota: config.useQuota || false,
@@ -1293,8 +1296,11 @@ watch(() => settings.value.dryRun, (newValue, oldValue) => {
               </div>
             </div>
 
-            <!-- Pause on Battery Power -->
-            <div class="flex items-center justify-between gap-4 p-5">
+            <!-- Pause on Battery Power (shown only on laptops / battery-equipped devices) -->
+            <div
+              v-if="hasBattery"
+              class="flex items-center justify-between gap-4 p-5"
+            >
               <div class="flex flex-col pr-2">
                 <label
                   for="battery-pause-switch"

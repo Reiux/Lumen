@@ -11,6 +11,8 @@ use tauri::{AppHandle, Window};
 use tauri_plugin_dialog::DialogExt;
 
 const EMBEDDED_PAYLOAD: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/payload.tar.gz"));
+#[cfg(windows)]
+const WINDOWS_NOTIFICATION_ICON_PNG: &[u8] = include_bytes!("../../lumen-tauri/icons/128x128.png");
 
 const IS_DEV_CHANNEL: bool = cfg!(debug_assertions);
 const APP_DISPLAY_NAME: &str = if IS_DEV_CHANNEL { "Lumen Dev" } else { "Lumen" };
@@ -1207,6 +1209,7 @@ async fn start_uninstall(purge_config: bool) -> Result<(), String> {
                 let _ = fs::remove_file(install_dir.join(WINDOWS_MAIN_EXE_NAME));
                 let _ = fs::remove_file(install_dir.join("lumen.exe"));
                 let _ = fs::remove_file(install_dir.join("lumen-cli.exe"));
+                let _ = fs::remove_file(install_dir.join("app-icon.png"));
                 let _ = fs::remove_file(install_dir.join("uninstall.exe"));
                 if is_dedicated {
                     let _ = fs::remove_dir_all(&install_dir);
@@ -1221,6 +1224,7 @@ async fn start_uninstall(purge_config: bool) -> Result<(), String> {
             let _ = fs::remove_file(install_dir.join(WINDOWS_MAIN_EXE_NAME));
             let _ = fs::remove_file(install_dir.join("lumen.exe"));
             let _ = fs::remove_file(install_dir.join("lumen-cli.exe"));
+            let _ = fs::remove_file(install_dir.join("app-icon.png"));
             schedule_self_deletion(&install_dir, is_dedicated);
         }
     }
@@ -1519,6 +1523,16 @@ fn register_windows_uninstall(
         .map_err(|e| e.to_string())?;
     key.set_value("URLInfoAbout", &"https://github.com/Reiux/Lumen")
         .map_err(|e| e.to_string())?;
+
+    // Register Windows Toast Notification AUMID display name & icon so
+    // Windows Action Center shows "Lumen" / "Lumen Dev" + app icon instead of "com.reiux.lumen".
+    let icon_path = install_dir.join("app-icon.png");
+    let _ = fs::write(&icon_path, WINDOWS_NOTIFICATION_ICON_PNG);
+    if let Ok((aumid_key, _)) = hkcu.create_subkey("Software\\Classes\\AppUserModelId\\com.reiux.lumen") {
+        let _ = aumid_key.set_value("DisplayName", &APP_DISPLAY_NAME);
+        let _ = aumid_key.set_value("IconUri", &icon_path.to_string_lossy().to_string());
+        let _ = aumid_key.set_value("IconBackgroundColor", &"FF121316");
+    }
 
     Ok(())
 }

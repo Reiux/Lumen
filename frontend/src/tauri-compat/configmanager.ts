@@ -272,6 +272,13 @@ export const ConfigManager = {
     return [];
   },
 
+  async HasBattery(): Promise<boolean> {
+    if (hasTauri()) {
+      return (await tauriInvoke<boolean>('has_battery')) || false;
+    }
+    return false;
+  },
+
   async HasSupportedBrowser(): Promise<boolean> {
     if (hasTauri()) {
       return (await tauriInvoke<boolean>('has_supported_browser')) || false;

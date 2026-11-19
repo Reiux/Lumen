@@ -257,20 +257,111 @@ pub fn is_within_schedule(start_hour: u8, end_hour: u8) -> bool {
     is_within_schedule_at_hour(now.hour() as u8, start_hour, end_hour)
 }
 
+#[cfg(windows)]
+#[repr(C)]
+struct SystemPowerStatus {
+    ac_line_status: u8,
+    battery_flag: u8,
+    battery_life_percent: u8,
+    system_status_flag: u8,
+    battery_life_time: u32,
+    battery_full_life_time: u32,
+}
+
+#[cfg(windows)]
+unsafe extern "system" {
+    fn GetSystemPowerStatus(lp_system_power_status: *mut SystemPowerStatus) -> i32;
+}
+
+#[cfg(windows)]
+fn get_windows_power_status() -> Option<SystemPowerStatus> {
+    let mut status = SystemPowerStatus {
+        ac_line_status: 255,
+        battery_flag: 255,
+        battery_life_percent: 255,
+        system_status_flag: 0,
+        battery_life_time: u32::MAX,
+        battery_full_life_time: u32::MAX,
+    };
+    let ok = unsafe { GetSystemPowerStatus(&mut status) };
+    if ok != 0 {
+        Some(status)
+    } else {
+        None
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn is_system_battery_supply(path: &std::path::Path) -> bool {
+    let Ok(t) = std::fs::read_to_string(path.join("type")) else {
+        return false;
+    };
+    if !t.trim().eq_ignore_ascii_case("Battery") {
+        return false;
+    }
+    // Skip peripheral batteries (wireless mice, keyboards, headsets report scope = "Device")
+    if let Ok(scope) = std::fs::read_to_string(path.join("scope")) {
+        if scope.trim().eq_ignore_ascii_case("Device") {
+            return false;
+        }
+    }
+    if let Ok(present) = std::fs::read_to_string(path.join("present")) {
+        if present.trim() == "0" {
+            return false;
+        }
+    }
+    true
+}
+
+/// Returns true if the machine has a system battery (e.g., laptop/tablet),
+/// false on desktop PCs without a system battery.
+pub fn has_battery() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(entries) = std::fs::read_dir("/sys/class/power_supply") {
+            for entry in entries.flatten() {
+                if is_system_battery_supply(&entry.path()) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+    #[cfg(windows)]
+    {
+        if let Some(status) = get_windows_power_status() {
+            // 128 = no system battery, 255 = unknown status
+            return (status.battery_flag & 128) == 0 && status.battery_flag != 255;
+        }
+        false
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(out) = std::process::Command::new("/usr/bin/pmset")
+            .args(["-g", "batt"])
+            .output()
+        {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            return stdout.contains("InternalBattery");
+        }
+        false
+    }
+    #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
+    {
+        false
+    }
+}
+
 pub fn is_running_on_battery() -> bool {
     #[cfg(target_os = "linux")]
     {
         if let Ok(entries) = std::fs::read_dir("/sys/class/power_supply") {
             for entry in entries.flatten() {
                 let path = entry.path();
-                let type_path = path.join("type");
-                let status_path = path.join("status");
-                if let Ok(t) = std::fs::read_to_string(&type_path) {
-                    if t.trim().eq_ignore_ascii_case("Battery") {
-                        if let Ok(s) = std::fs::read_to_string(&status_path) {
-                            if s.trim().eq_ignore_ascii_case("Discharging") {
-                                return true;
-                            }
+                if is_system_battery_supply(&path) {
+                    if let Ok(s) = std::fs::read_to_string(path.join("status")) {
+                        if s.trim().eq_ignore_ascii_case("Discharging") {
+                            return true;
                         }
                     }
                 }
@@ -278,7 +369,28 @@ pub fn is_running_on_battery() -> bool {
         }
         false
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    {
+        if let Some(status) = get_windows_power_status() {
+            let has_batt = (status.battery_flag & 128) == 0 && status.battery_flag != 255;
+            // ac_line_status == 0 means offline (running on battery)
+            return has_batt && status.ac_line_status == 0;
+        }
+        false
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(out) = std::process::Command::new("/usr/bin/pmset")
+            .args(["-g", "batt"])
+            .output()
+        {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            return stdout.contains("InternalBattery")
+                && (stdout.contains("Battery Power") || stdout.contains("discharging"));
+        }
+        false
+    }
+    #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
     {
         false
     }

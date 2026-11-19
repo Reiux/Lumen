@@ -24,6 +24,31 @@ mod webview_signin;
 
 use commands::AppState;
 
+#[cfg(windows)]
+const WINDOWS_NOTIFICATION_ICON_PNG: &[u8] = include_bytes!("../icons/128x128.png");
+
+#[cfg(windows)]
+fn register_windows_notification_aumid(data_dir: &Path) {
+    use winreg::enums::*;
+    use winreg::RegKey;
+
+    let _ = std::fs::create_dir_all(data_dir);
+    let icon_path = data_dir.join("app-icon.png");
+    let _ = std::fs::write(&icon_path, WINDOWS_NOTIFICATION_ICON_PNG);
+
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    if let Ok((key, _)) = hkcu.create_subkey("Software\\Classes\\AppUserModelId\\com.reiux.lumen") {
+        let display_name = if cfg!(debug_assertions) {
+            "Lumen Dev"
+        } else {
+            "Lumen"
+        };
+        let _ = key.set_value("DisplayName", &display_name);
+        let _ = key.set_value("IconUri", &icon_path.to_string_lossy().to_string());
+        let _ = key.set_value("IconBackgroundColor", &"FF121316");
+    }
+}
+
 fn main() {
     std::panic::set_hook(Box::new(|info| {
         let backtrace = std::backtrace::Backtrace::capture();
@@ -50,6 +75,9 @@ fn main() {
     let config_manager = Arc::new(ConfigManager::new(config_path.clone(), keyring));
 
     let cache_dir = config_path.parent().unwrap_or_else(|| Path::new("."));
+    #[cfg(windows)]
+    register_windows_notification_aumid(cache_dir);
+
     let db_path = determine_hash_cache_path(cache_dir);
     let hash_cache = HashCache::open(&db_path).ok();
 
@@ -66,6 +94,7 @@ fn main() {
         upload_pause: Arc::new(AtomicBool::new(false)),
         scan_cancel: Arc::new(AtomicBool::new(false)),
         is_uploading: Arc::new(AtomicBool::new(false)),
+        account_blocked: Arc::new(std::sync::RwLock::new(None)),
         pending_watch_files: Arc::new(std::sync::Mutex::new(Vec::new())),
         watcher: Arc::new(tokio::sync::Mutex::new(None)),
         tray_available: Arc::new(AtomicBool::new(false)),
@@ -171,6 +200,7 @@ fn main() {
             commands::is_upload_paused,
             commands::set_schedule_enabled,
             commands::set_schedule_hours,
+            commands::has_battery,
             commands::set_pause_on_battery,
             commands::set_locale,
             commands::set_dry_run,

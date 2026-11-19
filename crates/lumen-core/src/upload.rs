@@ -1022,7 +1022,7 @@ impl UploadEngine {
                     && !breaker.is_blocked()
                 {
                     let backoff = if is_rate_limited {
-                        let d = std::time::Duration::from_secs(15 * attempt as u64);
+                        let d = std::time::Duration::from_secs(30);
                         breaker.pause(d, account_email, &err_str);
                         d
                     } else {
@@ -1525,7 +1525,7 @@ impl UploadEngine {
                     && !breaker.is_blocked()
                 {
                     let backoff = if is_rate_limited {
-                        let d = std::time::Duration::from_secs(15 * attempt as u64);
+                        let d = std::time::Duration::from_secs(30);
                         breaker.pause(d, account_email, &err_str);
                         d
                     } else {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Browser } from '@wailsio/runtime'
 import { toast } from 'vue-sonner'
@@ -24,28 +24,67 @@ const safetyDialogCardRef = ref<HTMLElement | null>(null)
 const showRemoveModal = ref(false)
 const isRemoving = ref(false)
 
+const nowMs = ref(Date.now())
+let countdownTimer: ReturnType<typeof setInterval> | null = null
+
+function stopCountdown() {
+  if (countdownTimer !== null) {
+    clearInterval(countdownTimer)
+    countdownTimer = null
+  }
+}
+
+function tickCountdown() {
+  nowMs.value = Date.now()
+  const blocked = blockedState.value
+  if (blocked.isBlocked && blocked.reason === 'RATE_LIMITED' && blocked.resumeAt && nowMs.value >= blocked.resumeAt) {
+    stopCountdown()
+    uploadManager.clearAccountBlocked()
+  }
+}
+
+watch(
+  () => [blockedState.value.isBlocked, blockedState.value.reason, blockedState.value.resumeAt] as const,
+  ([blocked, reason, resumeAt]) => {
+    stopCountdown()
+    if (blocked && reason === 'RATE_LIMITED' && resumeAt) {
+      nowMs.value = Date.now()
+      if (nowMs.value >= resumeAt) {
+        uploadManager.clearAccountBlocked()
+        return
+      }
+      countdownTimer = setInterval(tickCountdown, 250)
+    }
+  },
+  { immediate: true },
+)
+
+onUnmounted(() => {
+  stopCountdown()
+})
+
 useDialogFocusTrap(() => showSafetyDialog.value, safetyDialogCardRef, {
   onEscape: () => {
     showSafetyDialog.value = false
   },
 })
 
-const resumeTimeFormatted = computed(() => {
-  if (!blockedState.value.resumeAt) return '15m'
-  try {
-    const d = new Date(blockedState.value.resumeAt)
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
-  } catch {
-    return '15m'
-  }
+const remainingSeconds = computed(() => {
+  if (!blockedState.value.resumeAt) return 30
+  return Math.max(0, Math.ceil((blockedState.value.resumeAt - nowMs.value) / 1000))
 })
 
-function dismiss() {
-  uploadManager.clearAccountBlocked()
-}
+const countdownFormatted = computed(() => {
+  const total = remainingSeconds.value
+  if (total >= 60) {
+    const mins = Math.floor(total / 60)
+    const secs = total % 60
+    return `${mins}m ${String(secs).padStart(2, '0')}s`
+  }
+  return `${total}s`
+})
 
 function onSignInAgain() {
-  uploadManager.clearAccountBlocked()
   emit('open-sign-in')
 }
 
@@ -121,14 +160,16 @@ async function removeAccount() {
                 {{ t('circuitBreaker.rateLimited') }}
               </template>
             </h4>
-            <button
-              type="button"
-              class="flex size-7 items-center justify-center rounded-full opacity-70 hover:opacity-100 hover:bg-black/10 dark:hover:bg-white/10 transition cursor-pointer"
-              :aria-label="t('circuitBreaker.dismissAria')"
-              @click="dismiss"
+            <span
+              v-if="blockedState.reason === 'RATE_LIMITED'"
+              class="inline-flex items-center gap-1 rounded-full bg-black/10 dark:bg-white/10 px-2.5 py-0.5 m3-label-medium tabular-nums shrink-0"
             >
-              <M3Icon name="close" :size="16" />
-            </button>
+              <M3Icon
+                name="timer"
+                :size="14"
+              />
+              <span>{{ countdownFormatted }}</span>
+            </span>
           </div>
 
           <p
@@ -144,7 +185,7 @@ async function removeAccount() {
               {{ t('circuitBreaker.accountRestrictedDesc') }}
             </template>
             <template v-else>
-              {{ t('circuitBreaker.rateLimitedDesc', { time: resumeTimeFormatted }) }}
+              {{ t('circuitBreaker.rateLimitedDesc', { time: countdownFormatted }) }}
             </template>
           </p>
 
@@ -187,17 +228,6 @@ async function removeAccount() {
                 @click="showRemoveModal = true"
               >
                 <span>{{ t('circuitBreaker.removeAccount') }}</span>
-              </M3Button>
-            </template>
-
-            <template v-else>
-              <M3Button
-                variant="filled"
-                size="xs"
-                icon="check"
-                @click="dismiss"
-              >
-                <span>{{ t('circuitBreaker.dismiss') }}</span>
               </M3Button>
             </template>
           </div>

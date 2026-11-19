@@ -44,6 +44,7 @@ pub struct AppState {
     pub upload_pause: Arc<AtomicBool>,
     pub scan_cancel: Arc<AtomicBool>,
     pub is_uploading: Arc<AtomicBool>,
+    pub account_blocked: Arc<std::sync::RwLock<Option<AccountBlockedEvent>>>,
     pub pending_watch_files: Arc<std::sync::Mutex<Vec<PendingUploadBatch>>>,
     pub watcher: Arc<tokio::sync::Mutex<Option<lumen_core::watcher::FolderWatcher>>>,
     pub tray_available: Arc<AtomicBool>,
@@ -516,6 +517,11 @@ pub fn set_schedule_hours(start: u8, end: u8, state: tauri::State<AppState>) -> 
 }
 
 #[tauri::command]
+pub fn has_battery() -> bool {
+    lumen_core::safety::has_battery()
+}
+
+#[tauri::command]
 pub fn set_pause_on_battery(v: bool, state: tauri::State<AppState>) -> Result<(), String> {
     state.config_manager.update(|cfg| {
         cfg.preferences.pause_on_battery = v;
@@ -851,9 +857,55 @@ pub fn get_inotify_error() -> String {
 // Authentication & Credentials
 // -------------------------------------------------------------
 
+fn clear_account_blocked_for_email(state: &AppState, email: &str) {
+    let mut guard = state.account_blocked.write().unwrap();
+    if let Some(ref ev) = *guard {
+        if ev.email.is_empty() || ev.email.eq_ignore_ascii_case(email.trim()) {
+            *guard = None;
+        }
+    }
+}
+
+fn check_account_blocked(state: &AppState, account: &str) -> Result<(), String> {
+    let mut guard = state.account_blocked.write().unwrap();
+    let Some(ev) = guard.clone() else {
+        return Ok(());
+    };
+    if !ev.email.is_empty() && !ev.email.eq_ignore_ascii_case(account.trim()) {
+        return Ok(());
+    }
+    if ev.reason == "RATE_LIMITED" {
+        if let Some(resume_at) = ev.resume_at {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as i64;
+            if now_ms >= resume_at {
+                *guard = None;
+                return Ok(());
+            }
+            let secs = ((resume_at - now_ms + 999) / 1000).max(1);
+            return Err(format!(
+                "Uploads are temporarily paused due to Google rate limiting. Try again in {}s.",
+                secs
+            ));
+        }
+        return Err("Uploads are temporarily paused due to Google rate limiting.".to_string());
+    }
+    Err(if ev.reason == "ACCOUNT_RESTRICTED" {
+        "Uploads are blocked because this Google account is restricted. Resolve the issue or remove the account to continue.".to_string()
+    } else {
+        "Uploads are blocked because Google requires you to sign in again.".to_string()
+    })
+}
+
 #[tauri::command]
 pub fn remove_credentials(email: String, state: tauri::State<AppState>) -> Result<(), String> {
-    state.config_manager.remove_credential(&email)
+    let res = state.config_manager.remove_credential(&email);
+    if res.is_ok() {
+        clear_account_blocked_for_email(&state, &email);
+    }
+    res
 }
 
 async fn exchange_oauth_token_for_credential(
@@ -897,6 +949,7 @@ async fn persist_validated_credential(
         .config_manager
         .save_credential(&email, &full_credential)
         .map_err(|e| e.to_string())?;
+    clear_account_blocked_for_email(state, &email);
 
     if !save_status.keyring_saved {
         let _ = app.emit(
@@ -1501,6 +1554,11 @@ pub fn execute_upload(
         return Err("No Google account selected for upload".to_string());
     }
 
+    if let Err(msg) = check_account_blocked(&state, &account) {
+        state.is_uploading.store(false, Ordering::SeqCst);
+        return Err(msg);
+    }
+
     state
         .config_manager
         .get_credential_for_account(Some(&account))
@@ -1656,6 +1714,7 @@ pub fn execute_upload(
             let log_seq = log_seq.clone();
             let run_id = run_id.clone();
             let config_mgr_for_events = config_mgr_for_events.clone();
+            let account_blocked_slot = state_for_drain.account_blocked.clone();
             let mut pending_warnings = Some(preflight_warnings);
             async move {
                 while let Some(ev) = event_rx.recv().await {
@@ -1783,15 +1842,14 @@ pub fn execute_upload(
                             message,
                             resume_at,
                         } => {
-                            let _ = app_clone.emit(
-                                "account:blocked",
-                                AccountBlockedEvent {
-                                    reason,
-                                    email,
-                                    message,
-                                    resume_at,
-                                },
-                            );
+                            let blocked_ev = AccountBlockedEvent {
+                                reason,
+                                email,
+                                message,
+                                resume_at,
+                            };
+                            *account_blocked_slot.write().unwrap() = Some(blocked_ev.clone());
+                            let _ = app_clone.emit("account:blocked", blocked_ev);
                         }
                         UploadEvent::BatchComplete { uploaded, skipped, failed } => {
                             if notify_on_complete {
