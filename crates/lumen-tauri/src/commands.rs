@@ -990,33 +990,18 @@ pub async fn add_google_account(
 // -------------------------------------------------------------
 
 #[tauri::command]
-pub fn is_inline_embedded_sign_in_supported() -> bool {
-    crate::webview_signin::is_inline_embedded_supported()
-}
-
-#[tauri::command]
 pub async fn start_embedded_sign_in(
-    bounds: Option<crate::webview_signin::SignInBounds>,
     app: AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
     let prefs = state.config_manager.get_preferences();
     let proxy = (!prefs.proxy.trim().is_empty()).then_some(prefs.proxy.clone());
 
-    let token = crate::webview_signin::run_embedded_webview_sign_in(&app, bounds, proxy.as_deref())
+    let token = crate::webview_signin::run_webview_sign_in(&app, proxy.as_deref())
         .await
         .map_err(|e| e.to_string())?;
 
     validate_and_add_oauth_token(token, app, state).await
-}
-
-#[tauri::command]
-pub fn update_embedded_sign_in_bounds(
-    bounds: crate::webview_signin::SignInBounds,
-    app: AppHandle,
-) -> Result<(), String> {
-    crate::webview_signin::update_embedded_bounds(&app, bounds);
-    Ok(())
 }
 
 #[tauri::command]
@@ -1047,7 +1032,7 @@ pub async fn start_browser_sign_in(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
-    start_embedded_sign_in(None, app, state).await
+    start_embedded_sign_in(app, state).await
 }
 
 #[tauri::command]
@@ -1056,7 +1041,7 @@ pub async fn start_browser_sign_in_with_options(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
-    start_embedded_sign_in(None, app, state).await
+    start_embedded_sign_in(app, state).await
 }
 
 #[tauri::command]

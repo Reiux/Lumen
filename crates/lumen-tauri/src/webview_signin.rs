@@ -1,26 +1,19 @@
-//! Built-in Tauri WebView sign-in for Google EmbeddedSetup.
+//! Built-in Tauri WebView sign-in window for Google EmbeddedSetup.
 //!
-//! - On Windows (WebView2) and macOS (WKWebView): embeds an isolated incognito
-//!   child `Webview` directly inside Lumen's main window via `Window::add_child`,
-//!   positioned to match the M3E sign-in dialog body and live-resized as the window moves.
-//! - On Linux (WebKitGTK): opens a centered isolated incognito `WebviewWindow`
-//!   (since `tauri-runtime-wry` packs GTK child webviews into `GtkBox` rather than
-//!   overlaying arbitrary coordinates).
-//!
-//! In both modes, Lumen polls the native WebView cookie store off-thread and inspects
-//! HTTPS `google.com` / `*.google.com` navigations for the `Secure` `oauth_token`.
+//! Opens a centered, isolated incognito Tauri `WebviewWindow` (excluded from
+//! `capabilities/default.json` so remote pages have zero Tauri IPC access)
+//! pointed at Google's EmbeddedSetup endpoint, and polls its native cookie
+//! store (`WKHTTPCookieStore` on macOS, `ICoreWebView2CookieManager` on
+//! Windows, `WebKitCookieManager` on Linux) off-thread for the `HttpOnly` +
+//! `Secure` `oauth_token` cookie.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use serde::Deserialize;
 use tauri::webview::Cookie;
-use tauri::{
-    AppHandle, LogicalPosition, LogicalSize, Manager, Url, WebviewUrl, WebviewWindowBuilder,
-    WindowEvent,
-};
+use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder, WindowEvent};
 use tokio::time::sleep;
 
 use crate::cdp::is_google_auth_cookie_domain;
@@ -36,41 +29,7 @@ static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 static SIGNIN_CANCELLED: AtomicBool = AtomicBool::new(false);
 static ACTIVE_SIGNIN_LABEL: Mutex<Option<String>> = Mutex::new(None);
 
-#[derive(Debug, Clone, Copy, Deserialize)]
-pub struct SignInBounds {
-    pub x: f64,
-    pub y: f64,
-    pub width: f64,
-    pub height: f64,
-}
-
-impl SignInBounds {
-    fn clamped(self) -> (f64, f64, f64, f64) {
-        let x = if self.x.is_finite() { self.x.max(0.0) } else { 0.0 };
-        let y = if self.y.is_finite() { self.y.max(0.0) } else { 0.0 };
-        let w = if self.width.is_finite() {
-            self.width.max(300.0)
-        } else {
-            460.0
-        };
-        let h = if self.height.is_finite() {
-            self.height.max(300.0)
-        } else {
-            540.0
-        };
-        (x, y, w, h)
-    }
-}
-
-/// Whether the current OS supports inline child-WebView embedding inside the main M3E dialog.
-pub fn is_inline_embedded_supported() -> bool {
-    cfg!(any(target_os = "windows", target_os = "macos"))
-}
-
-fn close_signin_target(app: &AppHandle, label: &str) {
-    if let Some(wv) = app.get_webview(label) {
-        let _ = wv.close();
-    }
+fn close_signin_window(app: &AppHandle, label: &str) {
     if let Some(win) = app.get_webview_window(label) {
         if win.close().is_err() {
             let _ = win.destroy();
@@ -85,27 +44,7 @@ pub fn cancel_active_sign_in(app: &AppHandle) {
         .unwrap_or_else(|e| e.into_inner())
         .take();
     if let Some(label) = label {
-        close_signin_target(app, &label);
-    }
-}
-
-/// Resize/reposition the active inline embedded sign-in child WebView to stay aligned
-/// with the M3E dialog container when the main window resizes.
-pub fn update_embedded_bounds(app: &AppHandle, bounds: SignInBounds) {
-    let label = ACTIVE_SIGNIN_LABEL
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone();
-    let Some(label) = label else {
-        return;
-    };
-    if let Some(wv) = app.get_webview(&label) {
-        let (x, y, w, h) = bounds.clamped();
-        let rect = tauri::Rect {
-            position: LogicalPosition::new(x, y).into(),
-            size: LogicalSize::new(w, h).into(),
-        };
-        let _ = wv.set_bounds(rect);
+        close_signin_window(app, &label);
     }
 }
 
@@ -177,142 +116,13 @@ fn parse_supported_webview_proxy(proxy: Option<&str>) -> Option<Url> {
     }
 }
 
-pub async fn run_embedded_webview_sign_in(
-    app: &AppHandle,
-    bounds: Option<SignInBounds>,
-    proxy: Option<&str>,
-) -> Result<String> {
-    if is_inline_embedded_supported() {
-        if let Some(b) = bounds {
-            return run_inline_child_sign_in(app, b, proxy).await;
-        }
-    }
-    run_popup_webview_sign_in(app, proxy).await
-}
-
-async fn run_inline_child_sign_in(
-    app: &AppHandle,
-    bounds: SignInBounds,
-    proxy: Option<&str>,
-) -> Result<String> {
+pub async fn run_webview_sign_in(app: &AppHandle, proxy: Option<&str>) -> Result<String> {
     if let Some(prev_label) = ACTIVE_SIGNIN_LABEL
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .take()
     {
-        close_signin_target(app, &prev_label);
-    }
-
-    SIGNIN_CANCELLED.store(false, Ordering::SeqCst);
-
-    let host_window = app
-        .get_window("main")
-        .context("Main application window not found")?;
-
-    let session_id = NEXT_SESSION_ID.fetch_add(1, Ordering::SeqCst);
-    let label = format!("google-signin-{}", session_id);
-    let start_url = Url::parse(EMBEDDED_SETUP_URL).context("Invalid Google sign-in URL")?;
-
-    let url_token: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
-    let url_token_nav = Arc::clone(&url_token);
-
-    let mut builder = tauri::webview::WebviewBuilder::new(&label, WebviewUrl::External(start_url))
-        .incognito(true)
-        .focused(true)
-        .on_navigation(move |nav_url| {
-            if let Some(tok) = extract_oauth_token_from_url(nav_url) {
-                let mut slot = url_token_nav.lock().unwrap_or_else(|e| e.into_inner());
-                if slot.is_none() {
-                    *slot = Some(tok);
-                }
-            }
-            true
-        });
-
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
-    {
-        builder = builder.user_agent(WEBKIT_SAFARI_USER_AGENT);
-    }
-
-    if let Some(proxy_url) = parse_supported_webview_proxy(proxy) {
-        builder = builder.proxy_url(proxy_url);
-    }
-
-    let (x, y, w, h) = bounds.clamped();
-    let webview = host_window
-        .add_child(builder, LogicalPosition::new(x, y), LogicalSize::new(w, h))
-        .context("Failed to attach embedded Google sign-in view")?;
-
-    *ACTIVE_SIGNIN_LABEL
-        .lock()
-        .unwrap_or_else(|e| e.into_inner()) = Some(label.clone());
-
-    let _ = webview.set_focus();
-
-    let deadline = Instant::now() + SIGNIN_TIMEOUT;
-    let result: Result<String> = loop {
-        if SIGNIN_CANCELLED.load(Ordering::SeqCst) {
-            break Err(anyhow::anyhow!("Sign-in cancelled by user."));
-        }
-
-        if let Some(tok) = url_token
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone()
-        {
-            break Ok(tok);
-        }
-
-        if app.get_webview(&label).is_none() {
-            break Err(anyhow::anyhow!(
-                "Sign-in cancelled: sign-in view was closed before completing login."
-            ));
-        }
-
-        if Instant::now() >= deadline {
-            break Err(anyhow::anyhow!(
-                "Timed out waiting for Google sign-in to complete (5 minutes)."
-            ));
-        }
-
-        let wv_poll = webview.clone();
-        match tokio::task::spawn_blocking(move || wv_poll.cookies()).await {
-            Ok(Ok(cookies)) => {
-                if let Some(tok) = extract_oauth_token_from_cookies(&cookies) {
-                    break Ok(tok);
-                }
-            }
-            Ok(Err(err)) => {
-                tracing::debug!("Embedded WebView cookie poll error (will retry): {}", err);
-            }
-            Err(join_err) => {
-                tracing::debug!("Embedded WebView cookie poll join error (will retry): {}", join_err);
-            }
-        }
-
-        sleep(POLL_INTERVAL).await;
-    };
-
-    {
-        let mut active = ACTIVE_SIGNIN_LABEL
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        if active.as_deref() == Some(label.as_str()) {
-            *active = None;
-        }
-    }
-    close_signin_target(app, &label);
-
-    result
-}
-
-async fn run_popup_webview_sign_in(app: &AppHandle, proxy: Option<&str>) -> Result<String> {
-    if let Some(prev_label) = ACTIVE_SIGNIN_LABEL
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .take()
-    {
-        close_signin_target(app, &prev_label);
+        close_signin_window(app, &prev_label);
     }
 
     SIGNIN_CANCELLED.store(false, Ordering::SeqCst);
@@ -353,7 +163,7 @@ async fn run_popup_webview_sign_in(app: &AppHandle, proxy: Option<&str>) -> Resu
 
     let window = builder
         .build()
-        .context("Failed to open in-app Google sign-in window")?;
+        .context("Failed to open Google sign-in window")?;
 
     *ACTIVE_SIGNIN_LABEL
         .lock()
@@ -395,6 +205,7 @@ async fn run_popup_webview_sign_in(app: &AppHandle, proxy: Option<&str>) -> Resu
             ));
         }
 
+        // Poll cookies off the Tokio async worker thread (required for Windows WebView2)
         let w_poll = window.clone();
         match tokio::task::spawn_blocking(move || w_poll.cookies()).await {
             Ok(Ok(cookies)) => {
@@ -421,7 +232,7 @@ async fn run_popup_webview_sign_in(app: &AppHandle, proxy: Option<&str>) -> Resu
             *active = None;
         }
     }
-    close_signin_target(app, &label);
+    close_signin_window(app, &label);
 
     result
 }
@@ -482,16 +293,5 @@ mod tests {
         assert!(parse_supported_webview_proxy(Some("https://127.0.0.1:7890")).is_none());
         assert!(parse_supported_webview_proxy(Some("")).is_none());
         assert!(parse_supported_webview_proxy(None).is_none());
-    }
-
-    #[test]
-    fn clamps_invalid_bounds_safely() {
-        let b = SignInBounds {
-            x: -10.0,
-            y: f64::NAN,
-            width: 50.0,
-            height: f64::INFINITY,
-        };
-        assert_eq!(b.clamped(), (0.0, 0.0, 300.0, 540.0));
     }
 }

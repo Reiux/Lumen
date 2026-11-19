@@ -6,9 +6,7 @@ import { i18n } from '../i18n'
 // Mock ConfigManager
 vi.mock('../../bindings/app/core', () => ({
   ConfigManager: {
-    IsInlineEmbeddedSignInSupported: vi.fn().mockResolvedValue(false),
     StartEmbeddedSignIn: vi.fn().mockResolvedValue('test@example.com'),
-    UpdateEmbeddedSignInBounds: vi.fn().mockResolvedValue(undefined),
     StartExternalBrowserSignIn: vi.fn().mockResolvedValue('test@example.com'),
     CancelBrowserSignIn: vi.fn().mockResolvedValue(undefined),
     HasSupportedBrowser: vi.fn().mockResolvedValue(true),
