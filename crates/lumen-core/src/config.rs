@@ -105,6 +105,8 @@ pub struct Preferences {
     pub recent_albums: Vec<String>,
     #[serde(default = "default_true", rename = "auto_check_updates")]
     pub auto_check_updates: bool,
+    #[serde(default = "default_auto_update_interval_hours", rename = "auto_update_interval_hours")]
+    pub auto_update_interval_hours: u32,
     #[serde(default, rename = "last_update_check", deserialize_with = "deserialize_last_update_check")]
     pub last_update_check: i64,
     #[serde(default, rename = "schedule_enabled")]
@@ -127,6 +129,10 @@ pub struct Preferences {
 
 fn default_locale() -> String {
     "en".to_string()
+}
+
+fn default_auto_update_interval_hours() -> u32 {
+    6
 }
 
 fn deserialize_last_update_check<'de, D>(deserializer: D) -> Result<i64, D::Error>
@@ -216,6 +222,7 @@ impl Default for Preferences {
             watched_folder_configs: Vec::new(),
             recent_albums: Vec::new(),
             auto_check_updates: true,
+            auto_update_interval_hours: default_auto_update_interval_hours(),
             last_update_check: 0,
             schedule_enabled: false,
             schedule_start_hour: 1,

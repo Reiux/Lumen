@@ -469,6 +469,8 @@ fn main() {
             commands::check_for_updates_with_redirect_url,
             commands::get_auto_check_updates,
             commands::set_auto_check_updates,
+            commands::get_auto_update_interval_hours,
+            commands::set_auto_update_interval_hours,
             commands::get_last_update_check,
             commands::set_last_update_check,
             commands::get_release_notes,
@@ -572,21 +574,73 @@ fn main() {
                 });
             }
 
-            // Background update check after 3 seconds
+            // Startup & periodic background update checker:
+            // 1. Always checks once shortly after launch when auto_check_updates is enabled.
+            // 2. While running, re-checks every `auto_update_interval_hours` (default 6h).
+            // 3. Emits `app:update-available` to the UI and sends an OS desktop notification.
             let ah_update = app_handle.clone();
             tauri::async_runtime::spawn(async move {
                 tokio::time::sleep(Duration::from_secs(3)).await;
-                let state = ah_update.state::<AppState>();
-                if state.config_manager.get_config().preferences.auto_check_updates {
+                let mut last_notified_version = String::new();
+
+                // Launch check (always runs on startup if auto_check_updates is on)
+                {
+                    let state = ah_update.state::<AppState>();
+                    let prefs = state.config_manager.get_config().preferences;
+                    if prefs.auto_check_updates {
+                        let info = commands::run_update_check(
+                            &state.config_manager,
+                            &state.update_checker,
+                            lumen_core::updater::DEFAULT_RELEASES_URL,
+                            true,
+                        )
+                        .await;
+                        if info.has_update {
+                            let latest = info.latest_version.clone();
+                            let _ = ah_update.emit("app:update-available", info);
+                            commands::notify_update_available(&ah_update, &prefs.locale, &latest);
+                            last_notified_version = latest;
+                        }
+                    }
+                }
+
+                // Periodic check loop while app remains open / in tray
+                let mut ticker = tokio::time::interval(Duration::from_secs(60));
+                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                // Consume immediate first tick
+                ticker.tick().await;
+
+                loop {
+                    ticker.tick().await;
+                    let state = ah_update.state::<AppState>();
+                    let prefs = state.config_manager.get_config().preferences;
+                    if !prefs.auto_check_updates {
+                        continue;
+                    }
+
+                    let interval_secs = (prefs.auto_update_interval_hours.clamp(1, 168) as i64) * 3600;
+                    let now_sec = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs() as i64;
+
+                    if prefs.last_update_check > 0 && (now_sec - prefs.last_update_check) < interval_secs {
+                        continue;
+                    }
+
                     let info = commands::run_update_check(
                         &state.config_manager,
                         &state.update_checker,
                         lumen_core::updater::DEFAULT_RELEASES_URL,
-                        false,
+                        true,
                     )
                     .await;
-                    if info.has_update {
+
+                    if info.has_update && info.latest_version != last_notified_version {
+                        let latest = info.latest_version.clone();
                         let _ = ah_update.emit("app:update-available", info);
+                        commands::notify_update_available(&ah_update, &prefs.locale, &latest);
+                        last_notified_version = latest;
                     }
                 }
             });

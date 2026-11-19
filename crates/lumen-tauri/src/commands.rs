@@ -119,6 +119,7 @@ pub fn get_settings(state: tauri::State<AppState>) -> Preferences {
             .collect(),
         recent_albums: cfg.preferences.recent_albums,
         auto_check_updates: cfg.preferences.auto_check_updates,
+        auto_update_interval_hours: cfg.preferences.auto_update_interval_hours.clamp(1, 168),
         last_update_check: cfg.preferences.last_update_check,
         schedule_enabled: cfg.preferences.schedule_enabled,
         schedule_start_hour: cfg.preferences.schedule_start_hour,
@@ -1272,6 +1273,24 @@ pub fn set_auto_check_updates(enabled: bool, state: tauri::State<AppState>) -> R
 }
 
 #[tauri::command]
+pub fn get_auto_update_interval_hours(state: tauri::State<AppState>) -> u32 {
+    state
+        .config_manager
+        .get_config()
+        .preferences
+        .auto_update_interval_hours
+        .clamp(1, 168)
+}
+
+#[tauri::command]
+pub fn set_auto_update_interval_hours(hours: u32, state: tauri::State<AppState>) -> Result<(), String> {
+    let clamped = hours.clamp(1, 168);
+    state.config_manager.update(|cfg| {
+        cfg.preferences.auto_update_interval_hours = clamped;
+    })
+}
+
+#[tauri::command]
 pub fn get_last_update_check(state: tauri::State<AppState>) -> i64 {
     state.config_manager.get_config().preferences.last_update_check
 }
@@ -2058,6 +2077,38 @@ fn format_test_notification(locale: &str) -> (&'static str, &'static str) {
         "es" => ("Lumen", "Lote de copia completado (notificación de prueba)"),
         _ => ("Lumen", "Backup batch complete (test notification)"),
     }
+}
+
+pub fn format_update_available_notification(locale: &str, latest_version: &str) -> (&'static str, String) {
+    let ver = latest_version.trim_start_matches(['v', 'V']);
+    match locale {
+        "id" => (
+            "Pembaruan Tersedia",
+            format!("Lumen v{} tersedia untuk diunduh.", ver),
+        ),
+        "ja" => (
+            "アップデート利用可能",
+            format!("Lumen v{} をダウンロードできます。", ver),
+        ),
+        "es" => (
+            "Actualización disponible",
+            format!("Lumen v{} está listo para descargar.", ver),
+        ),
+        _ => (
+            "Update Available",
+            format!("Lumen v{} is ready to download.", ver),
+        ),
+    }
+}
+
+pub fn notify_update_available(app: &AppHandle, locale: &str, latest_version: &str) {
+    let (title, body) = format_update_available_notification(locale, latest_version);
+    let _ = app
+        .notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show();
 }
 
 #[tauri::command]

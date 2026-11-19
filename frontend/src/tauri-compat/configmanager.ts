@@ -176,6 +176,13 @@ export const ConfigManager = {
     return false;
   },
 
+  async GetAutoUpdateIntervalHours(): Promise<number> {
+    if (hasTauri()) {
+      return (await tauriInvoke<number>('get_auto_update_interval_hours')) || 6;
+    }
+    return 6;
+  },
+
   async GetExcludePattern(): Promise<string> {
     if (hasTauri()) {
       return (await tauriInvoke<string>('get_exclude_pattern')) || '';
@@ -385,6 +392,12 @@ export const ConfigManager = {
   async SetAutoCheckUpdates(enabled: boolean): Promise<void> {
     if (hasTauri()) {
       return tauriInvoke('set_auto_check_updates', { enabled });
+    }
+  },
+
+  async SetAutoUpdateIntervalHours(hours: number): Promise<void> {
+    if (hasTauri()) {
+      return tauriInvoke('set_auto_update_interval_hours', { hours });
     }
   },
 

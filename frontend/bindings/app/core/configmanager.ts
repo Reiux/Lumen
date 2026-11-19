@@ -456,6 +456,14 @@ export function HasBattery(): $CancellablePromise<boolean> {
     return $Call.ByID(9999999907);
 }
 
+export function GetAutoUpdateIntervalHours(): $CancellablePromise<number> {
+    return $Call.ByID(9999999908);
+}
+
+export function SetAutoUpdateIntervalHours(hours: number): $CancellablePromise<void> {
+    return $Call.ByID(9999999909, hours);
+}
+
 export function OpenDevTools(): $CancellablePromise<void> {
     return $Call.ByID(9999999901);
 }

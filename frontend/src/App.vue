@@ -35,7 +35,7 @@ import M3Icon from './components/ui/M3Icon.vue'
 import { launchReplayTrigger } from './utils/launchState'
 import { uploadManager } from './utils/UploadManager'
 import { detectDebugBuild, devOptionsState, isDevMode, mockBatches, mockLogEntries, mockProblems, mockState, setMockView } from './utils/mockMode'
-import { preferencesState, refreshPreferences } from './utils/configStore'
+import { preferencesState, refreshLastUpdateCheck, refreshPreferences } from './utils/configStore'
 import { useDialogFocusTrap } from './utils/useDialogFocusTrap'
 import { cycleNextTheme, themePulseCounter } from './utils/theme'
 import {
@@ -1447,6 +1447,7 @@ onMounted(async () => {
       toast.info(t('backup.toastAutoWatchDetected', { count }))
     }),
     Events.On('app:update-available', (event: { data: UpdateInfo }) => {
+      void refreshLastUpdateCheck()
       if (event?.data?.hasUpdate) {
         startupUpdateInfo.value = event.data
         showStartupUpdateModal.value = true

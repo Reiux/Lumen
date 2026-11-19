@@ -5,6 +5,8 @@ export interface PreferencesState {
   useQuota: boolean
   saver: boolean
   autoCheckUpdates: boolean
+  autoUpdateIntervalHours: number
+  lastUpdateCheck: number
   notifyOnComplete: boolean
   initialized: boolean
 }
@@ -13,6 +15,8 @@ export const preferencesState = reactive<PreferencesState>({
   useQuota: false,
   saver: false,
   autoCheckUpdates: true,
+  autoUpdateIntervalHours: 6,
+  lastUpdateCheck: 0,
   notifyOnComplete: true,
   initialized: false,
 })
@@ -36,7 +40,36 @@ export async function refreshPreferences() {
     // Ignore in tests/mock
   }
 
+  try {
+    const interval = await ConfigManager.GetAutoUpdateIntervalHours()
+    if (typeof interval === 'number' && interval >= 1) {
+      preferencesState.autoUpdateIntervalHours = interval
+    }
+  } catch {
+    // Ignore in tests/mock
+  }
+
+  try {
+    const ts = await ConfigManager.GetLastUpdateCheck()
+    if (typeof ts === 'number' && ts >= 0) {
+      preferencesState.lastUpdateCheck = ts
+    }
+  } catch {
+    // Ignore in tests/mock
+  }
+
   preferencesState.initialized = true
+}
+
+export async function refreshLastUpdateCheck() {
+  try {
+    const ts = await ConfigManager.GetLastUpdateCheck()
+    if (typeof ts === 'number' && ts >= 0) {
+      preferencesState.lastUpdateCheck = ts
+    }
+  } catch {
+    // Ignore in tests/mock
+  }
 }
 
 export async function setUseQuota(useQuota: boolean) {
@@ -81,6 +114,18 @@ export async function setAutoCheckUpdates(enabled: boolean) {
   } catch (err) {
     preferencesState.autoCheckUpdates = prev
     console.error('Failed to update autoCheckUpdates:', err)
+    throw err
+  }
+}
+
+export async function setAutoUpdateIntervalHours(hours: number) {
+  const prev = preferencesState.autoUpdateIntervalHours
+  preferencesState.autoUpdateIntervalHours = hours
+  try {
+    await ConfigManager.SetAutoUpdateIntervalHours(hours)
+  } catch (err) {
+    preferencesState.autoUpdateIntervalHours = prev
+    console.error('Failed to update autoUpdateIntervalHours:', err)
     throw err
   }
 }
