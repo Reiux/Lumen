@@ -510,7 +510,7 @@
     "dateFromFilename": "ファイル名から撮影日を取得",
     "dateFromFilenameSubtitle": "カメラのメタデータが存在しない場合、ファイル名の文字列から日付を取得します。",
     "excludePattern": "除外パターン (正規表現)",
-    "excludePatternSubtitle": "パスやファイル名が正規表現に一致するファイルをスキップします (例: \\.tmp$|@eaDir)。",
+    "excludePatternSubtitle": "パスやファイル名が正規表現に一致するファイルをスキップします (例: \\.tmp${'|@'}eaDir)。",
     "saveFailed": "設定を保存できませんでした",
     "performance": "パフォーマンス",
     "backupThreads": "バックアップスレッド数",

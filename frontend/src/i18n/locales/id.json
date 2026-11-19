@@ -510,7 +510,7 @@
     "dateFromFilename": "Tanggal dari nama file",
     "dateFromFilenameSubtitle": "Gunakan tanggal yang tertulis pada nama file saat metadata kamera hilang.",
     "excludePattern": "Pola pengecualian (regex)",
-    "excludePatternSubtitle": "Lewati file yang jalur atau namanya cocok dengan ekspresi reguler (mis. \\.tmp$|@eaDir).",
+    "excludePatternSubtitle": "Lewati file yang jalur atau namanya cocok dengan ekspresi reguler (mis. \\.tmp${'|@'}eaDir).",
     "saveFailed": "Gagal menyimpan pengaturan",
     "performance": "Performa",
     "backupThreads": "Utas pencadangan",
