@@ -6,6 +6,8 @@ import { ConfigManager } from '../../bindings/app/core'
 import type { UpdateInfo } from '../../bindings/app/core/models'
 import M3Button from './ui/M3Button.vue'
 import M3Icon from './ui/M3Icon.vue'
+import M3LoadingIndicator from './ui/M3LoadingIndicator.vue'
+import M3Markdown from './ui/M3Markdown.vue'
 import { useDialogFocusTrap } from '../utils/useDialogFocusTrap'
 
 const { t } = useI18n()
@@ -91,7 +93,7 @@ function openDownload() {
         <div
           ref="dialogCardRef"
           tabindex="-1"
-          class="m3-dialog-card relative flex flex-col w-full max-w-lg rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] shadow-2xl overflow-hidden select-none outline-none focus-visible:outline-[3px] focus-visible:outline-[var(--md-sys-color-primary)]"
+          class="m3-dialog-card relative flex flex-col w-full max-w-xl max-h-[85vh] rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] shadow-2xl overflow-hidden select-none outline-none focus-visible:outline-[3px] focus-visible:outline-[var(--md-sys-color-primary)]"
           role="dialog"
           aria-modal="true"
           aria-labelledby="update-modal-title"
@@ -133,9 +135,9 @@ function openDownload() {
             />
           </div>
 
-          <!-- Body with Release Notes -->
-          <div class="max-h-80 overflow-y-auto px-6 py-2 flex flex-col gap-2.5">
-            <div class="flex items-center justify-between px-1">
+          <!-- Body with GitHub-style Markdown Release Notes -->
+          <div class="flex-1 min-h-0 px-6 py-2 flex flex-col gap-2.5 overflow-hidden">
+            <div class="flex items-center justify-between px-1 shrink-0">
               <span class="m3-label-large text-[var(--md-sys-color-on-surface-variant)]">
                 {{ t('updater.releaseNotes') }}
               </span>
@@ -147,16 +149,18 @@ function openDownload() {
               </span>
             </div>
 
-            <div class="rounded-[20px] bg-[var(--md-sys-color-surface-container)] p-4 m3-mono m3-body-medium text-[var(--md-sys-color-on-surface)] whitespace-pre-wrap break-words max-h-60 overflow-y-auto leading-relaxed">
+            <div class="rounded-[20px] bg-[var(--md-sys-color-surface-container)] p-5 max-h-[420px] overflow-y-auto">
               <div
                 v-if="isLoadingNotes"
-                class="text-[var(--md-sys-color-on-surface-variant)] italic"
+                class="flex items-center justify-center gap-3 py-8 text-[var(--md-sys-color-on-surface-variant)]"
               >
-                {{ t('updater.loadingNotes') }}
+                <M3LoadingIndicator size="xs" />
+                <span class="m3-body-medium">{{ t('updater.loadingNotes') }}</span>
               </div>
-              <div v-else>
-                {{ notes || updateInfo.releaseNotes || t('updater.noNotes') }}
-              </div>
+              <M3Markdown
+                v-else
+                :content="notes || updateInfo.releaseNotes || t('updater.noNotes')"
+              />
             </div>
           </div>
 
