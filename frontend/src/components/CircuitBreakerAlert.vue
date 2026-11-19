@@ -236,53 +236,103 @@ async function removeAccount() {
     </div>
   </Transition>
 
-  <!-- M3 Expressive Account Safety Info Modal -->
+  <!-- M3 Expressive Account Safety Dialog (28dp surface-container-high, hero icon, grouped segmented list) -->
   <Teleport to="body">
     <Transition name="m3-dialog-modal">
       <div
         v-if="showSafetyDialog"
-        class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center p-4 select-none overflow-y-auto"
+        class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center bg-black/65 backdrop-blur-xs p-4 select-none overflow-y-auto"
         @click.self="showSafetyDialog = false"
       >
         <div
           ref="safetyDialogCardRef"
           tabindex="-1"
-          class="m3-dialog-card relative flex flex-col w-full max-w-md gap-4 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl outline-none"
+          class="m3-dialog-card relative flex flex-col w-full max-w-[440px] gap-5 rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl outline-none focus-visible:outline-[3px] focus-visible:outline-[var(--md-sys-color-primary)]"
           role="dialog"
           aria-modal="true"
           aria-labelledby="safety-notice-title"
+          aria-describedby="safety-notice-desc"
         >
-          <div class="flex items-center gap-3 text-[var(--md-sys-color-primary)]">
-            <div class="flex size-10 items-center justify-center rounded-[16px] bg-[var(--md-sys-color-primary-container)]">
-              <M3Icon name="shield" :size="22" :filled="true" />
+          <!-- M3E Centered Hero Icon + Headline -->
+          <div class="flex flex-col items-center text-center gap-3">
+            <div class="flex size-14 items-center justify-center rounded-[20px] bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
+              <M3Icon
+                name="shield"
+                :size="28"
+                :filled="true"
+              />
             </div>
-            <h3
-              id="safety-notice-title"
-              class="m3-headline-small text-[var(--md-sys-color-on-surface)]"
-            >
-              {{ t('circuitBreaker.safetyModalTitle') }}
-            </h3>
+            <div class="flex flex-col gap-1.5">
+              <h3
+                id="safety-notice-title"
+                class="m3-headline-small text-[var(--md-sys-color-on-surface)]"
+              >
+                {{ t('circuitBreaker.safetyModalTitle') }}
+              </h3>
+              <p
+                id="safety-notice-desc"
+                class="m3-body-medium leading-relaxed text-[var(--md-sys-color-on-surface-variant)]"
+              >
+                {{ t('circuitBreaker.safetyModalP1') }}
+              </p>
+            </div>
           </div>
 
-          <div class="flex flex-col gap-2.5 m3-body-medium leading-relaxed">
-            <p>
-              {{ t('circuitBreaker.safetyModalP1') }}
-            </p>
-            <p>
+          <!-- M3E Grouped Segmented List (4px gaps, 20px outer / 4px inner corners, surface-container tones) -->
+          <div class="flex flex-col gap-2">
+            <span class="m3-label-small text-[var(--md-sys-color-primary)] px-1">
               {{ t('circuitBreaker.safetyModalP2') }}
-            </p>
-            <ul class="list-disc pl-4 space-y-1">
-              <li>{{ t('circuitBreaker.safetyModalL1') }}</li>
-              <li>{{ t('circuitBreaker.safetyModalL2') }}</li>
-              <li>{{ t('circuitBreaker.safetyModalL3') }}</li>
+            </span>
+
+            <ul class="flex flex-col gap-1">
+              <li class="flex items-start gap-3 rounded-t-[20px] rounded-b-[4px] bg-[var(--md-sys-color-surface-container)] px-4 py-3.5">
+                <div class="flex size-9 shrink-0 items-center justify-center rounded-[12px] bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
+                  <M3Icon
+                    name="verified_user"
+                    :size="18"
+                    :filled="true"
+                  />
+                </div>
+                <span class="m3-body-medium leading-snug text-[var(--md-sys-color-on-surface)] pt-0.5">
+                  {{ t('circuitBreaker.safetyModalL1') }}
+                </span>
+              </li>
+
+              <li class="flex items-start gap-3 rounded-[4px] bg-[var(--md-sys-color-surface-container)] px-4 py-3.5">
+                <div class="flex size-9 shrink-0 items-center justify-center rounded-[12px] bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]">
+                  <M3Icon
+                    name="speed"
+                    :size="18"
+                    :filled="true"
+                  />
+                </div>
+                <span class="m3-body-medium leading-snug text-[var(--md-sys-color-on-surface)] pt-0.5">
+                  {{ t('circuitBreaker.safetyModalL2') }}
+                </span>
+              </li>
+
+              <li class="flex items-start gap-3 rounded-t-[4px] rounded-b-[20px] bg-[var(--md-sys-color-surface-container)] px-4 py-3.5">
+                <div class="flex size-9 shrink-0 items-center justify-center rounded-[12px] bg-[var(--md-sys-color-tertiary-container)] text-[var(--md-sys-color-on-tertiary-container)]">
+                  <M3Icon
+                    name="pause_circle"
+                    :size="18"
+                    :filled="true"
+                  />
+                </div>
+                <span class="m3-body-medium leading-snug text-[var(--md-sys-color-on-surface)] pt-0.5">
+                  {{ t('circuitBreaker.safetyModalL3') }}
+                </span>
+              </li>
             </ul>
           </div>
 
-          <div class="flex justify-end pt-2">
+          <!-- M3E Action Row (right-aligned pill button, >= 48px target) -->
+          <div class="flex justify-end pt-1">
             <M3Button
               variant="filled"
-              size="s"
+              size="m"
               icon="check"
+              class="min-h-12 px-6"
               @click="showSafetyDialog = false"
             >
               <span>{{ t('circuitBreaker.gotIt') }}</span>

@@ -251,6 +251,9 @@ fn main() {
                             let _ = w.hide();
                         }
                     }
+                    tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Enter { .. }) => {
+                        let _ = ah.emit("file-drag-enter", ());
+                    }
                     tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) => {
                         let file_paths: Vec<String> =
                             paths.iter().map(|p| p.to_string_lossy().to_string()).collect();

@@ -119,6 +119,12 @@ async function handleReviewToggleSubfolders(value: boolean) {
 
 const isUploadBlocked = computed(() => uploadState.accountBlocked.isBlocked)
 
+watch(isUploadBlocked, (blocked) => {
+  if (blocked) {
+    clearDragState()
+  }
+})
+
 function notifyIfUploadBlocked(): boolean {
   if (!uploadManager.isUploadBlocked()) return false
   const reason = uploadState.accountBlocked.reason
@@ -957,6 +963,11 @@ function touchDragWatchdog() {
 const onDragEnter = (e: DragEvent) => {
   if (!hasDragFiles(e)) return
   e.preventDefault()
+  if (uploadManager.isUploadBlocked()) {
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'none'
+    clearDragState()
+    return
+  }
   dragCounter++
   isNativeDragging = true
   isDraggingFiles.value = true
@@ -966,6 +977,11 @@ const onDragEnter = (e: DragEvent) => {
 const onDragOver = (e: DragEvent) => {
   if (!hasDragFiles(e)) return
   e.preventDefault()
+  if (uploadManager.isUploadBlocked()) {
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'none'
+    clearDragState()
+    return
+  }
   if (e.dataTransfer) {
     e.dataTransfer.dropEffect = 'copy'
   }
@@ -995,6 +1011,11 @@ const onDrop = (e?: DragEvent) => {
 const onDropZoneDragEnter = (e: DragEvent) => {
   if (!hasDragFiles(e)) return
   e.preventDefault()
+  if (uploadManager.isUploadBlocked()) {
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'none'
+    clearDragState()
+    return
+  }
   isNativeDragging = true
   isDraggingFiles.value = true
   touchDragWatchdog()
@@ -1003,6 +1024,11 @@ const onDropZoneDragEnter = (e: DragEvent) => {
 const onDropZoneDragOver = (e: DragEvent) => {
   if (!hasDragFiles(e)) return
   e.preventDefault()
+  if (uploadManager.isUploadBlocked()) {
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'none'
+    clearDragState()
+    return
+  }
   if (e.dataTransfer) {
     e.dataTransfer.dropEffect = 'copy'
   }
@@ -1072,6 +1098,7 @@ const onDropZoneDrop = (e: DragEvent) => {
   dragCounter = 0
   isNativeDragging = false
   isDraggingFiles.value = false
+  if (notifyIfUploadBlocked()) return
   if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
     const fileList = Array.from(e.dataTransfer.files)
     const paths = fileList.map((f: any) => f.path).filter(Boolean)
@@ -1530,10 +1557,23 @@ onMounted(async () => {
       }
     }),
 
+    Events.On('file-drag-enter', () => {
+      if (uploadManager.isUploadBlocked()) {
+        clearDragState()
+        return
+      }
+      if (activeTab.value === 'upload' && displayOptions.value.length > 0) {
+        isNativeDragging = true
+        isDraggingFiles.value = true
+        touchDragWatchdog()
+      }
+    }),
+
     Events.On('files-dropped', async (event: { data: { files: string[]; dropZone: string } }) => {
       isDraggingFiles.value = false
       dragCounter = 0
       isNativeDragging = false
+      if (notifyIfUploadBlocked()) return
       await handleFilesDropped(event.data.files, event.data.dropZone)
     }),
 
@@ -1983,6 +2023,7 @@ onUnmounted(() => {
             style="--wails-draggable: none"
           >
             <Upload
+              :is-dragging-files="isDraggingFiles && !isUploadBlocked"
               @open-sign-in="isAccountSetupOpen = true"
               @account-removed="refreshCredentials"
               @pick-more="handlePickFiles"

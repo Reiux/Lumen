@@ -11,6 +11,12 @@ import CircuitBreakerAlert from './components/CircuitBreakerAlert.vue'
 
 const { t } = useI18n()
 
+const props = withDefaults(defineProps<{
+  isDraggingFiles?: boolean
+}>(), {
+  isDraggingFiles: false,
+})
+
 const emit = defineEmits<{
   (event: 'open-sign-in'): void
   (event: 'account-removed'): void
@@ -18,6 +24,47 @@ const emit = defineEmits<{
 }>()
 
 const { state } = uploadManager
+const isUploadBlocked = computed(() => state.accountBlocked.isBlocked)
+const isLocalDragOver = ref(false)
+const isQueueDropActive = computed(() => !isUploadBlocked.value && (props.isDraggingFiles || isLocalDragOver.value))
+
+function onQueueDragEnter(e: DragEvent) {
+  if (isUploadBlocked.value) {
+    e.preventDefault()
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'none'
+    isLocalDragOver.value = false
+    return
+  }
+  e.preventDefault()
+  isLocalDragOver.value = true
+}
+
+function onQueueDragOver(e: DragEvent) {
+  e.preventDefault()
+  if (isUploadBlocked.value) {
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'none'
+    isLocalDragOver.value = false
+    return
+  }
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+  isLocalDragOver.value = true
+}
+
+function onQueueDragLeave(e: DragEvent) {
+  const current = e.currentTarget as HTMLElement | null
+  const related = e.relatedTarget as Node | null
+  if (current && related && current.contains(related)) return
+  isLocalDragOver.value = false
+}
+
+function onQueueDrop() {
+  isLocalDragOver.value = false
+}
+
+function handleQueueDropClick() {
+  if (isUploadBlocked.value) return
+  emit('pick-more')
+}
 
 // Smooth count tween for uploaded files
 const displayUploadedFiles = ref(state.uploadedFiles)
@@ -398,9 +445,9 @@ const totalQueueCount = computed(() => {
     </div>
 
     <!-- Main Layout: clean flex on narrow/mobile, 2-pane grid on >=860px -->
-    <div class="flex flex-col min-[860px]:grid min-[860px]:grid-cols-[380px_1fr] min-[1280px]:grid-cols-[440px_1fr] gap-4 min-[860px]:gap-5 flex-1 min-h-0 w-full min-[860px]:items-start">
-      <!-- Left Column: Summary Card -->
-      <div class="flex flex-col gap-3 sm:gap-4 w-full shrink-0">
+    <div class="flex flex-col min-[860px]:grid min-[860px]:grid-cols-[380px_1fr] min-[1280px]:grid-cols-[440px_1fr] gap-4 min-[860px]:gap-5 flex-1 min-h-0 w-full min-[860px]:items-stretch">
+      <!-- Left Column: Hero Summary Card + M3E Queue Drop Card below -->
+      <div class="flex flex-col gap-4 w-full min-h-0 shrink-0">
         <!-- Summary Header Card (28px rounded, surface-container) -->
         <div class="bg-[var(--md-sys-color-surface-container)] rounded-[28px] p-5 sm:p-6 border border-[var(--md-sys-color-outline-variant)]/40 shadow-sm flex flex-col">
           <div class="flex items-start justify-between gap-3">
@@ -495,6 +542,61 @@ const totalQueueCount = computed(() => {
               </span>
             </div>
             <M3WavyProgress :value="progressPercent" />
+          </div>
+        </div>
+
+        <!-- M3 Expressive Queue Drop Card (positioned beneath hero card, fills remaining column space) -->
+        <div
+          data-file-drop-target
+          data-drop-zone="regular"
+          role="button"
+          :tabindex="isUploadBlocked ? -1 : 0"
+          :aria-disabled="isUploadBlocked ? 'true' : 'false'"
+          :aria-label="t('upload.dropMore')"
+          class="m3-queue-drop-card group relative flex flex-1 min-h-[168px] w-full flex-col items-center justify-center gap-3 p-6 text-center select-none focus-visible:outline-[3px] focus-visible:outline-[var(--md-sys-color-primary)] focus-visible:outline-offset-2"
+          :class="[
+            isUploadBlocked
+              ? 'is-disabled opacity-45 pointer-events-none cursor-not-allowed bg-[var(--md-sys-color-surface-container-low)] border-2 border-dashed border-[var(--md-sys-color-outline-variant)]'
+              : isQueueDropActive
+                ? 'is-drag-active cursor-copy bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)] border-2 border-solid border-[var(--md-sys-color-primary)] ring-4 ring-[var(--md-sys-color-primary)]/20 shadow-lg'
+                : 'cursor-pointer bg-[var(--md-sys-color-surface-container-low)] text-[var(--md-sys-color-on-surface-variant)] border-2 border-dashed border-[var(--md-sys-color-outline-variant)] hover:bg-[var(--md-sys-color-surface-container)] hover:border-[var(--md-sys-color-primary)]/70 hover:text-[var(--md-sys-color-on-surface)]',
+          ]"
+          @click="handleQueueDropClick"
+          @keydown.enter.prevent="handleQueueDropClick"
+          @keydown.space.prevent="handleQueueDropClick"
+          @dragenter="onQueueDragEnter"
+          @dragover="onQueueDragOver"
+          @dragleave="onQueueDragLeave"
+          @drop="onQueueDrop"
+        >
+          <div
+            class="m3-queue-drop-icon flex size-14 shrink-0 items-center justify-center"
+            :class="
+              isQueueDropActive
+                ? 'is-drag-active bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] shadow-md'
+                : 'bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)] group-hover:bg-[var(--md-sys-color-primary-container)] group-hover:text-[var(--md-sys-color-on-primary-container)]'
+            "
+          >
+            <M3Icon
+              :name="isQueueDropActive ? 'arrow_downward' : 'add_photo_alternate'"
+              :filled="isQueueDropActive"
+              :size="26"
+            />
+          </div>
+
+          <div class="flex flex-col items-center gap-1 max-w-[300px]">
+            <span
+              class="m3-title-medium"
+              :class="isQueueDropActive ? 'text-[var(--md-sys-color-on-primary-container)]' : 'text-[var(--md-sys-color-on-surface)]'"
+            >
+              {{ isQueueDropActive ? t('backup.releaseFiles') : t('upload.dropMore') }}
+            </span>
+            <span
+              v-if="isQueueDropActive"
+              class="m3-body-medium !text-[var(--md-sys-color-on-primary-container)]/85"
+            >
+              {{ t('backup.dropFiles') }}
+            </span>
           </div>
         </div>
       </div>
@@ -652,29 +754,70 @@ const totalQueueCount = computed(() => {
         </div>
       </div>
     </div>
-
-    <!-- Slim drop strip: pinned to the bottom so more files/folders can be
-         queued while the current batch uploads -->
-    <div
-      data-file-drop-target
-      data-drop-zone="regular"
-      class="h-11 mt-4 bg-[var(--md-sys-color-surface-container-low)] border border-dashed border-[var(--md-sys-color-outline)] rounded-2xl flex items-center justify-center space-x-2 m3-body-medium hover:border-[var(--md-sys-color-primary)] hover:text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container)] cursor-pointer transition select-none flex-shrink-0"
-      @click="emit('pick-more')"
-    >
-      <svg
-        class="w-4 h-4 text-[var(--md-sys-color-primary)] shrink-0"
-        fill="none"
-        stroke="currentColor"
-        viewBox="0 0 24 24"
-      >
-        <path
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          stroke-width="2"
-          d="M12 4v16m8-8H4"
-        />
-      </svg>
-      <span class="truncate px-2">{{ t('upload.dropMore') }}</span>
-    </div>
   </div>
 </template>
+
+<style scoped>
+/* M3 Expressive Queue Drop Card: spatial spring for transform/shape, effects spring (damping 1.0) for color/border */
+.m3-queue-drop-card {
+  border-radius: var(--md-sys-shape-corner-extra-large, 28px);
+  transition:
+    transform var(--md-sys-motion-duration-fast-spatial, 350ms) var(--md-sys-motion-easing-fast-spatial, cubic-bezier(0.42, 1.67, 0.21, 0.90)),
+    border-radius var(--md-sys-motion-duration-fast-spatial, 350ms) var(--md-sys-motion-easing-fast-spatial, cubic-bezier(0.42, 1.67, 0.21, 0.90)),
+    background-color var(--md-sys-motion-duration-default-effects, 200ms) var(--md-sys-motion-easing-default-effects, cubic-bezier(0.34, 0.80, 0.34, 1.00)),
+    border-color var(--md-sys-motion-duration-default-effects, 200ms) var(--md-sys-motion-easing-default-effects, cubic-bezier(0.34, 0.80, 0.34, 1.00)),
+    color var(--md-sys-motion-duration-default-effects, 200ms) var(--md-sys-motion-easing-default-effects, cubic-bezier(0.34, 0.80, 0.34, 1.00)),
+    box-shadow var(--md-sys-motion-duration-default-effects, 200ms) var(--md-sys-motion-easing-default-effects, cubic-bezier(0.34, 0.80, 0.34, 1.00));
+}
+
+.m3-queue-drop-card:active:not(.is-disabled) {
+  transform: scale(0.985);
+  border-radius: var(--md-sys-shape-corner-large-increased, 20px);
+}
+
+.m3-queue-drop-card.is-drag-active {
+  transform: scale(1.015);
+  border-radius: var(--md-sys-shape-corner-extra-large-increased, 32px);
+}
+
+/* Nested corner radius: outer 28px -> inner icon tile 20px resting, morphing to full pill on drag-over */
+.m3-queue-drop-icon {
+  border-radius: var(--md-sys-shape-corner-large-increased, 20px);
+  transition:
+    transform var(--md-sys-motion-duration-fast-spatial, 350ms) var(--md-sys-motion-easing-fast-spatial, cubic-bezier(0.42, 1.67, 0.21, 0.90)),
+    border-radius var(--md-sys-motion-duration-fast-spatial, 350ms) var(--md-sys-motion-easing-fast-spatial, cubic-bezier(0.42, 1.67, 0.21, 0.90)),
+    background-color var(--md-sys-motion-duration-fast-effects, 150ms) var(--md-sys-motion-easing-fast-effects, cubic-bezier(0.31, 0.94, 0.34, 1.00)),
+    color var(--md-sys-motion-duration-fast-effects, 150ms) var(--md-sys-motion-easing-fast-effects, cubic-bezier(0.31, 0.94, 0.34, 1.00));
+}
+
+.m3-queue-drop-icon.is-drag-active {
+  border-radius: var(--md-sys-shape-corner-full, 9999px);
+  transform: scale(1.1) translateY(2px);
+  animation: m3-drop-bob 900ms var(--md-sys-motion-easing-default-spatial, cubic-bezier(0.38, 1.21, 0.22, 1.00)) infinite alternate;
+}
+
+@keyframes m3-drop-bob {
+  0% {
+    transform: scale(1.08) translateY(-2px);
+  }
+  100% {
+    transform: scale(1.12) translateY(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .m3-queue-drop-card,
+  .m3-queue-drop-icon {
+    transition:
+      background-color 120ms linear,
+      border-color 120ms linear,
+      color 120ms linear;
+  }
+  .m3-queue-drop-card.is-drag-active,
+  .m3-queue-drop-card:active:not(.is-disabled),
+  .m3-queue-drop-icon.is-drag-active {
+    transform: none;
+    animation: none;
+  }
+}
+</style>
