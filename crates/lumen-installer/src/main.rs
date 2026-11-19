@@ -718,7 +718,11 @@ fn is_safe_dedicated_install_dir(dir: &Path) -> bool {
     }
 
     let folder_name = parts[parts.len() - 1];
-    if !folder_name.eq_ignore_ascii_case("lumen") && !folder_name.eq_ignore_ascii_case("gotohp") {
+    if !folder_name.eq_ignore_ascii_case("lumen")
+        && !folder_name.eq_ignore_ascii_case("lumen dev")
+        && !folder_name.eq_ignore_ascii_case("lumen-dev")
+        && !folder_name.eq_ignore_ascii_case("gotohp")
+    {
         return false;
     }
 
@@ -1887,7 +1891,9 @@ mod tests {
         assert!(!is_safe_dedicated_install_dir(Path::new("C:\\Users\\User\\Downloads\\Lumen\\..")));
         assert!(!is_safe_dedicated_install_dir(Path::new("/home/user/Desktop/Lumen/..")));
         assert!(is_safe_dedicated_install_dir(Path::new("/home/user/.local/share/Lumen")));
+        assert!(is_safe_dedicated_install_dir(Path::new("/home/user/.local/share/Lumen-dev")));
         assert!(is_safe_dedicated_install_dir(Path::new("C:\\Users\\User\\AppData\\Local\\Programs\\Lumen")));
+        assert!(is_safe_dedicated_install_dir(Path::new("C:\\Users\\User\\AppData\\Local\\Programs\\Lumen Dev")));
         assert!(is_safe_dedicated_install_dir(Path::new("C:\\Program Files\\Reiux\\Lumen")));
         assert!(is_safe_dedicated_install_dir(Path::new("C:\\Program Files\\Lumen")));
     }
