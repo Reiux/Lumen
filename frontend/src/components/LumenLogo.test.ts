@@ -75,13 +75,29 @@ describe('LumenLogo', () => {
     expect(wrapper.find('svg circle').attributes('fill')).toBe('#000000')
   })
 
-  it('applies is-launching animation class only to wrapper group when animated prop is true', () => {
+  it('applies is-launching animation classes to HTML transform wrappers when animated prop is true', () => {
     const wrapper = mount(LumenLogo, {
       props: { size: 160, animated: true },
     })
 
-    const wrapperGroup = wrapper.find('.aperture-group')
-    expect(wrapperGroup.exists()).toBe(true)
-    expect(wrapperGroup.classes()).toContain('is-launching')
+    const rotateWrapper = wrapper.find('.lumen-logo-rotate')
+    const scaleWrapper = wrapper.find('.lumen-logo-scale')
+    const svgGroup = wrapper.find('.aperture-group')
+
+    expect(rotateWrapper.exists()).toBe(true)
+    expect(scaleWrapper.exists()).toBe(true)
+    expect(rotateWrapper.classes()).toContain('is-launching')
+    expect(scaleWrapper.classes()).toContain('is-launching')
+    // Keep SVG <g> free of CSS animation class for macOS WKWebView compatibility
+    expect(svgGroup.classes()).not.toContain('is-launching')
+  })
+
+  it('does not apply is-launching classes when animated prop is false', () => {
+    const wrapper = mount(LumenLogo, {
+      props: { size: 40, animated: false },
+    })
+
+    expect(wrapper.find('.lumen-logo-rotate').classes()).not.toContain('is-launching')
+    expect(wrapper.find('.lumen-logo-scale').classes()).not.toContain('is-launching')
   })
 })

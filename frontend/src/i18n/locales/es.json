@@ -154,7 +154,7 @@
     "dateFromFilename": "Fecha a partir del nombre",
     "dateFromFilenameSubtitle": "Usa fechas en nombres de archivo cuando falten metadatos.",
     "excludePattern": "Patrón de exclusión (regex)",
-    "excludePatternSubtitle": "Omite archivos cuya ruta o nombre coincida con una expresión regular (p. ej. \\.tmp$|@eaDir).",
+    "excludePatternSubtitle": "Omite archivos cuya ruta o nombre coincida con una expresión regular (p. ej. \\.tmp${'|@'}eaDir).",
     "saveFailed": "No se pudo guardar el ajuste",
     "performance": "Rendimiento",
     "backupThreads": "Hilos de copia",

@@ -154,7 +154,7 @@
     "dateFromFilename": "Date from filename",
     "dateFromFilenameSubtitle": "Use dates written in file names when camera metadata is missing.",
     "excludePattern": "Exclude pattern (regex)",
-    "excludePatternSubtitle": "Skip files whose path or name matches a regular expression (e.g. \\.tmp$|@eaDir).",
+    "excludePatternSubtitle": "Skip files whose path or name matches a regular expression (e.g. \\.tmp${'|@'}eaDir).",
     "saveFailed": "Could not save setting",
     "performance": "Performance",
     "backupThreads": "Backup threads",
