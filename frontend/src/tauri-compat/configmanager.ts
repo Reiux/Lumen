@@ -118,6 +118,14 @@ export const ConfigManager = {
     return '';
   },
 
+  async GetAccountBlockedState(email: string): Promise<$models.AccountBlockedEvent | null> {
+    if (hasTauri()) {
+      const res = await tauriInvoke('get_account_blocked_state', { email });
+      return res ? $models.AccountBlockedEvent.createFrom(res) : null;
+    }
+    return null;
+  },
+
   async GetAccountForPath(filePath: string): Promise<string> {
     if (hasTauri()) {
       return (await tauriInvoke<string>('get_account_for_path', { filePath })) || '';
@@ -590,6 +598,12 @@ export const ConfigManager = {
       return (await tauriInvoke<string>('start_browser_sign_in_with_options', { opts })) || '';
     }
     return 'mock@example.com';
+  },
+
+  async StartWatchedFolderUpload(folderPath: string): Promise<void> {
+    if (hasTauri()) {
+      return tauriInvoke('start_watched_folder_upload', { folderPath });
+    }
   },
 
   async UpdateWatchedFolderConfig(cfg: $models.WatchedFolderConfig): Promise<void> {

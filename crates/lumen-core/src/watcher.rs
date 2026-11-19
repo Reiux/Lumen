@@ -7,10 +7,12 @@ use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use tokio::sync::mpsc;
 
 use crate::scanner::{
-    directory_has_nomedia, is_ignored_temp_file, is_path_excluded, is_supported_by_google_photos,
+    directory_has_nomedia, is_ignored_temp_file, is_path_excluded_with_regex,
+    is_supported_by_google_photos, is_trash_or_hidden_directory, MAX_EXCLUDE_REGEX_SIZE_BYTES,
 };
 
 const MAX_ZERO_BYTE_CHECKS: usize = 2;
+const MAX_UNREADABLE_CHECKS: usize = 5;
 
 #[derive(Debug, Clone)]
 struct FileCandidate {
@@ -18,6 +20,24 @@ struct FileCandidate {
     mtime: u64,
     checks: usize,
     zero_byte_checks: usize,
+    unreadable_checks: usize,
+}
+
+#[derive(Debug, Clone)]
+struct WatcherFilterOptions {
+    filter_unsupported: bool,
+    exclude_pattern: String,
+    exclude_regex: Option<regex::Regex>,
+}
+
+impl Default for WatcherFilterOptions {
+    fn default() -> Self {
+        Self {
+            filter_unsupported: true,
+            exclude_pattern: String::new(),
+            exclude_regex: None,
+        }
+    }
 }
 
 fn normalize_for_ancestors(path: &Path) -> PathBuf {
@@ -31,7 +51,7 @@ fn normalize_for_ancestors(path: &Path) -> PathBuf {
     })
 }
 
-fn has_nomedia_in_ancestors(path: &Path, watched_roots: &[PathBuf]) -> bool {
+fn has_excluded_ancestor(path: &Path, watched_roots: &[PathBuf]) -> bool {
     let norm_path = normalize_for_ancestors(path);
     let norm_roots: Vec<PathBuf> = watched_roots
         .iter()
@@ -54,6 +74,11 @@ fn has_nomedia_in_ancestors(path: &Path, watched_roots: &[PathBuf]) -> bool {
             if dir == root.as_path() {
                 break;
             }
+            if let Some(name) = dir.file_name().and_then(|n| n.to_str()) {
+                if is_trash_or_hidden_directory(name) {
+                    return true;
+                }
+            }
         } else {
             break;
         }
@@ -66,11 +91,17 @@ fn has_nomedia_in_ancestors(path: &Path, watched_roots: &[PathBuf]) -> bool {
     false
 }
 
-fn should_watch_path(
+#[cfg(test)]
+fn has_nomedia_in_ancestors(path: &Path, watched_roots: &[PathBuf]) -> bool {
+    has_excluded_ancestor(path, watched_roots)
+}
+
+fn should_watch_path_with_regex(
     path: &Path,
     watched_roots: &[PathBuf],
     filter_unsupported: bool,
     exclude_pattern: &str,
+    exclude_regex: Option<&regex::Regex>,
 ) -> bool {
     if is_ignored_temp_file(path) {
         return false;
@@ -78,23 +109,48 @@ fn should_watch_path(
     if filter_unsupported && !is_supported_by_google_photos(path) {
         return false;
     }
-    if !exclude_pattern.trim().is_empty() && is_path_excluded(path, exclude_pattern) {
+    if !exclude_pattern.trim().is_empty()
+        && is_path_excluded_with_regex(path, exclude_pattern, exclude_regex)
+    {
         return false;
     }
-    if has_nomedia_in_ancestors(path, watched_roots) {
+    if has_excluded_ancestor(path, watched_roots) {
         return false;
     }
     true
+}
+
+#[cfg(test)]
+fn should_watch_path(
+    path: &Path,
+    watched_roots: &[PathBuf],
+    filter_unsupported: bool,
+    exclude_pattern: &str,
+) -> bool {
+    let compiled = crate::scanner::compile_exclude_regex(exclude_pattern);
+    should_watch_path_with_regex(
+        path,
+        watched_roots,
+        filter_unsupported,
+        exclude_pattern,
+        compiled.as_ref(),
+    )
 }
 
 pub struct FolderWatcher {
     watcher: Option<RecommendedWatcher>,
     folder_configs: Arc<Mutex<HashMap<PathBuf, bool>>>, // dir -> include_subfolders
     pending: Arc<Mutex<HashMap<PathBuf, FileCandidate>>>,
-    filter_unsupported: Arc<Mutex<bool>>,
-    exclude_pattern: Arc<Mutex<String>>,
+    filter_options: Arc<Mutex<WatcherFilterOptions>>,
+    last_watch_errors: Arc<Mutex<Vec<String>>>,
     debounce: Duration,
     stop_tx: Option<tokio::sync::broadcast::Sender<()>>,
+}
+
+impl Drop for FolderWatcher {
+    fn drop(&mut self) {
+        self.stop();
+    }
 }
 
 impl FolderWatcher {
@@ -103,16 +159,31 @@ impl FolderWatcher {
             watcher: None,
             folder_configs: Arc::new(Mutex::new(HashMap::new())),
             pending: Arc::new(Mutex::new(HashMap::new())),
-            filter_unsupported: Arc::new(Mutex::new(true)),
-            exclude_pattern: Arc::new(Mutex::new(String::new())),
+            filter_options: Arc::new(Mutex::new(WatcherFilterOptions::default())),
+            last_watch_errors: Arc::new(Mutex::new(Vec::new())),
             debounce,
             stop_tx: None,
         }
     }
 
+    pub fn last_watch_errors(&self) -> Vec<String> {
+        self.last_watch_errors.lock().unwrap().clone()
+    }
+
     pub fn set_filter_options(&self, filter_unsupported: bool, exclude_pattern: String) {
-        *self.filter_unsupported.lock().unwrap() = filter_unsupported;
-        *self.exclude_pattern.lock().unwrap() = exclude_pattern;
+        let trimmed = exclude_pattern.trim();
+        let exclude_regex = if trimmed.is_empty() || trimmed.len() > 1024 {
+            None
+        } else {
+            regex::RegexBuilder::new(trimmed)
+                .size_limit(MAX_EXCLUDE_REGEX_SIZE_BYTES)
+                .build()
+                .ok()
+        };
+        let mut opts = self.filter_options.lock().unwrap();
+        opts.filter_unsupported = filter_unsupported;
+        opts.exclude_pattern = exclude_pattern;
+        opts.exclude_regex = exclude_regex;
     }
 
     pub fn start<F>(&mut self, on_new_files: F) -> Result<(), String>
@@ -124,17 +195,21 @@ impl FolderWatcher {
         let (tx, mut rx) = mpsc::channel::<PathBuf>(1000);
         let folder_configs = self.folder_configs.clone();
         let cb_roots = self.folder_configs.clone();
-        let cb_filter = self.filter_unsupported.clone();
-        let cb_exclude = self.exclude_pattern.clone();
+        let cb_filters = self.filter_options.clone();
 
         let mut watcher = notify::recommended_watcher(move |res: Result<Event, notify::Error>| {
             if let Ok(event) = res {
                 if matches!(event.kind, EventKind::Create(_) | EventKind::Modify(_)) {
                     let roots: Vec<PathBuf> = cb_roots.lock().unwrap().keys().cloned().collect();
-                    let filter_unsupported = *cb_filter.lock().unwrap();
-                    let exclude_pattern = cb_exclude.lock().unwrap().clone();
+                    let filters = cb_filters.lock().unwrap().clone();
                     for path in event.paths {
-                        if should_watch_path(&path, &roots, filter_unsupported, &exclude_pattern) {
+                        if should_watch_path_with_regex(
+                            &path,
+                            &roots,
+                            filters.filter_unsupported,
+                            &filters.exclude_pattern,
+                            filters.exclude_regex.as_ref(),
+                        ) {
                             let _ = tx.blocking_send(path);
                         }
                     }
@@ -143,19 +218,21 @@ impl FolderWatcher {
         }).map_err(|e| e.to_string())?;
 
         // Add monitored folders
+        let mut watch_errors = Vec::new();
         {
             let configs = folder_configs.lock().unwrap();
             for (path, recursive) in configs.iter() {
-                if path.exists() {
-                    let mode = if *recursive {
-                        RecursiveMode::Recursive
-                    } else {
-                        RecursiveMode::NonRecursive
-                    };
-                    let _ = watcher.watch(path, mode);
+                let mode = if *recursive {
+                    RecursiveMode::Recursive
+                } else {
+                    RecursiveMode::NonRecursive
+                };
+                if let Err(e) = watcher.watch(path, mode) {
+                    watch_errors.push(format!("Failed to watch '{}': {}", path.display(), e));
                 }
             }
         }
+        *self.last_watch_errors.lock().unwrap() = watch_errors.clone();
 
         self.watcher = Some(watcher);
         let (stop_tx, mut stop_rx) = tokio::sync::broadcast::channel::<()>(1);
@@ -163,8 +240,7 @@ impl FolderWatcher {
 
         let pending = self.pending.clone();
         let loop_roots = self.folder_configs.clone();
-        let loop_filter = self.filter_unsupported.clone();
-        let loop_exclude = self.exclude_pattern.clone();
+        let loop_filters = self.filter_options.clone();
         let debounce = self.debounce;
 
         // Background loop for debouncing and stability checks
@@ -180,6 +256,7 @@ impl FolderWatcher {
                             mtime: 0,
                             checks: 0,
                             zero_byte_checks: 0,
+                            unreadable_checks: 0,
                         });
                     }
                     _ = ticker.tick() => {
@@ -193,8 +270,7 @@ impl FolderWatcher {
                         }
 
                         let roots: Vec<PathBuf> = loop_roots.lock().unwrap().keys().cloned().collect();
-                        let filter_unsupported = *loop_filter.lock().unwrap();
-                        let exclude_pattern = loop_exclude.lock().unwrap().clone();
+                        let filters = loop_filters.lock().unwrap().clone();
 
                         struct InspectedCandidate {
                             path: PathBuf,
@@ -247,7 +323,13 @@ impl FolderWatcher {
                                     continue;
                                 }
 
-                                if !should_watch_path(&path, &roots, filter_unsupported, &exclude_pattern) {
+                                if !should_watch_path_with_regex(
+                                    &path,
+                                    &roots,
+                                    filters.filter_unsupported,
+                                    &filters.exclude_pattern,
+                                    filters.exclude_regex.as_ref(),
+                                ) {
                                     results.push(InspectedCandidate {
                                         path,
                                         size: cand.size,
@@ -315,12 +397,23 @@ impl FolderWatcher {
                                     continue;
                                 }
                                 if !item.readable {
+                                    let mut drop_unreadable = false;
+                                    if let Some(cand) = p.get_mut(&item.path) {
+                                        cand.unreadable_checks += 1;
+                                        if cand.unreadable_checks >= MAX_UNREADABLE_CHECKS {
+                                            drop_unreadable = true;
+                                        }
+                                    }
+                                    if drop_unreadable {
+                                        p.remove(&item.path);
+                                    }
                                     continue;
                                 }
 
                                 let mut is_ready = false;
                                 if let Some(cand) = p.get_mut(&item.path) {
                                     cand.zero_byte_checks = 0;
+                                    cand.unreadable_checks = 0;
                                     if cand.size == item.size && cand.mtime == item.mtime {
                                         cand.checks += 1;
                                     } else {
@@ -363,27 +456,36 @@ impl FolderWatcher {
                 .map_err(|e| format!("Failed to spawn watcher background thread: {}", e))?;
         }
 
+        if !watch_errors.is_empty() {
+            return Err(watch_errors.join("; "));
+        }
+
         Ok(())
     }
 
     pub fn set_folders(&mut self, folders: HashMap<PathBuf, bool>) -> Result<(), String> {
         let mut configs = self.folder_configs.lock().unwrap();
+        let mut watch_errors = Vec::new();
         if let Some(ref mut watcher) = self.watcher {
             for p in configs.keys() {
                 let _ = watcher.unwatch(p);
             }
             for (p, recursive) in &folders {
-                if p.exists() {
-                    let mode = if *recursive {
-                        RecursiveMode::Recursive
-                    } else {
-                        RecursiveMode::NonRecursive
-                    };
-                    let _ = watcher.watch(p, mode);
+                let mode = if *recursive {
+                    RecursiveMode::Recursive
+                } else {
+                    RecursiveMode::NonRecursive
+                };
+                if let Err(e) = watcher.watch(p, mode) {
+                    watch_errors.push(format!("Failed to watch '{}': {}", p.display(), e));
                 }
             }
         }
         *configs = folders;
+        *self.last_watch_errors.lock().unwrap() = watch_errors.clone();
+        if !watch_errors.is_empty() {
+            return Err(watch_errors.join("; "));
+        }
         Ok(())
     }
 
@@ -392,6 +494,9 @@ impl FolderWatcher {
             let _ = tx.send(());
         }
         self.watcher = None;
+        if let Ok(mut pending) = self.pending.lock() {
+            pending.clear();
+        }
     }
 }
 

@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -52,15 +53,25 @@ impl GlobalRateLimiter {
     }
 
     pub async fn wait(&self, n: usize) {
+        let _ = self.wait_cancellable(n, None).await;
+    }
+
+    /// Waits until `n` bytes are permitted by the rate limiter, waking at most
+    /// every 250ms to check `cancelled`. Returns `true` if the wait completed
+    /// or `false` if cancelled before completion.
+    pub async fn wait_cancellable(&self, n: usize, cancelled: Option<&AtomicBool>) -> bool {
         if n == 0 {
-            return;
+            return true;
         }
         let mut remaining = n as f64;
         while remaining > 0.0 {
+            if cancelled.is_some_and(|c| c.load(Ordering::Relaxed)) {
+                return false;
+            }
             let wait_dur = {
                 let mut state = self.inner.lock().unwrap();
                 if state.bytes_per_sec == 0 {
-                    return;
+                    return true;
                 }
 
                 let now = Instant::now();
@@ -79,7 +90,7 @@ impl GlobalRateLimiter {
                     state.tokens -= step;
                     remaining -= step;
                     if remaining <= 0.0 {
-                        return;
+                        return true;
                     }
                     let next_step = remaining.min(state.capacity.max(1.0));
                     let deficit = (next_step - state.tokens).max(0.0);
@@ -91,12 +102,31 @@ impl GlobalRateLimiter {
             };
 
             if !wait_dur.is_zero() {
-                tokio::time::sleep(wait_dur).await;
+                tokio::time::sleep(wait_dur.min(Duration::from_millis(250))).await;
             } else {
                 tokio::task::yield_now().await;
             }
         }
+        true
     }
+}
+
+pub fn format_reqwest_error(e: &reqwest::Error) -> String {
+    use std::error::Error;
+    let mut msg = e.to_string();
+    let mut src = e.source();
+    while let Some(cause) = src {
+        let cause_str = cause.to_string();
+        if !cause_str.is_empty() && !msg.contains(&cause_str) {
+            msg.push_str(": ");
+            msg.push_str(&cause_str);
+        }
+        src = cause.source();
+    }
+    if e.is_timeout() && !msg.to_ascii_lowercase().contains("timed out") {
+        msg.push_str(" (timed out)");
+    }
+    msg
 }
 
 pub fn validate_proxy_url(proxy: &str) -> Result<(), String> {
@@ -131,7 +161,7 @@ pub async fn read_response_bytes_bounded(
         }
     }
     let mut buf = Vec::new();
-    while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
+    while let Some(chunk) = resp.chunk().await.map_err(|e| format_reqwest_error(&e))? {
         if buf.len().saturating_add(chunk.len()) > max_bytes {
             return Err(format!("Response body exceeds maximum allowed size ({} bytes)", max_bytes));
         }

@@ -8,6 +8,7 @@ use tar::Builder;
 fn main() {
     println!("cargo:rerun-if-changed=payload.tar.gz");
     println!("cargo:rerun-if-changed=ui/index.html");
+    println!("cargo:rerun-if-env-changed=LUMEN_ALLOW_PLACEHOLDER_PAYLOAD");
 
     let out_dir = env::var("OUT_DIR").expect("OUT_DIR not set");
     let out_payload = Path::new(&out_dir).join("payload.tar.gz");
@@ -26,6 +27,15 @@ fn main() {
         }
         fs::copy(&local_payload, &out_payload).expect("failed to copy local payload.tar.gz");
     } else {
+        if env::var("PROFILE").as_deref() == Ok("release")
+            && env::var("LUMEN_ALLOW_PLACEHOLDER_PAYLOAD").as_deref() != Ok("1")
+        {
+            panic!(
+                "Refusing to build release installer without crates/lumen-installer/payload.tar.gz. \
+                 Provide payload.tar.gz or set LUMEN_ALLOW_PLACEHOLDER_PAYLOAD=1 to override."
+            );
+        }
+
         // Create a dummy valid tar.gz archive for tests and development
         let file = File::create(&out_payload).expect("failed to create placeholder payload.tar.gz");
         let enc = GzEncoder::new(file, Compression::default());

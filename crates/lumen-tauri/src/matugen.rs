@@ -62,16 +62,41 @@ pub mod linux {
         None
     }
 
+    const MAX_COLOR_FILE_BYTES: u64 = 1024 * 1024; // 1 MiB
+
+    pub(crate) fn is_valid_hex_color(s: &str) -> bool {
+        let Some(hex) = s.strip_prefix('#') else {
+            return false;
+        };
+        matches!(hex.len(), 3 | 6 | 8) && hex.bytes().all(|b| b.is_ascii_hexdigit())
+    }
+
+    fn read_file_bounded(path: &Path, max_bytes: u64) -> Option<String> {
+        use std::io::Read;
+        let meta = fs::metadata(path).ok()?;
+        if !meta.is_file() || meta.len() > max_bytes {
+            return None;
+        }
+        let file = fs::File::open(path).ok()?;
+        let mut buf = Vec::new();
+        file.take(max_bytes + 1).read_to_end(&mut buf).ok()?;
+        if buf.len() as u64 > max_bytes {
+            return None;
+        }
+        String::from_utf8(buf).ok()
+    }
+
     pub fn parse_color_file(path: &Path) -> Option<HashMap<String, String>> {
-        let content = fs::read_to_string(path).ok()?;
+        let content = read_file_bounded(path, MAX_COLOR_FILE_BYTES)?;
         if path.extension().and_then(|s| s.to_str()) == Some("txt") {
             let trimmed = content.trim();
-            if trimmed.starts_with('#') && (trimmed.len() == 7 || trimmed.len() == 9) {
+            if is_valid_hex_color(trimmed) {
                 let mut map = HashMap::new();
                 map.insert("seed".to_string(), trimmed.to_string());
                 map.insert("primary".to_string(), trimmed.to_string());
                 return Some(map);
             }
+            return None;
         }
 
         let val: serde_json::Value = serde_json::from_str(&content).ok()?;
@@ -91,8 +116,9 @@ pub mod linux {
             // Case 2: Flat JSON { "primary": "#...", "surface": "#..." }
             for (key, color_val) in obj {
                 if let Some(hex) = color_val.as_str() {
-                    if hex.starts_with('#') {
-                        insert_color_aliases(&mut map, key, hex);
+                    let trimmed = hex.trim();
+                    if is_valid_hex_color(trimmed) {
+                        insert_color_aliases(&mut map, key, trimmed);
                     }
                 }
             }
@@ -107,21 +133,31 @@ pub mod linux {
 
     fn extract_hex_from_matugen_node(val: &serde_json::Value) -> Option<String> {
         if let Some(s) = val.as_str() {
-            if s.starts_with('#') {
-                return Some(s.to_string());
+            let trimmed = s.trim();
+            if is_valid_hex_color(trimmed) {
+                return Some(trimmed.to_string());
             }
         }
         // Lumen runs in dark theme by default: check dark first, then default
         if let Some(dark_hex) = val.get("dark").and_then(|v| v.get("color")).and_then(|s| s.as_str()) {
-            return Some(dark_hex.to_string());
+            let trimmed = dark_hex.trim();
+            if is_valid_hex_color(trimmed) {
+                return Some(trimmed.to_string());
+            }
         }
         if let Some(def_hex) = val.get("default").and_then(|v| v.get("color")).and_then(|s| s.as_str()) {
-            return Some(def_hex.to_string());
+            let trimmed = def_hex.trim();
+            if is_valid_hex_color(trimmed) {
+                return Some(trimmed.to_string());
+            }
         }
         None
     }
 
     fn insert_color_aliases(map: &mut HashMap<String, String>, raw_key: &str, hex: &str) {
+        if !is_valid_hex_color(hex) {
+            return;
+        }
         let clean_key = raw_key.trim_start_matches("--md-sys-color-").to_lowercase();
         let underscored = clean_key.replace('-', "_");
         let hyphenated = clean_key.replace('_', "-");
@@ -133,7 +169,7 @@ pub mod linux {
         if let Ok(home) = std::env::var("HOME") {
             let qs_wp = Path::new(&home).join(".local/state/quickshell/user/generated/wallpaper/path.txt");
             if qs_wp.is_file() {
-                if let Ok(txt) = fs::read_to_string(&qs_wp) {
+                if let Some(txt) = read_file_bounded(&qs_wp, 4096) {
                     let p = PathBuf::from(txt.trim());
                     if p.is_file() {
                         return Some(p);
@@ -148,15 +184,10 @@ pub mod linux {
         let dummy_cfg = tempfile::NamedTempFile::new().ok()?;
         fs::write(dummy_cfg.path(), "[config]\n\n[templates]\n").ok()?;
         let output = Command::new("matugen")
-            .args([
-                "-c",
-                dummy_cfg.path().to_string_lossy().as_ref(),
-                "image",
-                wp.to_string_lossy().as_ref(),
-                "-j",
-                "hex",
-                "--dry-run",
-            ])
+            .arg("-c")
+            .arg(dummy_cfg.path())
+            .args(["image", "-j", "hex", "--dry-run", "--"])
+            .arg(wp)
             .output()
             .ok()?;
 
@@ -174,7 +205,10 @@ pub mod linux {
 
         tauri::async_runtime::spawn(async move {
             let color_file_paths = get_candidate_paths();
-            let active = find_active_color_source();
+            let active = tokio::task::spawn_blocking(find_active_color_source)
+                .await
+                .ok()
+                .flatten();
             let watch_dir = match active {
                 Some((ref p, _)) if color_file_paths.contains(p) => {
                     p.parent().map(|d| d.to_path_buf())
@@ -243,7 +277,11 @@ pub mod linux {
                 tokio::time::sleep(Duration::from_millis(300)).await;
                 while rx.try_recv().is_ok() {}
 
-                if let Some((path, colors)) = find_active_color_source() {
+                if let Some((path, colors)) = tokio::task::spawn_blocking(find_active_color_source)
+                    .await
+                    .ok()
+                    .flatten()
+                {
                     tracing::info!("Matugen dynamic colors updated from {:?}", path);
                     let _ = app_handle.emit("matugen:colors-changed", &colors);
                 }
@@ -316,5 +354,35 @@ mod tests {
             assert_eq!(colors.get("primary").unwrap(), "#445566");
             assert_eq!(colors.get("surface").unwrap(), "#001122");
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_hex_color_validation_and_size_cap() {
+        assert!(linux::is_valid_hex_color("#abc"));
+        assert!(linux::is_valid_hex_color("#112233"));
+        assert!(linux::is_valid_hex_color("#112233AA"));
+        assert!(!linux::is_valid_hex_color("112233"));
+        assert!(!linux::is_valid_hex_color("#12"));
+        assert!(!linux::is_valid_hex_color("#1234"));
+        assert!(!linux::is_valid_hex_color("#1234567"));
+        assert!(!linux::is_valid_hex_color("#gggggg"));
+        assert!(!linux::is_valid_hex_color("#fff; background: url(https://evil)"));
+
+        let malicious = serde_json::json!({
+            "primary": "#112233; color: red",
+            "surface": "#abcdef",
+            "bad_len": "#12345"
+        });
+        let parsed = linux::parse_json_colors(&malicious).unwrap();
+        assert!(!parsed.contains_key("primary"));
+        assert!(!parsed.contains_key("bad_len"));
+        assert_eq!(parsed.get("surface").unwrap(), "#abcdef");
+
+        let dir = tempfile::tempdir().unwrap();
+        let oversized = dir.path().join("colors.json");
+        let payload = " ".repeat(1024 * 1024 + 64);
+        std::fs::write(&oversized, payload).unwrap();
+        assert!(linux::parse_color_file(&oversized).is_none());
     }
 }

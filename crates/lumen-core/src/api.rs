@@ -7,7 +7,7 @@ use thiserror::Error;
 
 use crate::album::{AlbumApi, AlbumError};
 use crate::auth::{TokenManager, GOOGLE_PHOTOS_PACKAGE};
-use crate::net::{create_http_client, GlobalRateLimiter};
+use crate::net::{create_http_client, format_reqwest_error, GlobalRateLimiter};
 use crate::proto::lumen::*;
 
 pub const DEFAULT_PHOTOS_DATA_BASE: &str = "https://photosdata-pa.googleapis.com/6439526531001121323";
@@ -93,39 +93,55 @@ impl ScottyFinalizeToken {
     }
 }
 
+pub fn validate_custom_endpoint_url(base: &str, release_mode: bool) -> Result<String, ApiError> {
+    let trimmed = base.trim().to_string();
+    let parsed = url::Url::parse(&trimmed).map_err(|e| {
+        ApiError::Network(format!("Invalid custom endpoint URL: {}", e))
+    })?;
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return Err(ApiError::Network(
+            "Custom endpoint URL must not contain embedded credentials".to_string(),
+        ));
+    }
+    let host = parsed.host_str().ok_or_else(|| {
+        ApiError::Network("Custom endpoint URL is missing a host".to_string())
+    })?;
+    let is_loopback = matches!(host, "127.0.0.1" | "localhost" | "[::1]");
+    if release_mode && !is_loopback {
+        return Err(ApiError::Network(
+            "Custom endpoint URL is restricted to loopback addresses in release builds".to_string(),
+        ));
+    }
+    match parsed.scheme() {
+        "https" => {}
+        "http" if is_loopback => {}
+        _ => {
+            return Err(ApiError::Network(
+                "Custom endpoint URL must use https:// (or http:// on loopback for testing)".to_string(),
+            ));
+        }
+    }
+    Ok(trimmed)
+}
+
 impl Api {
     pub fn new(opts: ApiOptions, credentials: &str) -> Result<Self, ApiError> {
+        let client = create_http_client(if opts.proxy.is_empty() { None } else { Some(&opts.proxy) })
+            .map_err(ApiError::Network)?;
+        Self::new_with_client(opts, credentials, client)
+    }
+
+    pub fn new_with_client(
+        opts: ApiOptions,
+        credentials: &str,
+        client: reqwest::Client,
+    ) -> Result<Self, ApiError> {
         let custom_endpoint_base = match opts.custom_endpoint_base {
             Some(ref base) if !base.trim().is_empty() => {
-                let trimmed = base.trim().to_string();
-                let parsed = url::Url::parse(&trimmed).map_err(|e| {
-                    ApiError::Network(format!("Invalid custom endpoint URL: {}", e))
-                })?;
-                if !parsed.username().is_empty() || parsed.password().is_some() {
-                    return Err(ApiError::Network(
-                        "Custom endpoint URL must not contain embedded credentials".to_string(),
-                    ));
-                }
-                let host = parsed.host_str().ok_or_else(|| {
-                    ApiError::Network("Custom endpoint URL is missing a host".to_string())
-                })?;
-                let is_loopback = matches!(host, "127.0.0.1" | "localhost" | "[::1]");
-                match parsed.scheme() {
-                    "https" => {}
-                    "http" if is_loopback => {}
-                    _ => {
-                        return Err(ApiError::Network(
-                            "Custom endpoint URL must use https:// (or http:// on loopback for testing)".to_string(),
-                        ));
-                    }
-                }
-                Some(trimmed)
+                Some(validate_custom_endpoint_url(base, !cfg!(debug_assertions))?)
             }
             _ => None,
         };
-
-        let client = create_http_client(if opts.proxy.is_empty() { None } else { Some(&opts.proxy) })
-            .map_err(ApiError::Network)?;
 
         let mut email = opts.account.clone();
         if email.is_empty() {
@@ -260,7 +276,7 @@ impl Api {
             .form(&form_params)
             .send()
             .await
-            .map_err(|e| ApiError::Network(e.to_string()))?;
+            .map_err(|e| ApiError::Network(format_reqwest_error(&e)))?;
 
         let status = resp.status();
         let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
@@ -268,28 +284,29 @@ impl Api {
             .map_err(ApiError::Network)?;
         let body = String::from_utf8_lossy(&body_bytes).to_string();
 
+        let parsed = crate::auth::parse_key_value_response(&body);
         if !status.is_success() {
+            let sanitized = parsed
+                .get("Error")
+                .map(|c| c.trim().to_string())
+                .filter(|c| !c.is_empty())
+                .unwrap_or_else(|| "authentication request rejected".to_string());
             return Err(ApiError::HttpStatus {
                 status: status.as_u16(),
-                body,
+                body: sanitized,
             });
         }
 
-        let parsed = crate::auth::parse_key_value_response(&body);
         if let Some(err_code) = parsed.get("Error") {
-            let detail = parsed
-                .get("ErrorDetail")
-                .map(|d| format!(" ({})", d))
-                .unwrap_or_default();
             return Err(ApiError::Auth(format!(
-                "Google auth failed: {}{}",
-                err_code, detail
+                "Google auth failed: {}",
+                err_code.trim()
             )));
         }
 
         let token = parsed
             .get("Auth")
-            .ok_or_else(|| ApiError::Auth(format!("auth response missing Auth token. Server response: {}", body.trim())))?
+            .ok_or_else(|| ApiError::Auth("auth response missing Auth token".to_string()))?
             .clone();
 
         // Google returns `Expiry` as a Unix epoch timestamp in seconds (~1.7e9),
@@ -330,33 +347,46 @@ impl Api {
 
         let mut req_body = Vec::new();
         req_proto.encode(&mut req_body).map_err(|e| ApiError::Protobuf(e.to_string()))?;
+        let req_body = bytes::Bytes::from(req_body);
 
-        let bearer = self.bearer_token().await?;
+        let max_attempts = if self.token_manager.is_some() { 2 } else { 1 };
+        let mut body_bytes = Vec::new();
+        for attempt in 0..max_attempts {
+            let bearer = self.bearer_token().await?;
 
-        let resp = self
-            .client
-            .post(&endpoint)
-            .header("Accept-Encoding", "gzip")
-            .header("Accept-Language", &self.language)
-            .header("Content-Type", "application/x-protobuf")
-            .header("User-Agent", &self.user_agent)
-            .header("Authorization", format!("Bearer {}", bearer))
-            .body(req_body)
-            .send()
-            .await
-            .map_err(|e| ApiError::Network(e.to_string()))?;
+            let resp = self
+                .client
+                .post(&endpoint)
+                .header("Accept-Encoding", "gzip")
+                .header("Accept-Language", &self.language)
+                .header("Content-Type", "application/x-protobuf")
+                .header("User-Agent", &self.user_agent)
+                .header("Authorization", format!("Bearer {}", bearer))
+                .body(req_body.clone())
+                .send()
+                .await
+                .map_err(|e| ApiError::Network(format_reqwest_error(&e)))?;
 
-        let status = resp.status();
-        let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
-            .await
-            .map_err(ApiError::Network)?;
+            let status = resp.status();
+            if status == reqwest::StatusCode::UNAUTHORIZED && attempt + 1 < max_attempts {
+                self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
+                continue;
+            }
 
-        if !status.is_success() {
-            self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
-            return Err(ApiError::HttpStatus {
-                status: status.as_u16(),
-                body: String::from_utf8_lossy(&body_bytes).to_string(),
-            });
+            let resp_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
+                .await
+                .map_err(ApiError::Network)?;
+
+            if !status.is_success() {
+                self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
+                return Err(ApiError::HttpStatus {
+                    status: status.as_u16(),
+                    body: String::from_utf8_lossy(&resp_bytes).to_string(),
+                });
+            }
+
+            body_bytes = resp_bytes;
+            break;
         }
 
         if let Ok(matches) = RemoteMatches::decode(&body_bytes[..]) {
@@ -390,49 +420,60 @@ impl Api {
 
         let mut req_body = Vec::new();
         req_proto.encode(&mut req_body).map_err(|e| ApiError::Protobuf(e.to_string()))?;
+        let req_body = bytes::Bytes::from(req_body);
 
-        let bearer = self.bearer_token().await?;
+        let max_attempts = if self.token_manager.is_some() { 2 } else { 1 };
+        for attempt in 0..max_attempts {
+            let bearer = self.bearer_token().await?;
 
-        let resp = self
-            .client
-            .post(&endpoint)
-            .header("Accept-Encoding", "gzip")
-            .header("Accept-Language", &self.language)
-            .header("Content-Type", "application/x-protobuf")
-            .header("User-Agent", &self.user_agent)
-            .header("Authorization", format!("Bearer {}", bearer))
-            .header("X-Goog-Hash", format!("sha1={}", sha1_b64))
-            .header("X-Upload-Content-Length", file_size.to_string())
-            .body(req_body)
-            .send()
-            .await
-            .map_err(|e| ApiError::Network(e.to_string()))?;
-
-        let status = resp.status();
-        if !status.is_success() {
-            self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
-            let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
+            let resp = self
+                .client
+                .post(&endpoint)
+                .header("Accept-Encoding", "gzip")
+                .header("Accept-Language", &self.language)
+                .header("Content-Type", "application/x-protobuf")
+                .header("User-Agent", &self.user_agent)
+                .header("Authorization", format!("Bearer {}", bearer))
+                .header("X-Goog-Hash", format!("sha1={}", sha1_b64))
+                .header("X-Upload-Content-Length", file_size.to_string())
+                .body(req_body.clone())
+                .send()
                 .await
-                .unwrap_or_default();
-            let body = String::from_utf8_lossy(&body_bytes).to_string();
-            return Err(ApiError::HttpStatus {
-                status: status.as_u16(),
-                body,
-            });
+                .map_err(|e| ApiError::Network(format_reqwest_error(&e)))?;
+
+            let status = resp.status();
+            if status == reqwest::StatusCode::UNAUTHORIZED && attempt + 1 < max_attempts {
+                self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
+                continue;
+            }
+
+            if !status.is_success() {
+                self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
+                let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
+                    .await
+                    .unwrap_or_default();
+                let body = String::from_utf8_lossy(&body_bytes).to_string();
+                return Err(ApiError::HttpStatus {
+                    status: status.as_u16(),
+                    body,
+                });
+            }
+
+            let upload_id = resp
+                .headers()
+                .get("X-GUploader-UploadID")
+                .or_else(|| resp.headers().get("x-guploader-uploadid"))
+                .and_then(|v| v.to_str().ok())
+                .ok_or_else(|| ApiError::HttpStatus {
+                    status: status.as_u16(),
+                    body: "Missing X-GUploader-UploadID header".to_string(),
+                })?
+                .to_string();
+
+            return Ok(upload_id);
         }
 
-        let upload_id = resp
-            .headers()
-            .get("X-GUploader-UploadID")
-            .or_else(|| resp.headers().get("x-guploader-uploadid"))
-            .and_then(|v| v.to_str().ok())
-            .ok_or_else(|| ApiError::HttpStatus {
-                status: status.as_u16(),
-                body: "Missing X-GUploader-UploadID header".to_string(),
-            })?
-            .to_string();
-
-        Ok(upload_id)
+        Err(ApiError::Auth("Bearer token refresh retry exhausted".to_string()))
     }
 
     pub async fn query_upload_status(&self, upload_token: &str) -> Result<Option<i64>, ApiError> {
@@ -442,49 +483,59 @@ impl Api {
             None => format!("{}/data/upload/uploadmedia/interactive?upload_id={}", DEFAULT_PHOTOS_UPLOAD_BASE, encoded_token),
         };
 
-        let bearer = self.bearer_token().await?;
-        let resp = self
-            .client
-            .post(&upload_url)
-            .header("Authorization", format!("Bearer {}", bearer))
-            .header("User-Agent", &self.user_agent)
-            .header("Accept-Language", &self.language)
-            .header("X-Goog-Upload-Protocol", "resumable")
-            .header("X-Goog-Upload-Command", "query")
-            .header("Content-Length", "0")
-            .send()
-            .await
-            .map_err(|e| ApiError::Network(e.to_string()))?;
+        let max_attempts = if self.token_manager.is_some() { 2 } else { 1 };
+        for attempt in 0..max_attempts {
+            let bearer = self.bearer_token().await?;
+            let resp = self
+                .client
+                .post(&upload_url)
+                .header("Authorization", format!("Bearer {}", bearer))
+                .header("User-Agent", &self.user_agent)
+                .header("Accept-Language", &self.language)
+                .header("X-Goog-Upload-Protocol", "resumable")
+                .header("X-Goog-Upload-Command", "query")
+                .header("Content-Length", "0")
+                .send()
+                .await
+                .map_err(|e| ApiError::Network(format_reqwest_error(&e)))?;
 
-        let status = resp.status();
-        let upload_status_hdr = resp
-            .headers()
-            .get("x-goog-upload-status")
-            .and_then(|v| v.to_str().ok())
-            .map(|s| s.to_ascii_lowercase());
-        if status.is_success() {
-            if matches!(upload_status_hdr.as_deref(), Some("cancelled")) {
+            let status = resp.status();
+            if status == reqwest::StatusCode::UNAUTHORIZED && attempt + 1 < max_attempts {
+                self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
+                continue;
+            }
+
+            let upload_status_hdr = resp
+                .headers()
+                .get("x-goog-upload-status")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_ascii_lowercase());
+            if status.is_success() {
+                if matches!(upload_status_hdr.as_deref(), Some("cancelled")) {
+                    return Ok(None);
+                }
+                if let Some(recv_str) = resp.headers().get("x-goog-upload-size-received").and_then(|v| v.to_str().ok()) {
+                    if let Ok(recv) = recv_str.parse::<i64>() {
+                        return Ok(Some(recv));
+                    }
+                }
+                return Ok(Some(0));
+            }
+
+            self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
+            if matches!(status.as_u16(), 404 | 410) {
                 return Ok(None);
             }
-            if let Some(recv_str) = resp.headers().get("x-goog-upload-size-received").and_then(|v| v.to_str().ok()) {
-                if let Ok(recv) = recv_str.parse::<i64>() {
-                    return Ok(Some(recv));
-                }
-            }
-            return Ok(Some(0));
+            let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
+                .await
+                .unwrap_or_default();
+            return Err(ApiError::HttpStatus {
+                status: status.as_u16(),
+                body: String::from_utf8_lossy(&body_bytes).to_string(),
+            });
         }
 
-        self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
-        if matches!(status.as_u16(), 404 | 410) {
-            return Ok(None);
-        }
-        let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
-            .await
-            .unwrap_or_default();
-        Err(ApiError::HttpStatus {
-            status: status.as_u16(),
-            body: String::from_utf8_lossy(&body_bytes).to_string(),
-        })
+        Err(ApiError::Auth("Bearer token refresh retry exhausted".to_string()))
     }
 
     pub async fn upload_file_resumable<F>(
@@ -560,6 +611,8 @@ impl Api {
                 .map_err(|e| ApiError::Io(e.to_string()))?;
         }
 
+        let max_auth_attempts = if self.token_manager.is_some() { 2 } else { 1 };
+
         // Handle empty file OR resume where server already received all bytes
         if file_size == 0 || current_offset >= file_size {
             if let Some(ref c) = cancelled {
@@ -577,35 +630,43 @@ impl Api {
                     tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
                 }
             }
-            let bearer = self.bearer_token().await?;
-            let resp = self
-                .client
-                .put(&upload_url)
-                .header("Accept-Encoding", "gzip")
-                .header("Accept-Language", &self.language)
-                .header("User-Agent", &self.user_agent)
-                .header("Authorization", format!("Bearer {}", bearer))
-                .header("X-Goog-Upload-Protocol", "resumable")
-                .header("X-Goog-Upload-Command", "upload, finalize")
-                .header("X-Goog-Upload-Offset", current_offset.to_string())
-                .header("Content-Length", "0")
-                .body(Vec::new())
-                .send()
-                .await
-                .map_err(|e| ApiError::Network(e.to_string()))?;
+            for attempt in 0..max_auth_attempts {
+                let bearer = self.bearer_token().await?;
+                let resp = self
+                    .client
+                    .put(&upload_url)
+                    .header("Accept-Encoding", "gzip")
+                    .header("Accept-Language", &self.language)
+                    .header("User-Agent", &self.user_agent)
+                    .header("Authorization", format!("Bearer {}", bearer))
+                    .header("X-Goog-Upload-Protocol", "resumable")
+                    .header("X-Goog-Upload-Command", "upload, finalize")
+                    .header("X-Goog-Upload-Offset", current_offset.to_string())
+                    .header("Content-Length", "0")
+                    .body(Vec::new())
+                    .send()
+                    .await
+                    .map_err(|e| ApiError::Network(format_reqwest_error(&e)))?;
 
-            let status = resp.status();
-            let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
-                .await
-                .map_err(ApiError::Network)?;
-            if !status.is_success() {
-                self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
-                return Err(ApiError::HttpStatus {
-                    status: status.as_u16(),
-                    body: String::from_utf8_lossy(&body_bytes).to_string(),
-                });
+                let status = resp.status();
+                if status == reqwest::StatusCode::UNAUTHORIZED && attempt + 1 < max_auth_attempts {
+                    self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
+                    continue;
+                }
+
+                let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
+                    .await
+                    .map_err(ApiError::Network)?;
+                if !status.is_success() {
+                    self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
+                    return Err(ApiError::HttpStatus {
+                        status: status.as_u16(),
+                        body: String::from_utf8_lossy(&body_bytes).to_string(),
+                    });
+                }
+                return ScottyFinalizeToken::parse(&body_bytes);
             }
-            return ScottyFinalizeToken::parse(&body_bytes);
+            return Err(ApiError::Auth("Bearer token refresh retry exhausted".to_string()));
         }
 
         while current_offset < file_size {
@@ -628,44 +689,61 @@ impl Api {
                 }
             }
 
-            let remaining = (file_size - current_offset) as usize;
-            let to_read = remaining.min(chunk_size);
+            let to_read = (file_size - current_offset).min(chunk_size as i64) as usize;
             let mut chunk = vec![0u8; to_read];
             file.read_exact(&mut chunk).await.map_err(|e| ApiError::Io(e.to_string()))?;
 
-            self.rate_limiter.wait(to_read).await;
+            if !self
+                .rate_limiter
+                .wait_cancellable(to_read, cancelled.as_deref())
+                .await
+            {
+                return Err(ApiError::Io("Upload cancelled".to_string()));
+            }
 
             let is_last = (current_offset + to_read as i64) >= file_size;
             let command = if is_last { "upload, finalize" } else { "upload" };
+            let chunk_bytes = bytes::Bytes::from(chunk);
 
-            let bearer = self.bearer_token().await?;
-            let resp = self
-                .client
-                .put(&upload_url)
-                .header("Accept-Encoding", "gzip")
-                .header("Accept-Language", &self.language)
-                .header("User-Agent", &self.user_agent)
-                .header("Authorization", format!("Bearer {}", bearer))
-                .header("X-Goog-Upload-Protocol", "resumable")
-                .header("X-Goog-Upload-Command", command)
-                .header("X-Goog-Upload-Offset", current_offset.to_string())
-                .header("Content-Length", to_read.to_string())
-                .body(chunk)
-                .send()
-                .await
-                .map_err(|e| ApiError::Network(e.to_string()))?;
+            let mut body_bytes = Vec::new();
+            for attempt in 0..max_auth_attempts {
+                let bearer = self.bearer_token().await?;
+                let resp = self
+                    .client
+                    .put(&upload_url)
+                    .header("Accept-Encoding", "gzip")
+                    .header("Accept-Language", &self.language)
+                    .header("User-Agent", &self.user_agent)
+                    .header("Authorization", format!("Bearer {}", bearer))
+                    .header("X-Goog-Upload-Protocol", "resumable")
+                    .header("X-Goog-Upload-Command", command)
+                    .header("X-Goog-Upload-Offset", current_offset.to_string())
+                    .header("Content-Length", to_read.to_string())
+                    .body(chunk_bytes.clone())
+                    .send()
+                    .await
+                    .map_err(|e| ApiError::Network(format_reqwest_error(&e)))?;
 
-            let status = resp.status();
-            let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
-                .await
-                .map_err(ApiError::Network)?;
+                let status = resp.status();
+                if status == reqwest::StatusCode::UNAUTHORIZED && attempt + 1 < max_auth_attempts {
+                    self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
+                    continue;
+                }
 
-            if !status.is_success() {
-                self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
-                return Err(ApiError::HttpStatus {
-                    status: status.as_u16(),
-                    body: String::from_utf8_lossy(&body_bytes).to_string(),
-                });
+                let resp_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
+                    .await
+                    .map_err(ApiError::Network)?;
+
+                if !status.is_success() {
+                    self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
+                    return Err(ApiError::HttpStatus {
+                        status: status.as_u16(),
+                        body: String::from_utf8_lossy(&resp_bytes).to_string(),
+                    });
+                }
+
+                body_bytes = resp_bytes;
+                break;
             }
 
             current_offset += to_read as i64;
@@ -733,35 +811,48 @@ impl Api {
 
         let mut req_body = Vec::new();
         req_proto.encode(&mut req_body).map_err(|e| ApiError::Protobuf(e.to_string()))?;
+        let req_body = bytes::Bytes::from(req_body);
 
-        let bearer = self.bearer_token().await?;
+        let max_attempts = if self.token_manager.is_some() { 2 } else { 1 };
+        let mut body_bytes = Vec::new();
+        for attempt in 0..max_attempts {
+            let bearer = self.bearer_token().await?;
 
-        let resp = self
-            .client
-            .post(&endpoint)
-            .header("Accept-Encoding", "gzip")
-            .header("Accept-Language", &self.language)
-            .header("Content-Type", "application/x-protobuf")
-            .header("User-Agent", &self.user_agent)
-            .header("Authorization", format!("Bearer {}", bearer))
-            .header("x-goog-ext-173412678-bin", "CgcIAhClARgC")
-            .header("x-goog-ext-174067345-bin", "CgIIAg==")
-            .body(req_body)
-            .send()
-            .await
-            .map_err(|e| ApiError::Network(e.to_string()))?;
+            let resp = self
+                .client
+                .post(&endpoint)
+                .header("Accept-Encoding", "gzip")
+                .header("Accept-Language", &self.language)
+                .header("Content-Type", "application/x-protobuf")
+                .header("User-Agent", &self.user_agent)
+                .header("Authorization", format!("Bearer {}", bearer))
+                .header("x-goog-ext-173412678-bin", "CgcIAhClARgC")
+                .header("x-goog-ext-174067345-bin", "CgIIAg==")
+                .body(req_body.clone())
+                .send()
+                .await
+                .map_err(|e| ApiError::Network(format_reqwest_error(&e)))?;
 
-        let status = resp.status();
-        let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
-            .await
-            .map_err(ApiError::Network)?;
+            let status = resp.status();
+            if status == reqwest::StatusCode::UNAUTHORIZED && attempt + 1 < max_attempts {
+                self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
+                continue;
+            }
 
-        if !status.is_success() {
-            self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
-            return Err(ApiError::HttpStatus {
-                status: status.as_u16(),
-                body: String::from_utf8_lossy(&body_bytes).to_string(),
-            });
+            let resp_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
+                .await
+                .map_err(ApiError::Network)?;
+
+            if !status.is_success() {
+                self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
+                return Err(ApiError::HttpStatus {
+                    status: status.as_u16(),
+                    body: String::from_utf8_lossy(&resp_bytes).to_string(),
+                });
+            }
+
+            body_bytes = resp_bytes;
+            break;
         }
 
         // Try decoding as CreateMediaItemsResponse
@@ -875,35 +966,48 @@ impl Api {
 
         let mut req_body = Vec::new();
         request.encode(&mut req_body).map_err(|e| ApiError::Protobuf(e.to_string()))?;
+        let req_body = bytes::Bytes::from(req_body);
 
-        let bearer = self.bearer_token().await?;
+        let max_attempts = if self.token_manager.is_some() { 2 } else { 1 };
+        let mut body_bytes = Vec::new();
+        for attempt in 0..max_attempts {
+            let bearer = self.bearer_token().await?;
 
-        let resp = self
-            .client
-            .post(&endpoint)
-            .header("Accept-Encoding", "gzip")
-            .header("Accept-Language", &self.language)
-            .header("Content-Type", "application/x-protobuf")
-            .header("User-Agent", &self.user_agent)
-            .header("Authorization", format!("Bearer {}", bearer))
-            .header("x-goog-ext-173412678-bin", "CgcIAhClARgC")
-            .header("x-goog-ext-174067345-bin", "CgIIAg==")
-            .body(req_body)
-            .send()
-            .await
-            .map_err(|e| ApiError::Network(e.to_string()))?;
+            let resp = self
+                .client
+                .post(&endpoint)
+                .header("Accept-Encoding", "gzip")
+                .header("Accept-Language", &self.language)
+                .header("Content-Type", "application/x-protobuf")
+                .header("User-Agent", &self.user_agent)
+                .header("Authorization", format!("Bearer {}", bearer))
+                .header("x-goog-ext-173412678-bin", "CgcIAhClARgC")
+                .header("x-goog-ext-174067345-bin", "CgIIAg==")
+                .body(req_body.clone())
+                .send()
+                .await
+                .map_err(|e| ApiError::Network(format_reqwest_error(&e)))?;
 
-        let status = resp.status();
-        let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
-            .await
-            .map_err(ApiError::Network)?;
+            let status = resp.status();
+            if status == reqwest::StatusCode::UNAUTHORIZED && attempt + 1 < max_attempts {
+                self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
+                continue;
+            }
 
-        if !status.is_success() {
-            self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
-            return Err(ApiError::HttpStatus {
-                status: status.as_u16(),
-                body: String::from_utf8_lossy(&body_bytes).to_string(),
-            });
+            let resp_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
+                .await
+                .map_err(ApiError::Network)?;
+
+            if !status.is_success() {
+                self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
+                return Err(ApiError::HttpStatus {
+                    status: status.as_u16(),
+                    body: String::from_utf8_lossy(&resp_bytes).to_string(),
+                });
+            }
+
+            body_bytes = resp_bytes;
+            break;
         }
 
         if let Ok(resp_proto) = CreateMediaItemsResponse::decode(&body_bytes[..]) {
@@ -958,36 +1062,49 @@ impl AlbumApi for Api {
 
         let mut req_body = Vec::new();
         req_proto.encode(&mut req_body).map_err(|e| AlbumError::Api(e.to_string()))?;
+        let req_body = bytes::Bytes::from(req_body);
 
-        let bearer = self.bearer_token().await.map_err(|e| AlbumError::Api(e.to_string()))?;
+        let max_attempts = if self.token_manager.is_some() { 2 } else { 1 };
+        let mut body_bytes = Vec::new();
+        for attempt in 0..max_attempts {
+            let bearer = self.bearer_token().await.map_err(|e| AlbumError::Api(e.to_string()))?;
 
-        let resp = self
-            .client
-            .post(&endpoint)
-            .header("Accept-Encoding", "gzip")
-            .header("Accept-Language", &self.language)
-            .header("Content-Type", "application/x-protobuf")
-            .header("User-Agent", &self.user_agent)
-            .header("Authorization", format!("Bearer {}", bearer))
-            .header("x-goog-ext-173412678-bin", "CgcIAhClARgC")
-            .header("x-goog-ext-174067345-bin", "CgIIAg==")
-            .body(req_body)
-            .send()
-            .await
-            .map_err(|e| AlbumError::Api(e.to_string()))?;
+            let resp = self
+                .client
+                .post(&endpoint)
+                .header("Accept-Encoding", "gzip")
+                .header("Accept-Language", &self.language)
+                .header("Content-Type", "application/x-protobuf")
+                .header("User-Agent", &self.user_agent)
+                .header("Authorization", format!("Bearer {}", bearer))
+                .header("x-goog-ext-173412678-bin", "CgcIAhClARgC")
+                .header("x-goog-ext-174067345-bin", "CgIIAg==")
+                .body(req_body.clone())
+                .send()
+                .await
+                .map_err(|e| AlbumError::Api(format_reqwest_error(&e)))?;
 
-        let status = resp.status();
-        let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
-            .await
-            .map_err(AlbumError::Api)?;
-
-        if !status.is_success() {
-            self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
-            let body = String::from_utf8_lossy(&body_bytes).to_string();
-            if status == reqwest::StatusCode::NOT_FOUND || body.to_lowercase().contains("not found") {
-                return Err(AlbumError::NotFound(album_name.to_string()));
+            let status = resp.status();
+            if status == reqwest::StatusCode::UNAUTHORIZED && attempt + 1 < max_attempts {
+                self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
+                continue;
             }
-            return Err(AlbumError::Api(format!("HTTP {}: {}", status.as_u16(), body)));
+
+            let resp_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
+                .await
+                .map_err(AlbumError::Api)?;
+
+            if !status.is_success() {
+                self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
+                let body = String::from_utf8_lossy(&resp_bytes).to_string();
+                if status == reqwest::StatusCode::NOT_FOUND || body.to_lowercase().contains("not found") {
+                    return Err(AlbumError::NotFound(album_name.to_string()));
+                }
+                return Err(AlbumError::Api(format!("HTTP {}: {}", status.as_u16(), body)));
+            }
+
+            body_bytes = resp_bytes;
+            break;
         }
 
         let resp_proto = CreateAlbumResponse::decode(&body_bytes[..])
@@ -1027,38 +1144,49 @@ impl AlbumApi for Api {
 
         let mut req_body = Vec::new();
         req_proto.encode(&mut req_body).map_err(|e| AlbumError::Api(e.to_string()))?;
+        let req_body = bytes::Bytes::from(req_body);
 
-        let bearer = self.bearer_token().await.map_err(|e| AlbumError::Api(e.to_string()))?;
+        let max_attempts = if self.token_manager.is_some() { 2 } else { 1 };
+        for attempt in 0..max_attempts {
+            let bearer = self.bearer_token().await.map_err(|e| AlbumError::Api(e.to_string()))?;
 
-        let resp = self
-            .client
-            .post(&endpoint)
-            .header("Accept-Encoding", "gzip")
-            .header("Accept-Language", &self.language)
-            .header("Content-Type", "application/x-protobuf")
-            .header("User-Agent", &self.user_agent)
-            .header("Authorization", format!("Bearer {}", bearer))
-            .header("x-goog-ext-173412678-bin", "CgcIAhClARgC")
-            .header("x-goog-ext-174067345-bin", "CgIIAg==")
-            .body(req_body)
-            .send()
-            .await
-            .map_err(|e| AlbumError::Api(e.to_string()))?;
-
-        let status = resp.status();
-        if !status.is_success() {
-            self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
-            let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
+            let resp = self
+                .client
+                .post(&endpoint)
+                .header("Accept-Encoding", "gzip")
+                .header("Accept-Language", &self.language)
+                .header("Content-Type", "application/x-protobuf")
+                .header("User-Agent", &self.user_agent)
+                .header("Authorization", format!("Bearer {}", bearer))
+                .header("x-goog-ext-173412678-bin", "CgcIAhClARgC")
+                .header("x-goog-ext-174067345-bin", "CgIIAg==")
+                .body(req_body.clone())
+                .send()
                 .await
-                .unwrap_or_default();
-            let body = String::from_utf8_lossy(&body_bytes).to_string();
-            if status == reqwest::StatusCode::NOT_FOUND || body.to_lowercase().contains("not found") {
-                return Err(AlbumError::NotFound(album_media_key.to_string()));
+                .map_err(|e| AlbumError::Api(format_reqwest_error(&e)))?;
+
+            let status = resp.status();
+            if status == reqwest::StatusCode::UNAUTHORIZED && attempt + 1 < max_attempts {
+                self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
+                continue;
             }
-            return Err(AlbumError::Api(format!("HTTP {}: {}", status.as_u16(), body)));
+
+            if !status.is_success() {
+                self.invalidate_token_if_unauthorized(status.as_u16(), &bearer);
+                let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
+                    .await
+                    .unwrap_or_default();
+                let body = String::from_utf8_lossy(&body_bytes).to_string();
+                if status == reqwest::StatusCode::NOT_FOUND || body.to_lowercase().contains("not found") {
+                    return Err(AlbumError::NotFound(album_media_key.to_string()));
+                }
+                return Err(AlbumError::Api(format!("HTTP {}: {}", status.as_u16(), body)));
+            }
+
+            return Ok(());
         }
 
-        Ok(())
+        Err(AlbumError::Api("Bearer token refresh retry exhausted".to_string()))
     }
 }
 

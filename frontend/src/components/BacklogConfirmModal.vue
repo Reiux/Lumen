@@ -9,6 +9,7 @@ const { t } = useI18n()
 
 const props = defineProps<{
   pendingBacklog: { folder: string; count: number; account: string } | null
+  loading?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -18,7 +19,9 @@ const emit = defineEmits<{
 
 const dialogCardRef = ref<HTMLElement | null>(null)
 useDialogFocusTrap(() => Boolean(props.pendingBacklog), dialogCardRef, {
-  onEscape: () => emit('cancel'),
+  onEscape: () => {
+    if (!props.loading) emit('cancel')
+  },
 })
 </script>
 
@@ -28,7 +31,7 @@ useDialogFocusTrap(() => Boolean(props.pendingBacklog), dialogCardRef, {
       <div
         v-if="pendingBacklog"
         class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center p-4 select-none overflow-y-auto"
-        @click.self="emit('cancel')"
+        @click.self="!loading && emit('cancel')"
       >
         <div
           ref="dialogCardRef"
@@ -88,6 +91,7 @@ useDialogFocusTrap(() => Boolean(props.pendingBacklog), dialogCardRef, {
               variant="text"
               size="s"
               class="w-full sm:w-auto"
+              :disabled="loading"
               @click="emit('cancel')"
             >
               {{ t('dialogs.backlog.cancel') }}
@@ -96,6 +100,7 @@ useDialogFocusTrap(() => Boolean(props.pendingBacklog), dialogCardRef, {
               variant="tonal"
               size="s"
               class="w-full sm:w-auto"
+              :disabled="loading"
               @click="emit('confirm', false)"
             >
               {{ t('dialogs.backlog.watchOnly') }}
@@ -104,6 +109,8 @@ useDialogFocusTrap(() => Boolean(props.pendingBacklog), dialogCardRef, {
               variant="filled"
               size="m"
               class="w-full sm:w-auto"
+              :disabled="loading"
+              :loading="loading"
               @click="emit('confirm', true)"
             >
               {{ t('dialogs.backlog.backupAndWatch') }}

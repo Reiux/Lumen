@@ -4,9 +4,6 @@
   "description": "Default permissions for Lumen Tauri frontend",
   "windows": ["main"],
   "permissions": [
-    "core:default",
-    "dialog:default",
-    "notification:default",
-    "opener:default"
+    "core:default"
   ]
 }

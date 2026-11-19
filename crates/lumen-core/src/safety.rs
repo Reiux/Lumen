@@ -141,10 +141,12 @@ impl CircuitBreaker {
             if *state == CircuitState::Blocked {
                 return;
             }
-            *state = CircuitState::Paused;
             let now = Instant::now();
             let candidate_until = now + duration;
             let mut pause_until = self.pause_until.write().unwrap();
+            let already_actively_paused = *state == CircuitState::Paused
+                && pause_until.is_some_and(|existing| existing > now);
+            *state = CircuitState::Paused;
             let effective_until = match *pause_until {
                 Some(existing) if existing > candidate_until => existing,
                 _ => candidate_until,
@@ -165,9 +167,15 @@ impl CircuitBreaker {
                 resume_at: Some(resume_at),
             };
             *self.blocked_event.write().unwrap() = Some(event.clone());
-            event
+            if already_actively_paused {
+                None
+            } else {
+                Some(event)
+            }
         };
-        (self.on_blocked)(event);
+        if let Some(event) = event {
+            (self.on_blocked)(event);
+        }
     }
 
     pub fn reset_if_paused(&self) {
@@ -224,6 +232,9 @@ pub fn classify_error(err_msg: &str) -> ErrorKind {
         "no such host",
         "network is unreachable",
         "timed out",
+        "network error:",
+        "error sending request",
+        "error decoding response body",
     ];
     let lower = err_msg.to_lowercase();
     for phrase in &transient_phrases {
@@ -352,6 +363,15 @@ pub fn has_battery() -> bool {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
+fn parse_macos_pmset_on_battery(stdout: &str) -> bool {
+    stdout.contains("'Battery Power'")
+}
+
+#[cfg(target_os = "macos")]
+static MACOS_BATTERY_CACHE: LazyLock<std::sync::Mutex<Option<(Instant, bool)>>> =
+    LazyLock::new(|| std::sync::Mutex::new(None));
+
 pub fn is_running_on_battery() -> bool {
     #[cfg(target_os = "linux")]
     {
@@ -380,15 +400,24 @@ pub fn is_running_on_battery() -> bool {
     }
     #[cfg(target_os = "macos")]
     {
-        if let Ok(out) = std::process::Command::new("/usr/bin/pmset")
+        const CACHE_TTL: Duration = Duration::from_secs(5);
+        if let Ok(guard) = MACOS_BATTERY_CACHE.lock() {
+            if let Some((checked_at, cached)) = *guard {
+                if checked_at.elapsed() < CACHE_TTL {
+                    return cached;
+                }
+            }
+        }
+        let on_battery = std::process::Command::new("/usr/bin/pmset")
             .args(["-g", "batt"])
             .output()
-        {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            return stdout.contains("InternalBattery")
-                && (stdout.contains("Battery Power") || stdout.contains("discharging"));
+            .ok()
+            .map(|out| parse_macos_pmset_on_battery(&String::from_utf8_lossy(&out.stdout)))
+            .unwrap_or(false);
+        if let Ok(mut guard) = MACOS_BATTERY_CACHE.lock() {
+            *guard = Some((Instant::now(), on_battery));
         }
-        false
+        on_battery
     }
     #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
     {
@@ -457,5 +486,8 @@ mod tests {
         });
         cb2.trip(ErrorKind::AccountRestricted, "a@example.com", "AccountDisabled");
         assert_eq!(seen2.read().unwrap().as_slice(), &["ACCOUNT_RESTRICTED"]);
+
+        assert!(parse_macos_pmset_on_battery("Now drawing from 'Battery Power'\n -InternalBattery-0\t95%; discharging"));
+        assert!(!parse_macos_pmset_on_battery("Now drawing from 'AC Power'\n -InternalBattery-0\t100%; charged"));
     }
 }

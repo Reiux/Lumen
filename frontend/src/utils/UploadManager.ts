@@ -1,5 +1,6 @@
 import { Clipboard, Events } from "@wailsio/runtime";
 import { reactive } from "vue";
+import { hasTauri } from "../tauri-compat/wails-runtime";
 import {
   recordUploadResult,
   type UploadResults,
@@ -153,6 +154,9 @@ class UploadManager {
   // True between the moment the user picks/drops files and the first upload
   // worker reporting activity. Keeps the indexing/preparation screen sticky.
   private preparationActive: boolean = false;
+  // Per-account circuit breaker state cache keyed by lowercased email
+  private blockedByAccount: Record<string, AccountBlockedState> = {};
+  private syncBlockedSeq: number = 0;
 
   private constructor() {
     // Bind all methods to ensure 'this' context is preserved
@@ -354,25 +358,125 @@ class UploadManager {
     // Handle circuit breaker account blocked / rate limited events
     Events.On("account:blocked", (event: { data: { reason: string; email: string; message: string; resumeAt?: number } }) => {
       this.state.isUploading = false;
-      this.state.accountBlocked = {
+      const blockedState: AccountBlockedState = {
         isBlocked: true,
         reason: (event.data?.reason || 'SIGN_IN_REQUIRED') as AccountBlockedState['reason'],
         email: event.data?.email || '',
         message: event.data?.message || '',
         resumeAt: event.data?.resumeAt,
       };
+      const key = blockedState.email.trim().toLowerCase();
+      if (key) {
+        this.blockedByAccount[key] = { ...blockedState };
+      }
+      this.state.accountBlocked = blockedState;
       window.dispatchEvent(new CustomEvent('accountBlocked', { detail: event.data }));
     });
   }
 
-  public clearAccountBlocked() {
-    this.state.accountBlocked = {
+  private emptyAccountBlocked(): AccountBlockedState {
+    return {
       isBlocked: false,
       reason: '',
       email: '',
       message: '',
       resumeAt: undefined,
     };
+  }
+
+  public clearAccountBlocked(email?: string) {
+    if (email) {
+      const targetKey = email.trim().toLowerCase();
+      if (targetKey) {
+        delete this.blockedByAccount[targetKey];
+      }
+      const activeKey = this.state.accountBlocked.email.trim().toLowerCase();
+      if (!activeKey || activeKey === targetKey) {
+        this.state.accountBlocked = this.emptyAccountBlocked();
+      }
+      return;
+    }
+
+    const activeKey = this.state.accountBlocked.email.trim().toLowerCase();
+    if (activeKey) {
+      delete this.blockedByAccount[activeKey];
+    }
+    this.state.accountBlocked = this.emptyAccountBlocked();
+  }
+
+  public async syncAccountBlockedFor(email: string): Promise<void> {
+    const seq = ++this.syncBlockedSeq;
+    const trimmed = (email || '').trim();
+    const key = trimmed.toLowerCase();
+
+    // Preserve any active blocked state (including mock triggers) in the per-account cache
+    const current = this.state.accountBlocked;
+    if (current.isBlocked && current.email) {
+      const currentKey = current.email.trim().toLowerCase();
+      const expired =
+        current.reason === 'RATE_LIMITED' && current.resumeAt && Date.now() >= current.resumeAt;
+      if (expired) {
+        delete this.blockedByAccount[currentKey];
+      } else if (currentKey) {
+        this.blockedByAccount[currentKey] = { ...current };
+      }
+    }
+
+    if (!key) {
+      this.state.accountBlocked = this.emptyAccountBlocked();
+      return;
+    }
+
+    const applyLocalFallback = () => {
+      const cached = this.blockedByAccount[key];
+      if (cached && cached.isBlocked) {
+        if (cached.reason === 'RATE_LIMITED' && cached.resumeAt && Date.now() >= cached.resumeAt) {
+          delete this.blockedByAccount[key];
+          this.state.accountBlocked = this.emptyAccountBlocked();
+          return;
+        }
+        this.state.accountBlocked = { ...cached };
+      } else {
+        this.state.accountBlocked = this.emptyAccountBlocked();
+      }
+    };
+
+    if (!hasTauri()) {
+      applyLocalFallback();
+      return;
+    }
+
+    try {
+      const { ConfigManager } = await import('../../bindings/app/core');
+      const backendState = await ConfigManager.GetAccountBlockedState(trimmed);
+      if (seq !== this.syncBlockedSeq) return;
+      if (backendState && backendState.reason) {
+        if (
+          backendState.reason === 'RATE_LIMITED'
+          && backendState.resumeAt
+          && Date.now() >= backendState.resumeAt
+        ) {
+          delete this.blockedByAccount[key];
+          this.state.accountBlocked = this.emptyAccountBlocked();
+          return;
+        }
+        const next: AccountBlockedState = {
+          isBlocked: true,
+          reason: backendState.reason as AccountBlockedState['reason'],
+          email: backendState.email || trimmed,
+          message: backendState.message || '',
+          resumeAt: backendState.resumeAt,
+        };
+        this.blockedByAccount[key] = { ...next };
+        this.state.accountBlocked = next;
+      } else {
+        delete this.blockedByAccount[key];
+        this.state.accountBlocked = this.emptyAccountBlocked();
+      }
+    } catch {
+      if (seq !== this.syncBlockedSeq) return;
+      applyLocalFallback();
+    }
   }
 
   public isUploadBlocked(): boolean {

@@ -872,6 +872,7 @@
         </div>
         <div class="install-error-text" id="installErrorText"></div>
         <div class="install-error-actions">
+          <button class="btn-m3-tonal" id="btnBackFromError" style="margin-right: auto;">Back</button>
           <button class="btn-m3-tonal" id="btnCancelInstall">Close</button>
           <button class="btn-m3-primary" id="btnRetryInstall">Retry</button>
         </div>
@@ -1211,7 +1212,10 @@
     }
 
     // Error Box handlers
+    let lastErrorWasUninstall = false;
+
     function showProgressError(err, isUninstall) {
+      lastErrorWasUninstall = Boolean(isUninstall);
       const progressWrapper = document.getElementById('progressWrapper');
       if (progressWrapper) progressWrapper.style.display = 'none';
 
@@ -1236,6 +1240,21 @@
       if (errText) errText.textContent = String(err || "An unexpected error occurred.");
       if (errBox) errBox.style.display = 'flex';
     }
+
+    document.getElementById('btnBackFromError').addEventListener('click', () => {
+      document.getElementById('installErrorBox').style.display = 'none';
+      document.getElementById('progressWrapper').style.display = 'flex';
+      transitionScreens(
+        document.getElementById('screenInstalling'),
+        document.getElementById('screenWelcome'),
+        () => {
+          document.body.classList.remove('installing-active');
+          if (!lastErrorWasUninstall && customDrawer && !customDrawer.classList.contains('expanded')) {
+            toggleCustomDrawer();
+          }
+        }
+      );
+    });
 
     document.getElementById('btnRetryInstall').addEventListener('click', async () => {
       document.getElementById('installErrorBox').style.display = 'none';

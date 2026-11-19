@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, defineComponent, h, type PropType, type VNode } from 'vue'
 import { Browser } from '@wailsio/runtime'
-import { parseMarkdown, type MdInline } from '../../utils/markdown'
+import { hasTauri } from '../../tauri-compat/wails-runtime'
+import { isSafeHttpUrl, parseMarkdown, type MdInline } from '../../utils/markdown'
 import M3Icon from './M3Icon.vue'
 
 const props = defineProps<{
@@ -11,8 +12,11 @@ const props = defineProps<{
 const blocks = computed(() => parseMarkdown(props.content))
 
 function openExternalLink(href: string) {
+  if (!isSafeHttpUrl(href)) return
   Browser.OpenURL(href).catch(() => {
-    window.open(href, '_blank', 'noopener,noreferrer')
+    if (!hasTauri()) {
+      window.open(href, '_blank', 'noopener,noreferrer')
+    }
   })
 }
 
@@ -53,6 +57,7 @@ function renderInlineNodes(nodes: MdInline[]): (string | VNode)[] {
               'text-[var(--md-sys-color-primary)] underline decoration-[var(--md-sys-color-primary)]/40 underline-offset-2 hover:decoration-[var(--md-sys-color-primary)] transition-colors cursor-pointer break-all',
             onClick: (e: MouseEvent) => {
               e.preventDefault()
+              e.stopPropagation()
               openExternalLink(node.href)
             },
           },

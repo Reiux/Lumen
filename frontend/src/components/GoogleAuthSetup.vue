@@ -45,14 +45,26 @@ const dialogCardRef = ref<HTMLElement | null>(null)
 const dialogBodyRef = ref<HTMLElement | null>(null)
 const tokenFieldRef = ref<{ focus?: () => void } | null>(null)
 let successDismissTimer: ReturnType<typeof setTimeout> | null = null
+let browserAttemptSeq = 0
+let connectAttemptSeq = 0
+
+function clearSuccessDismissTimer() {
+  if (successDismissTimer) {
+    clearTimeout(successDismissTimer)
+    successDismissTimer = null
+  }
+}
+
+function closeDialog() {
+  if (isValidating.value) return
+  isOpen.value = false
+}
 
 useDialogFocusTrap(
   () => isOpen.value,
   dialogCardRef,
   {
-    onEscape: () => {
-      isOpen.value = false
-    },
+    onEscape: closeDialog,
     initialFocus: () => tokenFieldRef.value,
   },
 )
@@ -75,13 +87,13 @@ watch(hasAcknowledgedRisk, (ack) => {
   ConfigManager.SetAccountRiskAcknowledged(ack).catch(() => {})
 })
 
-let browserAttemptSeq = 0
-
 function handleSignInSuccess(connectedEmail: string) {
   browserState.value = 'idle'
   verifiedUser.value = { email: connectedEmail }
 
+  clearSuccessDismissTimer()
   successDismissTimer = setTimeout(() => {
+    successDismissTimer = null
     if (!verifiedUser.value) return
     const email = verifiedUser.value.email
     verifiedUser.value = null
@@ -220,6 +232,7 @@ watch(isOpen, (open) => {
       }
     })
   } else {
+    connectAttemptSeq++
     if (browserState.value === 'waiting' || browserState.value === 'waiting-external') {
       browserAttemptSeq++
       ConfigManager.CancelBrowserSignIn().catch(() => {})
@@ -241,10 +254,7 @@ watch(isOpen, (open) => {
     browserErrorMessage.value = ''
     browserCloseFallbackMessage.value = ''
     showManualFallback.value = false
-    if (successDismissTimer) {
-      clearTimeout(successDismissTimer)
-      successDismissTimer = null
-    }
+    clearSuccessDismissTimer()
   }
 })
 
@@ -255,10 +265,12 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  connectAttemptSeq++
   if (browserState.value === 'waiting' || browserState.value === 'waiting-external') {
+    browserAttemptSeq++
     ConfigManager.CancelBrowserSignIn().catch(() => {})
   }
-  if (successDismissTimer) clearTimeout(successDismissTimer)
+  clearSuccessDismissTimer()
   if (unlistenCloseFailed) {
     unlistenCloseFailed()
     unlistenCloseFailed = null
@@ -337,6 +349,7 @@ const isFormValid = computed(() => {
 
 async function handleConnect() {
   if (isValidating.value || verifiedUser.value) return
+  if (!showManualFallback.value || browserState.value !== 'idle') return
   if (!hasAcknowledgedRisk.value) {
     validationError.value = t('googleAuth.validationSafetyNotice')
     return
@@ -348,12 +361,14 @@ async function handleConnect() {
     return
   }
 
+  const attemptSeq = ++connectAttemptSeq
   isValidating.value = true
   validationError.value = ''
 
   try {
     // Perform immediate live validation probe & storage via backend
     const connectedEmail = await ConfigManager.ValidateAndAddCredentials(payload)
+    if (attemptSeq !== connectAttemptSeq) return
     if (!isOpen.value) {
       if (connectedEmail) {
         emit('account-added')
@@ -369,7 +384,9 @@ async function handleConnect() {
     isValidating.value = false
 
     // Auto-advance after brief visual confirmation
+    clearSuccessDismissTimer()
     successDismissTimer = setTimeout(() => {
+      successDismissTimer = null
       if (!verifiedUser.value) return
       const email = verifiedUser.value.email
       verifiedUser.value = null
@@ -380,7 +397,7 @@ async function handleConnect() {
       })
     }, 1500)
   } catch (error) {
-    if (!isOpen.value) return
+    if (!isOpen.value || attemptSeq !== connectAttemptSeq) return
     isValidating.value = false
     const errMsg = error instanceof Error ? error.message : String(error)
     validationError.value = errMsg || t('googleAuth.validationErrorGeneric')
@@ -388,7 +405,7 @@ async function handleConnect() {
 }
 
 function handleDoneSuccess() {
-  if (successDismissTimer) clearTimeout(successDismissTimer)
+  clearSuccessDismissTimer()
   const email = verifiedUser.value?.email
   verifiedUser.value = null
   isOpen.value = false
@@ -408,7 +425,7 @@ function handleDoneSuccess() {
         v-if="isOpen"
         class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center p-4 select-none overflow-y-auto"
         style="--wails-draggable: none"
-        @click.self="isOpen = false"
+        @click.self="closeDialog"
       >
         <!-- Centered M3E Modal Dialog -->
         <div
@@ -447,9 +464,10 @@ function handleDoneSuccess() {
               variant="text"
               size="s"
               icon="close"
+              :disabled="isValidating"
               :aria-label="t('googleAuth.closeAria')"
               class="!size-10 !min-w-0 !p-0 shrink-0"
-              @click="isOpen = false"
+              @click="closeDialog"
             />
           </div>
 
@@ -864,7 +882,7 @@ function handleDoneSuccess() {
                 variant="text"
                 size="s"
                 :disabled="isValidating"
-                @click="isOpen = false"
+                @click="closeDialog"
               >
                 <span>{{ t('googleAuth.cancel') }}</span>
               </M3Button>
@@ -872,7 +890,7 @@ function handleDoneSuccess() {
                 variant="filled"
                 size="m"
                 class="min-w-36 shrink-0 whitespace-nowrap"
-                :disabled="!isFormValid || isValidating"
+                :disabled="!showManualFallback || browserState !== 'idle' || !isFormValid || isValidating"
                 :loading="isValidating"
                 :aria-label="t('googleAuth.verifyConnect')"
                 @click="handleConnect"

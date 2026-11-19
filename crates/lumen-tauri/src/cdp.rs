@@ -15,41 +15,61 @@ use tokio::time::sleep;
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 
+struct ActiveBrowserSession {
+    session_id: u64,
+    pid: u32,
+    user_data_dir: PathBuf,
+}
+
 static BROWSER_CLOSE_FAILED: AtomicBool = AtomicBool::new(false);
-static ACTIVE_BROWSER_SESSION: std::sync::Mutex<Option<(u64, u32)>> = std::sync::Mutex::new(None);
+static ACTIVE_BROWSER_SESSION: std::sync::Mutex<Option<ActiveBrowserSession>> =
+    std::sync::Mutex::new(None);
 static NEXT_SESSION_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 static BROWSER_CANCELLED: AtomicBool = AtomicBool::new(false);
 
-fn kill_pid_quiet(pid: u32) {
+fn kill_pid_quiet(pid: u32) -> bool {
     if pid == 0 {
-        return;
+        return true;
     }
     #[cfg(unix)]
     {
-        let _ = Command::new("kill")
-            .args(["-TERM", &pid.to_string()])
-            .output();
+        let pgid = format!("-{}", pid);
+        let term_ok = Command::new("kill")
+            .args(["-TERM", &pgid])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        std::thread::sleep(Duration::from_millis(50));
+        let kill_ok = Command::new("kill")
+            .args(["-KILL", &pgid])
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        term_ok || kill_ok
     }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
-        let _ = Command::new("taskkill")
+        Command::new("taskkill")
             .args(["/F", "/T", "/PID", &pid.to_string()])
             .creation_flags(CREATE_NO_WINDOW)
-            .output();
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
     }
 }
 
 pub fn cancel_active_browser() {
     BROWSER_CANCELLED.store(true, Ordering::SeqCst);
-    let pid = ACTIVE_BROWSER_SESSION
+    let session = ACTIVE_BROWSER_SESSION
         .lock()
-        .unwrap()
-        .take()
-        .map(|(_, pid)| pid)
-        .unwrap_or(0);
-    kill_pid_quiet(pid);
+        .unwrap_or_else(|e| e.into_inner())
+        .take();
+    if let Some(session) = session {
+        let _ = kill_pid_quiet(session.pid);
+        let _ = fs::remove_dir_all(&session.user_data_dir);
+    }
 }
 
 pub fn set_browser_close_failed(failed: bool) {
@@ -136,7 +156,7 @@ pub fn find_chromium_browser() -> Option<PathBuf> {
 
     for candidate in candidates {
         let p = Path::new(candidate);
-        if p.is_absolute() && p.exists() {
+        if p.is_absolute() && is_executable_file(p) {
             return Some(p.to_path_buf());
         }
         if !p.is_absolute() {
@@ -164,6 +184,24 @@ pub fn get_supported_browser_name() -> String {
     "Google Chrome".to_string()
 }
 
+fn is_executable_file(path: &Path) -> bool {
+    let Ok(metadata) = fs::metadata(path) else {
+        return false;
+    };
+    if !metadata.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
 fn which_browser(name: &str) -> Result<PathBuf> {
     if name.contains('/') || name.contains('\\') || name.contains("..") {
         bail!("invalid browser executable name");
@@ -174,12 +212,77 @@ fn which_browser(name: &str) -> Result<PathBuf> {
                 continue;
             }
             let candidate = dir.join(name);
-            if candidate.is_file() {
+            if is_executable_file(&candidate) {
                 return Ok(candidate);
             }
         }
     }
     bail!("not found")
+}
+
+fn format_chromium_proxy_arg(proxy: Option<&str>) -> Result<Option<String>> {
+    let Some(raw) = proxy.map(str::trim).filter(|s| !s.is_empty()) else {
+        return Ok(None);
+    };
+    lumen_core::net::validate_proxy_url(raw).map_err(|e| anyhow::anyhow!(e))?;
+    let parsed = url::Url::parse(raw).context("Invalid proxy URL")?;
+    let host = parsed
+        .host_str()
+        .filter(|h| !h.is_empty())
+        .context("Proxy URL must specify a valid host")?;
+    let port = parsed
+        .port_or_known_default()
+        .context("Proxy URL must specify a valid port")?;
+    Ok(Some(format!(
+        "--proxy-server={}://{}:{}",
+        parsed.scheme(),
+        host,
+        port
+    )))
+}
+
+fn terminate_browser_tree(child: &mut Child) -> bool {
+    let pid = child.id();
+    let already_exited = matches!(child.try_wait(), Ok(Some(_)));
+
+    #[cfg(unix)]
+    {
+        let pgid = format!("-{}", pid);
+        let _ = Command::new("kill").args(["-TERM", &pgid]).output();
+        if !already_exited {
+            for _ in 0..6 {
+                if matches!(child.try_wait(), Ok(Some(_))) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        }
+        let _ = Command::new("kill").args(["-KILL", &pgid]).output();
+        let mut success = true;
+        if !matches!(child.try_wait(), Ok(Some(_))) {
+            if let Err(e) = child.kill() {
+                tracing::warn!("Failed to terminate browser process: {}", e);
+                success = false;
+            }
+        }
+        let _ = child.wait();
+        success
+    }
+
+    #[cfg(windows)]
+    {
+        let mut success = kill_pid_quiet(pid);
+        if !already_exited && !matches!(child.try_wait(), Ok(Some(_))) {
+            if let Err(e) = child.kill() {
+                tracing::warn!("Failed to terminate browser process: {}", e);
+                success = false;
+            } else {
+                success = true;
+            }
+        }
+        let _ = child.wait();
+        already_exited || success
+    }
 }
 
 #[derive(Serialize)]
@@ -225,7 +328,6 @@ struct StorageGetCookiesResult {
 
 #[derive(Deserialize)]
 struct CdpResponse {
-    #[allow(dead_code)]
     id: Option<u64>,
     result: Option<StorageGetCookiesResult>,
 }
@@ -233,7 +335,6 @@ struct CdpResponse {
 pub struct CdpSession {
     session_id: u64,
     child: Child,
-    #[allow(dead_code)]
     user_data_dir: tempfile::TempDir,
     ws_url: String,
     closed: bool,
@@ -243,11 +344,13 @@ pub struct CdpSession {
 pub type ActiveSession = Arc<Mutex<Option<Child>>>;
 
 impl CdpSession {
-    pub async fn launch() -> Result<Self> {
+    pub async fn launch(proxy: Option<&str>) -> Result<Self> {
+        let proxy_arg = format_chromium_proxy_arg(proxy)?;
         let browser_path = find_chromium_browser()
             .context("No supported Chromium or Google Chrome browser found on this system.")?;
 
-        let user_data_dir = tempfile::tempdir().context("Failed to create temporary browser profile")?;
+        let user_data_dir =
+            tempfile::tempdir().context("Failed to create temporary browser profile")?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -255,32 +358,54 @@ impl CdpSession {
         }
 
         // Ensure any still-live prior browser process from an earlier sign-in is terminated before launching a new one
-        if let Some((_, prev_pid)) = ACTIVE_BROWSER_SESSION.lock().unwrap().take() {
-            kill_pid_quiet(prev_pid);
+        if let Some(prev) = ACTIVE_BROWSER_SESSION
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+        {
+            let _ = kill_pid_quiet(prev.pid);
+            let _ = fs::remove_dir_all(&prev.user_data_dir);
         }
 
         BROWSER_CLOSE_FAILED.store(false, Ordering::SeqCst);
         BROWSER_CANCELLED.store(false, Ordering::SeqCst);
 
-        let mut child = Command::new(&browser_path)
-            .arg(format!("--user-data-dir={}", user_data_dir.path().display()))
+        let mut cmd = Command::new(&browser_path);
+        cmd.arg(format!("--user-data-dir={}", user_data_dir.path().display()))
+            .arg("--remote-debugging-address=127.0.0.1")
             .arg("--remote-debugging-port=0")
             .arg("--no-first-run")
-            .arg("--no-default-browser-check")
-            .arg("https://accounts.google.com/embedded/setup/v2/android")
-            .spawn()
-            .context("Failed to spawn browser process")?;
+            .arg("--no-default-browser-check");
+        if let Some(ref arg) = proxy_arg {
+            cmd.arg(arg);
+        }
+        cmd.arg("https://accounts.google.com/embedded/setup/v2/android");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0);
+        }
+
+        let mut child = cmd.spawn().context("Failed to spawn browser process")?;
 
         let session_id = NEXT_SESSION_ID.fetch_add(1, Ordering::SeqCst);
-        *ACTIVE_BROWSER_SESSION.lock().unwrap() = Some((session_id, child.id()));
+        *ACTIVE_BROWSER_SESSION
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(ActiveBrowserSession {
+            session_id,
+            pid: child.id(),
+            user_data_dir: user_data_dir.path().to_path_buf(),
+        });
 
         let port_file = user_data_dir.path().join("DevToolsActivePort");
 
         let clear_session = |sid: u64| {
-            if let Ok(mut guard) = ACTIVE_BROWSER_SESSION.lock() {
-                if matches!(*guard, Some((id, _)) if id == sid) {
-                    *guard = None;
-                }
+            let mut guard = ACTIVE_BROWSER_SESSION
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if guard.as_ref().map(|s| s.session_id) == Some(sid) {
+                *guard = None;
             }
         };
 
@@ -288,13 +413,22 @@ impl CdpSession {
         for _ in 0..40 {
             if BROWSER_CANCELLED.load(Ordering::SeqCst) {
                 clear_session(session_id);
-                let _ = child.kill();
-                let _ = child.wait();
+                let _ = terminate_browser_tree(&mut child);
                 bail!("Browser sign-in was cancelled by user.");
+            }
+            if let Ok(Some(status)) = child.try_wait() {
+                clear_session(session_id);
+                let _ = terminate_browser_tree(&mut child);
+                bail!(
+                    "Browser exited before remote debugging became ready (exit status: {}).",
+                    status
+                );
             }
             if port_file.exists() {
                 if let Ok(c) = fs::read_to_string(&port_file) {
-                    if !c.trim().is_empty() {
+                    if c.lines().count() >= 2
+                        && !c.lines().nth(1).unwrap_or("").trim().is_empty()
+                    {
                         port_content = c;
                         break;
                     }
@@ -305,16 +439,14 @@ impl CdpSession {
 
         if port_content.is_empty() {
             clear_session(session_id);
-            let _ = child.kill();
-            let _ = child.wait();
+            let _ = terminate_browser_tree(&mut child);
             bail!("Timed out waiting for Chromium remote debugging port to become active.");
         }
 
         let lines: Vec<&str> = port_content.lines().collect();
         if lines.len() < 2 {
             clear_session(session_id);
-            let _ = child.kill();
-            let _ = child.wait();
+            let _ = terminate_browser_tree(&mut child);
             bail!("Invalid DevToolsActivePort file format from browser");
         }
 
@@ -323,8 +455,7 @@ impl CdpSession {
             Ok(p) => p,
             Err(e) => {
                 clear_session(session_id);
-                let _ = child.kill();
-                let _ = child.wait();
+                let _ = terminate_browser_tree(&mut child);
                 return Err(e).context("Invalid DevToolsActivePort: port is not a valid number");
             }
         };
@@ -346,8 +477,11 @@ impl CdpSession {
     }
 
     pub async fn wait_for_google_auth_cookies(&mut self) -> Result<String> {
-        let (mut ws_stream, _) = connect_async(&self.ws_url).await
+        let (mut ws_stream, _) = connect_async(&self.ws_url)
+            .await
             .context("Failed to connect to Chromium CDP WebSocket")?;
+
+        let mut req_id: u64 = 0;
 
         for _ in 0..180 {
             if BROWSER_CANCELLED.load(Ordering::SeqCst) {
@@ -358,7 +492,10 @@ impl CdpSession {
             // Check if user closed the browser early
             match self.child.try_wait() {
                 Ok(Some(status)) => {
-                    bail!("Browser was closed early before sign-in completed (exit status: {})", status);
+                    bail!(
+                        "Browser was closed early before sign-in completed (exit status: {})",
+                        status
+                    );
                 }
                 Ok(None) => {}
                 Err(e) => {
@@ -366,9 +503,10 @@ impl CdpSession {
                 }
             }
 
-            // Query cookies
+            // Query cookies with a monotonically increasing request ID
+            req_id += 1;
             let req = serde_json::to_string(&CdpRequest {
-                id: 1,
+                id: req_id,
                 method: "Storage.getCookies",
             })?;
 
@@ -376,14 +514,34 @@ impl CdpSession {
                 bail!("Browser connection was closed before sign-in completed");
             }
 
-            // Read response
-            if let Ok(Some(Ok(Message::Text(text)))) = tokio::time::timeout(Duration::from_millis(800), ws_stream.next()).await {
-                if let Ok(resp) = serde_json::from_str::<CdpResponse>(&text) {
-                    if let Some(res) = resp.result {
-                        if let Some(tok) = extract_google_auth_cookie(&res.cookies) {
-                            return Ok(tok);
+            // Read frames until we receive the response matching `req_id` (or Close/timeout)
+            let read_deadline = tokio::time::Instant::now() + Duration::from_millis(800);
+            loop {
+                let remaining = read_deadline.saturating_duration_since(tokio::time::Instant::now());
+                if remaining.is_zero() {
+                    break;
+                }
+                match tokio::time::timeout(remaining, ws_stream.next()).await {
+                    Ok(Some(Ok(Message::Text(text)))) => {
+                        if let Ok(resp) = serde_json::from_str::<CdpResponse>(&text) {
+                            if resp.id == Some(req_id) {
+                                if let Some(res) = resp.result {
+                                    if let Some(tok) = extract_google_auth_cookie(&res.cookies) {
+                                        return Ok(tok);
+                                    }
+                                }
+                                break;
+                            }
                         }
                     }
+                    Ok(Some(Ok(Message::Ping(payload)))) => {
+                        let _ = ws_stream.send(Message::Pong(payload)).await;
+                    }
+                    Ok(Some(Ok(Message::Close(_)))) | Ok(None) | Ok(Some(Err(_))) => {
+                        bail!("Browser connection was closed before sign-in completed");
+                    }
+                    Ok(Some(Ok(_))) => {}
+                    Err(_) => break,
                 }
             }
 
@@ -398,20 +556,16 @@ impl CdpSession {
             return true;
         }
         self.closed = true;
-        if let Ok(mut guard) = ACTIVE_BROWSER_SESSION.lock() {
-            if matches!(*guard, Some((id, _)) if id == self.session_id) {
+        {
+            let mut guard = ACTIVE_BROWSER_SESSION
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if guard.as_ref().map(|s| s.session_id) == Some(self.session_id) {
                 *guard = None;
             }
         }
-        if matches!(self.child.try_wait(), Ok(Some(_))) {
-            return true;
-        }
-        let mut success = true;
-        if let Err(e) = self.child.kill() {
-            tracing::warn!("Failed to terminate browser process: {}", e);
-            success = false;
-        }
-        let _ = self.child.wait();
+        let success = terminate_browser_tree(&mut self.child);
+        let _ = fs::remove_dir_all(self.user_data_dir.path());
         if !success {
             set_browser_close_failed(true);
         }
@@ -442,7 +596,40 @@ mod tests {
     fn test_cancel_active_browser_safe_when_idle() {
         cancel_active_browser();
         assert!(BROWSER_CANCELLED.load(Ordering::SeqCst));
-        assert!(ACTIVE_BROWSER_SESSION.lock().unwrap().is_none());
+        assert!(ACTIVE_BROWSER_SESSION
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_none());
+    }
+
+    #[test]
+    fn test_format_chromium_proxy_arg() {
+        assert_eq!(format_chromium_proxy_arg(None).unwrap(), None);
+        assert_eq!(format_chromium_proxy_arg(Some("  ")).unwrap(), None);
+        assert_eq!(
+            format_chromium_proxy_arg(Some("http://127.0.0.1:7890")).unwrap().as_deref(),
+            Some("--proxy-server=http://127.0.0.1:7890")
+        );
+        assert_eq!(
+            format_chromium_proxy_arg(Some("https://proxy.example.com:8443")).unwrap().as_deref(),
+            Some("--proxy-server=https://proxy.example.com:8443")
+        );
+        assert!(format_chromium_proxy_arg(Some("socks5://127.0.0.1:1080")).is_err());
+        assert!(format_chromium_proxy_arg(Some("ftp://127.0.0.1:21")).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_is_executable_file_checks_exec_bit() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("fake-browser");
+        fs::write(&file, b"#!/bin/sh\n").unwrap();
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(!is_executable_file(&file));
+
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(is_executable_file(&file));
     }
 
     #[test]

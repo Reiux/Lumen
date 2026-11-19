@@ -169,6 +169,7 @@ function formatBytes(bytes: number, decimals = 1): string {
               size="m"
               icon="cloud_upload"
               class="w-full sm:w-auto"
+              :disabled="isRescanning || summary.totalCount === 0"
               @click="emit('confirm')"
             >
               {{ t('dialogs.review.startBackup') }} ({{ summary.totalCount }})

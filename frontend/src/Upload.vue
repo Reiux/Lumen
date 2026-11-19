@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { uploadManager } from './utils/UploadManager'
 import { formatErrorMessage, formatSkipReason, formatThreadMessage } from './utils/statusTranslation'
@@ -27,6 +27,22 @@ const { state } = uploadManager
 const isUploadBlocked = computed(() => state.accountBlocked.isBlocked)
 const isLocalDragOver = ref(false)
 const isQueueDropActive = computed(() => !isUploadBlocked.value && (props.isDraggingFiles || isLocalDragOver.value))
+
+function resetLocalDragOver() {
+  isLocalDragOver.value = false
+}
+
+watch(isUploadBlocked, (blocked) => {
+  if (blocked) {
+    isLocalDragOver.value = false
+  }
+})
+
+onMounted(() => {
+  window.addEventListener('dragend', resetLocalDragOver)
+  window.addEventListener('drop', resetLocalDragOver)
+  window.addEventListener('blur', resetLocalDragOver)
+})
 
 function onQueueDragEnter(e: DragEvent) {
   if (isUploadBlocked.value) {
@@ -101,6 +117,9 @@ watch(() => state.uploadedFiles, (newVal) => {
 })
 
 onUnmounted(() => {
+  window.removeEventListener('dragend', resetLocalDragOver)
+  window.removeEventListener('drop', resetLocalDragOver)
+  window.removeEventListener('blur', resetLocalDragOver)
   if (countAnimationId) {
     cancelAnimationFrame(countAnimationId)
   }

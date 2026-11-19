@@ -26,9 +26,11 @@ const inotifyError = ref('')
 const isAddingFolder = ref(false)
 const recentAlbums = ref<string[]>([])
 const albumNicknamesByAccount = ref<Record<string, Record<string, string | undefined>>>({})
+const nicknameDrafts = ref<Record<string, string>>({})
 
 // Pending backlog dialog state
 const pendingBacklog = ref<{ folder: string; count: number; account: string } | null>(null)
+const isConfirmingBacklog = ref(false)
 
 // Broad folder confirmation state
 const pendingBroadFolder = ref<WatchedFolderConfig | null>(null)
@@ -61,8 +63,7 @@ function isBroadDirectory(path: string): boolean {
     p === '/home' ||
     p === '/root' ||
     p === '/Users' ||
-    p === 'C:' ||
-    p === 'C:\\'
+    /^[a-zA-Z]:$/.test(p)
   )
 }
 
@@ -80,6 +81,10 @@ function getAlbumNickname(keyOrName: string, accountEmail?: string): string {
 function getAlbumLabel(keyOrName: string, accountEmail?: string): string {
   if (!keyOrName) return ''
   return getAlbumNickname(keyOrName, accountEmail) || keyOrName
+}
+
+function syncNicknameDraft(cfg: WatchedFolderConfig) {
+  nicknameDrafts.value[cfg.path] = getAlbumNickname(cfg.albumNameOrKey || '', resolveFolderAccount(cfg))
 }
 
 async function loadData() {
@@ -113,11 +118,12 @@ async function loadData() {
     albumNicknamesByAccount.value = nextNicknames
     recentAlbums.value = (await ConfigManager.GetRecentAlbums()) || []
 
-    // Default expand all enabled folders
+    // Default expand all enabled folders and sync nickname drafts
     for (const fc of watchedConfigs.value) {
       if (expandedFolders.value[fc.path] === undefined) {
         expandedFolders.value[fc.path] = fc.enabled
       }
+      syncNicknameDraft(fc)
     }
   } catch (err) {
     console.error('Failed to load folders config:', err)
@@ -175,8 +181,9 @@ async function addFolder() {
 }
 
 async function confirmBacklog(uploadBacklog: boolean) {
-  if (!pendingBacklog.value) return
+  if (!pendingBacklog.value || isConfirmingBacklog.value) return
   const { folder, account } = pendingBacklog.value
+  isConfirmingBacklog.value = true
   try {
     await ConfigManager.AddWatchedFolderWithAccount(folder, account)
     await loadData()
@@ -190,11 +197,13 @@ async function confirmBacklog(uploadBacklog: boolean) {
     console.error('Failed to add watched folder with backlog:', err)
     toast.error(t('folders.toastFolderWatchError'))
   } finally {
+    isConfirmingBacklog.value = false
     pendingBacklog.value = null
   }
 }
 
 function cancelBacklog() {
+  if (isConfirmingBacklog.value) return
   pendingBacklog.value = null
 }
 
@@ -237,16 +246,19 @@ function cancelBroadFolder() {
 async function updateFolderField(cfg: WatchedFolderConfig, patch: Partial<WatchedFolderConfig>) {
   const prevSnapshot = { ...cfg }
   Object.assign(cfg, patch)
+  syncNicknameDraft(cfg)
   await saveFolderConfig(cfg, prevSnapshot)
 }
 
 async function saveFolderConfig(cfg: WatchedFolderConfig, prevSnapshot?: WatchedFolderConfig) {
   try {
     await ConfigManager.UpdateWatchedFolderConfig(cfg)
+    syncNicknameDraft(cfg)
     inotifyError.value = (await ConfigManager.GetInotifyError()) || ''
   } catch (err) {
     if (prevSnapshot) {
       Object.assign(cfg, prevSnapshot)
+      syncNicknameDraft(cfg)
     } else {
       await loadData()
     }
@@ -260,6 +272,7 @@ async function removeFolder(cfg: WatchedFolderConfig) {
     await ConfigManager.RemoveWatchedFolder(cfg.path)
     watchedConfigs.value = watchedConfigs.value.filter((c) => c.path !== cfg.path)
     delete expandedFolders.value[cfg.path]
+    delete nicknameDrafts.value[cfg.path]
     inotifyError.value = (await ConfigManager.GetInotifyError()) || ''
     toast.success(t('folders.toastFolderRemoved', { name: folderBasename(cfg.path) }))
   } catch (err) {
@@ -268,12 +281,19 @@ async function removeFolder(cfg: WatchedFolderConfig) {
   }
 }
 
-function onUploadNow(cfg: WatchedFolderConfig) {
-  emit('uploadFolder', cfg.path)
-  toast.success(t('folders.toastBackupQueued', { name: folderBasename(cfg.path) }))
+async function onUploadNow(cfg: WatchedFolderConfig) {
+  try {
+    await ConfigManager.StartWatchedFolderUpload(cfg.path)
+    toast.success(t('folders.toastBackupQueued', { name: folderBasename(cfg.path) }))
+  } catch (err) {
+    console.error('Failed to start watched folder backup:', err)
+    toast.error(t('backup.toastStartFailed'), {
+      description: err instanceof Error ? err.message : String(err),
+    })
+  }
 }
 
-async function saveAlbumNickname(accountEmail: string, key: string, nickname: string) {
+async function saveAlbumNickname(accountEmail: string, key: string, nickname: string, folderPath?: string) {
   const targetAccount = accountEmail || selectedAccount.value
   if (!targetAccount || !key.trim()) return
   try {
@@ -281,6 +301,9 @@ async function saveAlbumNickname(accountEmail: string, key: string, nickname: st
     albumNicknamesByAccount.value = {
       ...albumNicknamesByAccount.value,
       [targetAccount]: (await ConfigManager.GetAlbumNicknames(targetAccount)) || {},
+    }
+    if (folderPath) {
+      nicknameDrafts.value[folderPath] = getAlbumNickname(key, targetAccount)
     }
     toast.success(t('folders.toastNicknameSaved'))
   } catch (err) {
@@ -314,7 +337,7 @@ onMounted(() => {
         :disabled="isAddingFolder"
         @click="addFolder"
       >
-        <span>{{ isAddingFolder ? 'Selecting...' : t('folders.addFolder') }}</span>
+        <span>{{ isAddingFolder ? t('folders.selecting') : t('folders.addFolder') }}</span>
       </M3Button>
     </div>
 
@@ -594,12 +617,12 @@ onMounted(() => {
                       <div class="pt-2">
                         <M3TextField
                           :id="`album-nickname-${cfg.path}`"
-                          :model-value="getAlbumNickname(cfg.albumNameOrKey, resolveFolderAccount(cfg))"
+                          v-model="nicknameDrafts[cfg.path]"
                           :label="t('dialogs.album.nicknameLabel')"
                           :placeholder="t('dialogs.album.nicknamePlaceholder')"
                           variant="outlined"
                           leading-icon="label"
-                          @change="(val: string) => saveAlbumNickname(resolveFolderAccount(cfg), cfg.albumNameOrKey, val)"
+                          @change="(val: string) => saveAlbumNickname(resolveFolderAccount(cfg), cfg.albumNameOrKey, val, cfg.path)"
                         />
                       </div>
                     </div>
@@ -679,6 +702,7 @@ onMounted(() => {
     <!-- Backlog Confirmation Modal -->
     <BacklogConfirmModal
       :pending-backlog="pendingBacklog"
+      :loading="isConfirmingBacklog"
       @cancel="cancelBacklog"
       @confirm="confirmBacklog"
     />

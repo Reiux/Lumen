@@ -53,4 +53,66 @@ describe('useDialogFocusTrap', () => {
 
     wrapper.unmount()
   })
+
+  it('closes only the topmost stacked alertdialog on Escape, then closes the underlying dialog', async () => {
+    const StackedDialogs = defineComponent({
+      setup() {
+        const baseOpen = ref(false)
+        const alertOpen = ref(false)
+        const baseRef = ref<HTMLElement | null>(null)
+        const alertRef = ref<HTMLElement | null>(null)
+
+        useDialogFocusTrap(() => baseOpen.value, baseRef, {
+          onEscape: () => {
+            baseOpen.value = false
+          },
+        })
+        useDialogFocusTrap(() => alertOpen.value, alertRef, {
+          onEscape: () => {
+            alertOpen.value = false
+          },
+        })
+
+        return { baseOpen, alertOpen, baseRef, alertRef }
+      },
+      template: `
+        <div>
+          <button id="open-base" type="button" @click="baseOpen = true">Open Base</button>
+          <div v-if="baseOpen" ref="baseRef" role="dialog" aria-modal="true" tabindex="-1">
+            <button id="open-alert" type="button" @click="alertOpen = true">Open Alert</button>
+          </div>
+          <div v-if="alertOpen" ref="alertRef" role="alertdialog" aria-modal="true" tabindex="-1">
+            <button id="confirm-alert" type="button">Confirm</button>
+          </div>
+        </div>
+      `,
+    })
+
+    const wrapper = mount(StackedDialogs, { attachTo: document.body })
+    const openBase = document.getElementById('open-base') as HTMLButtonElement
+    openBase.focus()
+
+    await wrapper.find('#open-base').trigger('click')
+    await nextTick()
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+
+    await wrapper.find('#open-alert').trigger('click')
+    await nextTick()
+    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
+    expect(document.activeElement).toBe(document.getElementById('confirm-alert'))
+
+    // First Escape closes only the topmost alertdialog; underlying dialog stays open
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await nextTick()
+    expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+
+    // Second Escape closes the underlying dialog and restores focus to opener
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await nextTick()
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.activeElement).toBe(openBase)
+
+    wrapper.unmount()
+  })
 })

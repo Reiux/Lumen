@@ -16,10 +16,12 @@ interface Props {
   activeAccount: string
   accounts: string[]
   customAvatar?: string | null
+  disabled?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   customAvatar: null,
+  disabled: false,
 })
 
 const emit = defineEmits<{
@@ -93,6 +95,7 @@ function handleKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
     e.preventDefault()
     e.stopPropagation()
+    e.stopImmediatePropagation()
     emit('close')
     props.anchorEl?.focus()
     return
@@ -158,6 +161,7 @@ function handleGlobalKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') {
     e.preventDefault()
     e.stopPropagation()
+    e.stopImmediatePropagation()
     emit('close')
     props.anchorEl?.focus()
   }
@@ -165,13 +169,13 @@ function handleGlobalKeydown(e: KeyboardEvent) {
 
 onMounted(() => {
   window.addEventListener('pointerdown', handlePointerDown, true)
-  window.addEventListener('keydown', handleGlobalKeydown)
+  window.addEventListener('keydown', handleGlobalKeydown, true)
   window.addEventListener('resize', calculatePosition)
 })
 
 onUnmounted(() => {
   window.removeEventListener('pointerdown', handlePointerDown, true)
-  window.removeEventListener('keydown', handleGlobalKeydown)
+  window.removeEventListener('keydown', handleGlobalKeydown, true)
   window.removeEventListener('resize', calculatePosition)
 })
 </script>
@@ -264,9 +268,13 @@ onUnmounted(() => {
               :key="opt"
               type="button"
               role="menuitem"
-              class="flex items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 transition cursor-pointer text-left hover:bg-[var(--md-sys-color-surface-container-high)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)]"
-              :class="opt === activeAccount ? 'bg-[var(--md-sys-color-primary-container)]/40 m3-label-large text-[var(--md-sys-color-primary)]' : 'm3-body-medium text-[var(--md-sys-color-on-surface)]'"
-              @click="emit('switch-account', opt)"
+              :disabled="disabled"
+              class="flex items-center justify-between gap-2 rounded-xl px-2.5 py-1.5 transition text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)] disabled:opacity-50 disabled:cursor-not-allowed"
+              :class="[
+                !disabled && 'cursor-pointer hover:bg-[var(--md-sys-color-surface-container-high)]',
+                opt === activeAccount ? 'bg-[var(--md-sys-color-primary-container)]/40 m3-label-large text-[var(--md-sys-color-primary)]' : 'm3-body-medium text-[var(--md-sys-color-on-surface)]',
+              ]"
+              @click="!disabled && emit('switch-account', opt)"
             >
               <div class="flex items-center gap-2 min-w-0">
                 <div

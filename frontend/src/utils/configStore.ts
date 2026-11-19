@@ -72,7 +72,20 @@ export async function refreshLastUpdateCheck() {
   }
 }
 
+const settingSeq: Record<string, number> = {}
+
+function nextSeq(key: string): number {
+  const next = (settingSeq[key] ?? 0) + 1
+  settingSeq[key] = next
+  return next
+}
+
+function isLatestSeq(key: string, seq: number): boolean {
+  return settingSeq[key] === seq
+}
+
 export async function setUseQuota(useQuota: boolean) {
+  const seq = nextSeq('storageMode')
   const prevQuota = preferencesState.useQuota
   const prevSaver = preferencesState.saver
   preferencesState.useQuota = useQuota
@@ -82,14 +95,17 @@ export async function setUseQuota(useQuota: boolean) {
   try {
     await ConfigManager.SetUseQuota(useQuota)
   } catch (err) {
-    preferencesState.useQuota = prevQuota
-    preferencesState.saver = prevSaver
+    if (isLatestSeq('storageMode', seq)) {
+      preferencesState.useQuota = prevQuota
+      preferencesState.saver = prevSaver
+    }
     console.error('Failed to update useQuota:', err)
     throw err
   }
 }
 
 export async function setSaver(saver: boolean) {
+  const seq = nextSeq('storageMode')
   const prevSaver = preferencesState.saver
   const prevQuota = preferencesState.useQuota
   preferencesState.saver = saver
@@ -99,44 +115,55 @@ export async function setSaver(saver: boolean) {
   try {
     await ConfigManager.SetSaver(saver)
   } catch (err) {
-    preferencesState.saver = prevSaver
-    preferencesState.useQuota = prevQuota
+    if (isLatestSeq('storageMode', seq)) {
+      preferencesState.saver = prevSaver
+      preferencesState.useQuota = prevQuota
+    }
     console.error('Failed to update saver:', err)
     throw err
   }
 }
 
 export async function setAutoCheckUpdates(enabled: boolean) {
+  const seq = nextSeq('autoCheckUpdates')
   const prev = preferencesState.autoCheckUpdates
   preferencesState.autoCheckUpdates = enabled
   try {
     await ConfigManager.SetAutoCheckUpdates(enabled)
   } catch (err) {
-    preferencesState.autoCheckUpdates = prev
+    if (isLatestSeq('autoCheckUpdates', seq)) {
+      preferencesState.autoCheckUpdates = prev
+    }
     console.error('Failed to update autoCheckUpdates:', err)
     throw err
   }
 }
 
 export async function setAutoUpdateIntervalHours(hours: number) {
+  const seq = nextSeq('autoUpdateIntervalHours')
   const prev = preferencesState.autoUpdateIntervalHours
   preferencesState.autoUpdateIntervalHours = hours
   try {
     await ConfigManager.SetAutoUpdateIntervalHours(hours)
   } catch (err) {
-    preferencesState.autoUpdateIntervalHours = prev
+    if (isLatestSeq('autoUpdateIntervalHours', seq)) {
+      preferencesState.autoUpdateIntervalHours = prev
+    }
     console.error('Failed to update autoUpdateIntervalHours:', err)
     throw err
   }
 }
 
 export async function setNotifyOnComplete(enabled: boolean) {
+  const seq = nextSeq('notifyOnComplete')
   const prev = preferencesState.notifyOnComplete
   preferencesState.notifyOnComplete = enabled
   try {
     await ConfigManager.SetNotifyOnComplete(enabled)
   } catch (err) {
-    preferencesState.notifyOnComplete = prev
+    if (isLatestSeq('notifyOnComplete', seq)) {
+      preferencesState.notifyOnComplete = prev
+    }
     console.error('Failed to update notifyOnComplete:', err)
     throw err
   }

@@ -32,7 +32,7 @@ import {
 } from './utils/configStore'
 import { useDialogFocusTrap } from './utils/useDialogFocusTrap'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const _emit = defineEmits<{
   (e: 'uploadFolder', path: string): void
@@ -108,6 +108,10 @@ const proxyError = ref('')
 const excludeError = ref('')
 let proxySaveTimer: ReturnType<typeof setTimeout> | null = null
 let excludeSaveTimer: ReturnType<typeof setTimeout> | null = null
+let threadsSaveTimer: ReturnType<typeof setTimeout> | null = null
+let speedLimitSaveTimer: ReturnType<typeof setTimeout> | null = null
+let lastCommittedThreads = 4
+let lastCommittedSpeedLimit = 0
 
 // Sticky Navigation Sections matching Mockup A
 const sections = computed(() => [
@@ -235,6 +239,11 @@ async function clearHashCache() {
     isClearingCache.value = true
     await ConfigManager.ClearHashCache()
     hashCacheCount.value = 0
+  } catch (err) {
+    console.error('Failed to clear hash cache:', err)
+    toast.error(t('settings.saveFailed'), {
+      description: err instanceof Error ? err.message : String(err),
+    })
   } finally {
     isClearingCache.value = false
   }
@@ -285,6 +294,8 @@ onMounted(async () => {
     if (!isTrayAvailable.value) {
       settings.value.minimizeToTray = false
     }
+    lastCommittedThreads = settings.value.uploadThreads
+    lastCommittedSpeedLimit = settings.value.uploadSpeedLimitKBps
     preferencesState.useQuota = settings.value.useQuota
     preferencesState.saver = settings.value.saver
   } catch (err) {
@@ -330,27 +341,70 @@ onUnmounted(() => {
       })
     })
   }
+  if (threadsSaveTimer) {
+    clearTimeout(threadsSaveTimer)
+    threadsSaveTimer = null
+    ConfigManager.SetUploadThreads(settings.value.uploadThreads).catch((err) => {
+      toast.error(t('settings.saveFailed'), {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    })
+  }
+  if (speedLimitSaveTimer) {
+    clearTimeout(speedLimitSaveTimer)
+    speedLimitSaveTimer = null
+    ConfigManager.SetUploadSpeedLimitKBps(settings.value.uploadSpeedLimitKBps).catch((err) => {
+      toast.error(t('settings.saveFailed'), {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    })
+  }
 })
 
-let suppressWatchDepth = 0
+const suppressedKeyDepth: Record<string, number> = {}
+const saveRequestSeq: Record<string, number> = {}
 
-function runSuppressed(fn: () => void) {
-  suppressWatchDepth++
+function isKeySuppressed(key: string): boolean {
+  return isHydrating.value || (suppressedKeyDepth[key] ?? 0) > 0
+}
+
+function runSuppressedFor(keys: string | string[], fn: () => void) {
+  const keyList = Array.isArray(keys) ? keys : [keys]
+  for (const k of keyList) {
+    suppressedKeyDepth[k] = (suppressedKeyDepth[k] ?? 0) + 1
+  }
   try {
     fn()
   } finally {
     nextTick(() => {
-      suppressWatchDepth = Math.max(0, suppressWatchDepth - 1)
+      for (const k of keyList) {
+        const next = (suppressedKeyDepth[k] ?? 1) - 1
+        if (next <= 0) {
+          delete suppressedKeyDepth[k]
+        } else {
+          suppressedKeyDepth[k] = next
+        }
+      }
     })
   }
 }
 
-async function saveSetting(fn: () => Promise<unknown>, revert?: () => void) {
+async function saveSetting(
+  key: string,
+  fn: () => Promise<unknown>,
+  revert?: () => void,
+  suppressKeys?: string | string[],
+) {
+  const seq = (saveRequestSeq[key] ?? 0) + 1
+  saveRequestSeq[key] = seq
   try {
     await fn()
   } catch (err) {
+    if (saveRequestSeq[key] !== seq) {
+      return
+    }
     if (revert) {
-      runSuppressed(revert)
+      runSuppressedFor(suppressKeys ?? key, revert)
     }
     console.error('Failed to save setting:', err)
     toast.error(t('settings.saveFailed'), {
@@ -360,42 +414,55 @@ async function saveSetting(fn: () => Promise<unknown>, revert?: () => void) {
 }
 
 watch(() => settings.value.proxy, (newValue) => {
-  if (isHydrating.value || suppressWatchDepth > 0) return
+  if (isKeySuppressed('proxy')) return
   if (proxySaveTimer) clearTimeout(proxySaveTimer)
+  const seq = (saveRequestSeq.proxy ?? 0) + 1
+  saveRequestSeq.proxy = seq
   proxySaveTimer = setTimeout(async () => {
     proxySaveTimer = null
     try {
       await ConfigManager.SetProxy(newValue)
-      proxyError.value = ''
+      if (saveRequestSeq.proxy === seq) {
+        proxyError.value = ''
+      }
     } catch (err) {
-      proxyError.value = err instanceof Error ? err.message : String(err)
+      if (saveRequestSeq.proxy === seq) {
+        proxyError.value = err instanceof Error ? err.message : String(err)
+      }
     }
   }, 400)
 })
 
 watch(() => settings.value.excludePattern, (newValue) => {
-  if (isHydrating.value || suppressWatchDepth > 0) return
+  if (isKeySuppressed('excludePattern')) return
   if (excludeSaveTimer) clearTimeout(excludeSaveTimer)
+  const seq = (saveRequestSeq.excludePattern ?? 0) + 1
+  saveRequestSeq.excludePattern = seq
   excludeSaveTimer = setTimeout(async () => {
     excludeSaveTimer = null
     try {
       await ConfigManager.SetExcludePattern(newValue)
-      excludeError.value = ''
+      if (saveRequestSeq.excludePattern === seq) {
+        excludeError.value = ''
+      }
     } catch (err) {
-      excludeError.value = err instanceof Error ? err.message : String(err)
+      if (saveRequestSeq.excludePattern === seq) {
+        excludeError.value = err instanceof Error ? err.message : String(err)
+      }
     }
   }, 400)
 })
 
 watch(() => settings.value.useQuota, (newValue, oldValue) => {
-  if (isHydrating.value || suppressWatchDepth > 0) return
+  if (isKeySuppressed('useQuota')) return
   const prevSaver = settings.value.saver
   if (newValue && settings.value.saver) {
-    runSuppressed(() => {
+    runSuppressedFor('saver', () => {
       settings.value.saver = false
     })
   }
   saveSetting(
+    'storageMode',
     async () => {
       if (newValue && prevSaver) {
         await setSaver(false)
@@ -406,18 +473,20 @@ watch(() => settings.value.useQuota, (newValue, oldValue) => {
       settings.value.useQuota = oldValue
       settings.value.saver = prevSaver
     },
+    ['useQuota', 'saver'],
   )
 })
 
 watch(() => settings.value.saver, (newValue, oldValue) => {
-  if (isHydrating.value || suppressWatchDepth > 0) return
+  if (isKeySuppressed('saver')) return
   const prevQuota = settings.value.useQuota
   if (newValue && settings.value.useQuota) {
-    runSuppressed(() => {
+    runSuppressedFor('useQuota', () => {
       settings.value.useQuota = false
     })
   }
   saveSetting(
+    'storageMode',
     async () => {
       if (newValue && prevQuota) {
         await setUseQuota(false)
@@ -428,35 +497,39 @@ watch(() => settings.value.saver, (newValue, oldValue) => {
       settings.value.saver = oldValue
       settings.value.useQuota = prevQuota
     },
+    ['useQuota', 'saver'],
   )
 })
 
 watch(() => settings.value.recursive, (newValue, oldValue) => {
-  if (isHydrating.value || suppressWatchDepth > 0) return
+  if (isKeySuppressed('recursive')) return
   saveSetting(
+    'recursive',
     () => ConfigManager.SetRecursive(newValue),
     () => { settings.value.recursive = oldValue },
   )
 })
 
 watch(() => settings.value.forceUpload, (newValue, oldValue) => {
-  if (isHydrating.value || suppressWatchDepth > 0) return
+  if (isKeySuppressed('forceUpload')) return
   saveSetting(
+    'forceUpload',
     () => ConfigManager.SetForceUpload(newValue),
     () => { settings.value.forceUpload = oldValue },
   )
 })
 
 watch(() => settings.value.pairLivePhotos, (newValue, oldValue) => {
-  if (isHydrating.value || suppressWatchDepth > 0) return
+  if (isKeySuppressed('pairLivePhotos')) return
   const prevSkip = settings.value.skipIncompleteLivePhotos
   const autoEnableSkip = newValue && !prevSkip
   if (autoEnableSkip) {
-    runSuppressed(() => {
+    runSuppressedFor('skipIncompleteLivePhotos', () => {
       settings.value.skipIncompleteLivePhotos = true
     })
   }
   saveSetting(
+    'livePhotos',
     async () => {
       await ConfigManager.SetPairLivePhotos(newValue)
       if (autoEnableSkip) {
@@ -467,111 +540,140 @@ watch(() => settings.value.pairLivePhotos, (newValue, oldValue) => {
       settings.value.pairLivePhotos = oldValue
       settings.value.skipIncompleteLivePhotos = prevSkip
     },
+    ['pairLivePhotos', 'skipIncompleteLivePhotos'],
   )
 })
 
 watch(() => settings.value.skipIncompleteLivePhotos, (newValue, oldValue) => {
-  if (isHydrating.value || suppressWatchDepth > 0) return
+  if (isKeySuppressed('skipIncompleteLivePhotos')) return
   saveSetting(
+    'livePhotos',
     () => ConfigManager.SetSkipIncompleteLivePhotos(newValue),
     () => { settings.value.skipIncompleteLivePhotos = oldValue },
+    'skipIncompleteLivePhotos',
   )
 })
 
 watch(() => settings.value.updateExistingPhotosToLive, (newValue, oldValue) => {
-  if (isHydrating.value || suppressWatchDepth > 0) return
+  if (isKeySuppressed('updateExistingPhotosToLive')) return
   saveSetting(
+    'updateExistingPhotosToLive',
     () => ConfigManager.SetUpdateExistingPhotosToLive(newValue),
     () => { settings.value.updateExistingPhotosToLive = oldValue },
   )
 })
 
 watch(() => settings.value.deleteFromHost, (newValue, oldValue) => {
-  if (isHydrating.value || suppressWatchDepth > 0) return
+  if (isKeySuppressed('deleteFromHost')) return
   saveSetting(
+    'deleteFromHost',
     () => ConfigManager.SetDeleteFromHost(newValue),
     () => { settings.value.deleteFromHost = oldValue },
   )
 })
 
 watch(() => settings.value.disableUnsupportedFilesFilter, (newValue, oldValue) => {
-  if (isHydrating.value || suppressWatchDepth > 0) return
+  if (isKeySuppressed('disableUnsupportedFilesFilter')) return
   saveSetting(
+    'disableUnsupportedFilesFilter',
     () => ConfigManager.SetDisableUnsupportedFilesFilter(newValue),
     () => { settings.value.disableUnsupportedFilesFilter = oldValue },
   )
 })
 
 watch(() => settings.value.setDateFromFilename, (newValue, oldValue) => {
-  if (isHydrating.value || suppressWatchDepth > 0) return
+  if (isKeySuppressed('setDateFromFilename')) return
   saveSetting(
+    'setDateFromFilename',
     () => ConfigManager.SetSetDateFromFilename(newValue),
     () => { settings.value.setDateFromFilename = oldValue },
   )
 })
 
-watch(() => settings.value.uploadThreads, (newValue, oldValue) => {
-  if (isHydrating.value || suppressWatchDepth > 0) return
+watch(() => settings.value.uploadThreads, (newValue) => {
+  if (isKeySuppressed('uploadThreads')) return
   if (newValue < 1) {
     settings.value.uploadThreads = 1
-  } else {
-    saveSetting(
-      () => ConfigManager.SetUploadThreads(newValue),
-      () => { settings.value.uploadThreads = oldValue },
-    )
+    return
   }
+  if (threadsSaveTimer) clearTimeout(threadsSaveTimer)
+  const rollbackValue = lastCommittedThreads
+  threadsSaveTimer = setTimeout(() => {
+    threadsSaveTimer = null
+    void saveSetting(
+      'uploadThreads',
+      async () => {
+        await ConfigManager.SetUploadThreads(newValue)
+        lastCommittedThreads = newValue
+      },
+      () => { settings.value.uploadThreads = rollbackValue },
+    )
+  }, 200)
 })
 
 watch(() => settings.value.minimizeToTray, (newValue, oldValue) => {
-  if (isHydrating.value || suppressWatchDepth > 0) return
+  if (isKeySuppressed('minimizeToTray')) return
   saveSetting(
+    'minimizeToTray',
     () => ConfigManager.SetMinimizeToTray(newValue),
     () => { settings.value.minimizeToTray = oldValue },
   )
 })
 
 watch(() => settings.value.launchOnStartup, (newValue, oldValue) => {
-  if (isHydrating.value || suppressWatchDepth > 0) return
+  if (isKeySuppressed('launchOnStartup')) return
   saveSetting(
+    'launchOnStartup',
     () => ConfigManager.SetLaunchOnStartup(newValue),
     () => { settings.value.launchOnStartup = oldValue },
   )
 })
 
 watch(() => settings.value.notifyOnComplete, (newValue, oldValue) => {
-  if (isHydrating.value || suppressWatchDepth > 0) return
+  if (isKeySuppressed('notifyOnComplete')) return
   saveSetting(
+    'notifyOnComplete',
     () => setNotifyOnComplete(newValue),
     () => { settings.value.notifyOnComplete = oldValue },
   )
 })
 
 watch(() => settings.value.useLocalHashCache, (newValue, oldValue) => {
-  if (isHydrating.value || suppressWatchDepth > 0) return
+  if (isKeySuppressed('useLocalHashCache')) return
   saveSetting(
+    'useLocalHashCache',
     () => ConfigManager.SetUseLocalHashCache(newValue),
     () => { settings.value.useLocalHashCache = oldValue },
   )
 })
 
-watch(() => settings.value.uploadSpeedLimitKBps, (newValue, oldValue) => {
-  if (isHydrating.value || suppressWatchDepth > 0) return
-  saveSetting(
-    () => ConfigManager.SetUploadSpeedLimitKBps(newValue),
-    () => { settings.value.uploadSpeedLimitKBps = oldValue },
-  )
+watch(() => settings.value.uploadSpeedLimitKBps, (newValue) => {
+  if (isKeySuppressed('uploadSpeedLimitKBps')) return
+  if (speedLimitSaveTimer) clearTimeout(speedLimitSaveTimer)
+  const rollbackValue = lastCommittedSpeedLimit
+  speedLimitSaveTimer = setTimeout(() => {
+    speedLimitSaveTimer = null
+    void saveSetting(
+      'uploadSpeedLimitKBps',
+      async () => {
+        await ConfigManager.SetUploadSpeedLimitKBps(newValue)
+        lastCommittedSpeedLimit = newValue
+      },
+      () => { settings.value.uploadSpeedLimitKBps = rollbackValue },
+    )
+  }, 200)
 })
 
 watch(() => settings.value.watchFoldersEnabled, (newValue, oldValue) => {
-  if (isHydrating.value || suppressWatchDepth > 0) return
+  if (isKeySuppressed('watchFoldersEnabled')) return
   saveSetting(
+    'watchFoldersEnabled',
     () => ConfigManager.SetWatchFoldersEnabled(newValue),
     () => { settings.value.watchFoldersEnabled = oldValue },
   )
 })
 
-const savedLang = typeof localStorage !== 'undefined' ? localStorage.getItem('lumen_locale') || 'en' : 'en'
-const currentLanguage = ref(savedLang)
+const currentLanguage = computed(() => String(locale.value || 'en'))
 const showLanguageDialog = ref(false)
 
 useDialogFocusTrap(() => showLanguageDialog.value, languageDialogCardRef, {
@@ -593,7 +695,6 @@ const currentLanguageLabel = computed(() => {
 })
 
 function selectLanguage(lang: string) {
-  currentLanguage.value = lang
   try {
     setLocale(lang)
   } catch (err) {
@@ -613,35 +714,40 @@ async function handleAutoCheckUpdates(enabled: boolean) {
 }
 
 watch(() => settings.value.scheduleEnabled, (newValue, oldValue) => {
-  if (isHydrating.value || suppressWatchDepth > 0) return
+  if (isKeySuppressed('scheduleEnabled')) return
   saveSetting(
+    'scheduleEnabled',
     () => ConfigManager.SetScheduleEnabled(newValue),
     () => { settings.value.scheduleEnabled = oldValue },
   )
 })
 
 watch([() => settings.value.scheduleStartHour, () => settings.value.scheduleEndHour], ([start, end], [oldStart, oldEnd]) => {
-  if (isHydrating.value || suppressWatchDepth > 0) return
+  if (isKeySuppressed('scheduleStartHour') || isKeySuppressed('scheduleEndHour')) return
   saveSetting(
+    'scheduleHours',
     () => ConfigManager.SetScheduleHours(Number(start), Number(end)),
     () => {
       settings.value.scheduleStartHour = oldStart
       settings.value.scheduleEndHour = oldEnd
     },
+    ['scheduleStartHour', 'scheduleEndHour'],
   )
 })
 
 watch(() => settings.value.pauseOnBattery, (newValue, oldValue) => {
-  if (isHydrating.value || suppressWatchDepth > 0) return
+  if (isKeySuppressed('pauseOnBattery')) return
   saveSetting(
+    'pauseOnBattery',
     () => ConfigManager.SetPauseOnBattery(newValue),
     () => { settings.value.pauseOnBattery = oldValue },
   )
 })
 
 watch(() => settings.value.dryRun, (newValue, oldValue) => {
-  if (isHydrating.value || suppressWatchDepth > 0) return
+  if (isKeySuppressed('dryRun')) return
   saveSetting(
+    'dryRun',
     () => ConfigManager.SetDryRun(newValue),
     () => { settings.value.dryRun = oldValue },
   )

@@ -223,37 +223,48 @@ fn create_aumid_shortcut_com(target_exe: &Path, shortcut_path: &Path, aumid: &st
         }
 
         let sl_vtbl = &**(shell_link as *mut *const IShellLinkWVtbl);
-        let _ = (sl_vtbl.set_path)(shell_link, target_wide.as_ptr());
+        let mut ok = (sl_vtbl.set_path)(shell_link, target_wide.as_ptr()) >= 0;
         let _ = (sl_vtbl.set_arguments)(shell_link, empty_wide.as_ptr());
         let _ = (sl_vtbl.set_working_directory)(shell_link, workdir_wide.as_ptr());
         let _ = (sl_vtbl.set_icon_location)(shell_link, target_wide.as_ptr(), 0);
 
-        let mut prop_store: *mut c_void = std::ptr::null_mut();
-        if (sl_vtbl.query_interface)(shell_link, &IID_IPROPERTY_STORE, &mut prop_store) >= 0
-            && !prop_store.is_null()
-        {
-            let ps_vtbl = &**(prop_store as *mut *const IPropertyStoreVtbl);
-            let pv = PropVariant {
-                vt: VT_LPWSTR,
-                w_reserved1: 0,
-                w_reserved2: 0,
-                w_reserved3: 0,
-                data1: aumid_wide.as_ptr(),
-                data2: 0,
-            };
-            let _ = (ps_vtbl.set_value)(prop_store, &PKEY_APP_USER_MODEL_ID, &pv);
-            let _ = (ps_vtbl.commit)(prop_store);
-            let _ = (ps_vtbl.release)(prop_store);
+        if ok {
+            let mut prop_store: *mut c_void = std::ptr::null_mut();
+            if (sl_vtbl.query_interface)(shell_link, &IID_IPROPERTY_STORE, &mut prop_store) >= 0
+                && !prop_store.is_null()
+            {
+                let ps_vtbl = &**(prop_store as *mut *const IPropertyStoreVtbl);
+                let pv = PropVariant {
+                    vt: VT_LPWSTR,
+                    w_reserved1: 0,
+                    w_reserved2: 0,
+                    w_reserved3: 0,
+                    data1: aumid_wide.as_ptr(),
+                    data2: 0,
+                };
+                let hr_set = (ps_vtbl.set_value)(prop_store, &PKEY_APP_USER_MODEL_ID, &pv);
+                let hr_commit = if hr_set >= 0 {
+                    (ps_vtbl.commit)(prop_store)
+                } else {
+                    hr_set
+                };
+                ok = hr_set >= 0 && hr_commit >= 0;
+                let _ = (ps_vtbl.release)(prop_store);
+            } else {
+                ok = false;
+            }
         }
 
         let mut saved = false;
-        let mut persist_file: *mut c_void = std::ptr::null_mut();
-        if (sl_vtbl.query_interface)(shell_link, &IID_IPERSIST_FILE, &mut persist_file) >= 0
-            && !persist_file.is_null()
-        {
-            let pf_vtbl = &**(persist_file as *mut *const IPersistFileVtbl);
-            saved = (pf_vtbl.save)(persist_file, shortcut_wide.as_ptr(), 1) >= 0;
-            let _ = (pf_vtbl.release)(persist_file);
+        if ok {
+            let mut persist_file: *mut c_void = std::ptr::null_mut();
+            if (sl_vtbl.query_interface)(shell_link, &IID_IPERSIST_FILE, &mut persist_file) >= 0
+                && !persist_file.is_null()
+            {
+                let pf_vtbl = &**(persist_file as *mut *const IPersistFileVtbl);
+                saved = (pf_vtbl.save)(persist_file, shortcut_wide.as_ptr(), 1) >= 0;
+                let _ = (pf_vtbl.release)(persist_file);
+            }
         }
 
         let _ = (sl_vtbl.release)(shell_link);
@@ -269,7 +280,11 @@ fn register_windows_notification_aumid(data_dir: &Path) {
     use winreg::enums::*;
     use winreg::RegKey;
 
-    const AUMID: &str = "com.reiux.lumen";
+    const AUMID: &str = if cfg!(debug_assertions) {
+        "com.reiux.lumen.dev"
+    } else {
+        "com.reiux.lumen"
+    };
     set_process_aumid(AUMID);
 
     let _ = std::fs::create_dir_all(data_dir);
@@ -284,42 +299,46 @@ fn register_windows_notification_aumid(data_dir: &Path) {
     };
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let aumid_subkey = "Software\\Classes\\AppUserModelId\\com.reiux.lumen";
-
-    let needs_cache_reset = match hkcu.open_subkey(aumid_subkey) {
-        Ok(existing) => {
-            let vtype_mismatch = existing
-                .get_raw_value("DisplayName")
-                .map(|v| v.vtype != REG_EXPAND_SZ)
-                .unwrap_or(true)
-                || existing
-                    .get_raw_value("IconUri")
-                    .map(|v| v.vtype != REG_EXPAND_SZ)
-                    .unwrap_or(true);
-            let name_mismatch = existing
-                .get_value::<String, _>("DisplayName")
-                .map(|v| v != display_name)
-                .unwrap_or(true);
-            let icon_mismatch = existing
-                .get_value::<String, _>("IconUri")
-                .map(|v| v != icon_path_str)
-                .unwrap_or(true);
-            vtype_mismatch || name_mismatch || icon_mismatch
-        }
-        Err(_) => true,
-    };
-
-    if needs_cache_reset {
-        let _ = hkcu.delete_subkey_all(aumid_subkey);
-        let _ = hkcu.delete_subkey_all(
-            "Software\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings\\com.reiux.lumen",
+    for target_aumid in [AUMID, "com.reiux.lumen"] {
+        let aumid_subkey = format!("Software\\Classes\\AppUserModelId\\{}", target_aumid);
+        let notif_subkey = format!(
+            "Software\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings\\{}",
+            target_aumid
         );
-    }
 
-    if let Ok((key, _)) = hkcu.create_subkey(aumid_subkey) {
-        let _ = key.set_raw_value("DisplayName", &to_reg_expand_sz(display_name));
-        let _ = key.set_raw_value("IconUri", &to_reg_expand_sz(&icon_path_str));
-        let _ = key.set_value("IconBackgroundColor", &"FF121316");
+        let needs_cache_reset = match hkcu.open_subkey(&aumid_subkey) {
+            Ok(existing) => {
+                let vtype_mismatch = existing
+                    .get_raw_value("DisplayName")
+                    .map(|v| v.vtype != REG_EXPAND_SZ)
+                    .unwrap_or(true)
+                    || existing
+                        .get_raw_value("IconUri")
+                        .map(|v| v.vtype != REG_EXPAND_SZ)
+                        .unwrap_or(true);
+                let name_mismatch = existing
+                    .get_value::<String, _>("DisplayName")
+                    .map(|v| v != display_name)
+                    .unwrap_or(true);
+                let icon_mismatch = existing
+                    .get_value::<String, _>("IconUri")
+                    .map(|v| v != icon_path_str)
+                    .unwrap_or(true);
+                vtype_mismatch || name_mismatch || icon_mismatch
+            }
+            Err(_) => true,
+        };
+
+        if needs_cache_reset {
+            let _ = hkcu.delete_subkey_all(&aumid_subkey);
+            let _ = hkcu.delete_subkey_all(&notif_subkey);
+        }
+
+        if let Ok((key, _)) = hkcu.create_subkey(&aumid_subkey) {
+            let _ = key.set_raw_value("DisplayName", &to_reg_expand_sz(display_name));
+            let _ = key.set_raw_value("IconUri", &to_reg_expand_sz(&icon_path_str));
+            let _ = key.set_value("IconBackgroundColor", &"FF121316");
+        }
     }
 
     if let (Ok(current_exe), Ok(appdata)) = (std::env::current_exe(), std::env::var("APPDATA")) {
@@ -386,12 +405,18 @@ fn main() {
         upload_cancel: Arc::new(AtomicBool::new(false)),
         upload_pause: Arc::new(AtomicBool::new(false)),
         scan_cancel: Arc::new(AtomicBool::new(false)),
+        review_scan_cancel: Arc::new(AtomicBool::new(false)),
         is_uploading: Arc::new(AtomicBool::new(false)),
-        account_blocked: Arc::new(std::sync::RwLock::new(None)),
+        account_blocked: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
         pending_watch_files: Arc::new(std::sync::Mutex::new(Vec::new())),
         watcher: Arc::new(tokio::sync::Mutex::new(None)),
+        inotify_error: Arc::new(std::sync::RwLock::new(String::new())),
         tray_available: Arc::new(AtomicBool::new(false)),
-        update_checker: lumen_core::updater::UpdateChecker::new(),
+        initial_show_done: Arc::new(AtomicBool::new(false)),
+        update_checker: Arc::new(std::sync::Mutex::new((
+            String::new(),
+            lumen_core::updater::UpdateChecker::new(),
+        ))),
         run_seq: Arc::new(std::sync::atomic::AtomicU64::new(1)),
         log_seq: Arc::new(std::sync::atomic::AtomicU64::new(1)),
     };
@@ -411,6 +436,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::get_settings,
             commands::get_accounts,
+            commands::get_account_blocked_state,
             commands::set_selected,
             commands::add_credentials,
             commands::validate_and_add_credentials,
@@ -489,6 +515,7 @@ fn main() {
             commands::pick_upload_folder,
             commands::pick_watched_folder,
             commands::start_upload,
+            commands::start_watched_folder_upload,
             commands::cancel_upload,
             commands::pause_upload,
             commands::resume_upload,
@@ -566,11 +593,17 @@ fn main() {
                     _ => {}
                 });
 
-                // Fallback show after 1500ms
+                // Fallback show after 1500ms only if app_ready hasn't run yet
                 let w_show = window.clone();
+                let initial_show_done = app
+                    .state::<AppState>()
+                    .initial_show_done
+                    .clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(Duration::from_millis(1500)).await;
-                    let _ = w_show.show();
+                    if !initial_show_done.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                        let _ = w_show.show();
+                    }
                 });
             }
 
@@ -664,7 +697,16 @@ fn main() {
                         }
                     }
                 }
-                let _ = fw.set_folders(initial_folders);
+                match fw.set_folders(initial_folders) {
+                    Ok(()) => {
+                        *state.inotify_error.write().unwrap_or_else(|e| e.into_inner()) =
+                            String::new();
+                    }
+                    Err(e) => {
+                        tracing::warn!("Initial folder watcher error: {}", e);
+                        *state.inotify_error.write().unwrap_or_else(|e| e.into_inner()) = e;
+                    }
+                }
 
                 let ah_event = ah_watcher.clone();
                 let _ = fw.start(move |ready_files| {
@@ -692,6 +734,7 @@ fn main() {
                         pending.push(commands::PendingUploadBatch {
                             files: string_paths,
                             is_watched: true,
+                            notify_watch_detected: true,
                             dry_run_override: None,
                             recursive_override: None,
                         });
@@ -704,19 +747,12 @@ fn main() {
                         pending.push(commands::PendingUploadBatch {
                             files: string_paths,
                             is_watched: true,
+                            notify_watch_detected: true,
                             dry_run_override: None,
                             recursive_override: None,
                         });
                         return;
                     }
-
-                    let _ = ah_event.emit(
-                        "folder-watch:detected",
-                        serde_json::json!({
-                            "files": &string_paths,
-                            "count": string_paths.len(),
-                        }),
-                    );
 
                     if let Err(e) = commands::execute_upload(
                         string_paths,

@@ -4,6 +4,8 @@ import { useI18n } from 'vue-i18n'
 import { Browser } from '@wailsio/runtime'
 import { ConfigManager } from '../../bindings/app/core'
 import type { UpdateInfo } from '../../bindings/app/core/models'
+import { hasTauri } from '../tauri-compat/wails-runtime'
+import { isSafeHttpUrl } from '../utils/markdown'
 import M3Button from './ui/M3Button.vue'
 import M3Icon from './ui/M3Icon.vue'
 import M3LoadingIndicator from './ui/M3LoadingIndicator.vue'
@@ -57,7 +59,7 @@ watch(() => [props.modelValue, props.updateInfo] as const, async ([open, info]) 
           return
         }
         const msg = err instanceof Error ? err.message : String(err)
-        notes.value = msg || 'Could not load release notes.'
+        notes.value = msg || t('updater.notesLoadFailed')
       } finally {
         if (props.updateInfo?.latestVersion === requestedVersion || !props.modelValue) {
           isLoadingNotes.value = false
@@ -72,12 +74,15 @@ function close() {
 }
 
 function openDownload() {
-  if (props.updateInfo?.releaseUrl) {
-    Browser.OpenURL(props.updateInfo.releaseUrl).catch(() => {
-      window.open(props.updateInfo!.releaseUrl, '_blank', 'noopener,noreferrer')
+  const url = props.updateInfo?.releaseUrl
+  close()
+  if (url && isSafeHttpUrl(url)) {
+    Browser.OpenURL(url).catch(() => {
+      if (!hasTauri()) {
+        window.open(url, '_blank', 'noopener,noreferrer')
+      }
     })
   }
-  close()
 }
 </script>
 

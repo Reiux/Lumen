@@ -102,6 +102,7 @@ async function removeAccount() {
   const email = blockedState.value.email
   if (!email) {
     uploadManager.clearAccountBlocked()
+    showRemoveModal.value = false
     return
   }
   isRemoving.value = true

@@ -68,12 +68,15 @@ function triggerWordmarkPunch() {
 
 let holdInterval: ReturnType<typeof setInterval> | null = null
 let holdStartTime = 0
+const isHoldingLogo = ref(false)
+let isUnmounted = false
 
 function onLogoMouseDown() {
   if (holdInterval) {
     clearInterval(holdInterval)
     holdInterval = null
   }
+  isHoldingLogo.value = true
   holdStartTime = Date.now()
   holdInterval = setInterval(() => {
     const elapsed = Date.now() - holdStartTime
@@ -83,6 +86,7 @@ function onLogoMouseDown() {
 }
 
 function onLogoMouseUp() {
+  isHoldingLogo.value = false
   if (holdInterval) {
     clearInterval(holdInterval)
     holdInterval = null
@@ -132,13 +136,15 @@ onMounted(async () => {
   void refreshLastUpdateCheck()
   try {
     const v = await ConfigManager.GetAppVersion()
-    if (v) appVersion.value = v
+    if (!isUnmounted && v) appVersion.value = v
   } catch (err) {
     console.warn('Failed to get app version:', err)
   }
 })
 
 onUnmounted(() => {
+  isUnmounted = true
+  isHoldingLogo.value = false
   if (startupPunchTimer) {
     clearTimeout(startupPunchTimer)
     startupPunchTimer = null
@@ -192,6 +198,7 @@ async function checkForUpdates() {
 
   try {
     const info = await ConfigManager.CheckForUpdates(true)
+    if (isUnmounted) return
     updateResult.value = info
     if (info.error) {
       toast.error(t('about.toastUpdateCheckError', { error: info.error }))
@@ -209,10 +216,13 @@ async function checkForUpdates() {
       }
     }
   } catch (err: unknown) {
+    if (isUnmounted) return
     const msg = err instanceof Error ? err.message : String(err)
     toast.error(t('about.toastUpdateCheckError', { error: msg || t('about.toastCouldNotCheck') }))
   } finally {
-    isCheckingUpdates.value = false
+    if (!isUnmounted) {
+      isCheckingUpdates.value = false
+    }
   }
 }
 
@@ -258,7 +268,7 @@ function disableDevOptions() {
         class="inline-flex items-center justify-center size-24 cursor-pointer select-none rounded-full origin-center active:scale-95 transition-transform"
         :style="{
           transform: `rotate(${logoRotation}deg)`,
-          transition: holdInterval ? 'none' : 'transform 600ms cubic-bezier(0.38, 1.21, 0.22, 1.00)',
+          transition: isHoldingLogo ? 'none' : 'transform 600ms cubic-bezier(0.38, 1.21, 0.22, 1.00)',
         }"
         :title="t('about.tapForDevOptions')"
         @mousedown="onLogoMouseDown"

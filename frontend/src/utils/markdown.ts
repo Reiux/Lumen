@@ -20,26 +20,82 @@ export type MdBlock =
   | { type: 'paragraph'; children: MdInline[] }
 
 /**
- * Only permit safe external web links (http/https). Rejects javascript:, data:, file:, etc.
+ * Only permit safe external web links (http/https). Rejects javascript:, data:, file:, embedded credentials, etc.
  */
 export function isSafeHttpUrl(raw: string): boolean {
   try {
     const parsed = new URL(raw.trim())
+    if (parsed.username || parsed.password) return false
     return parsed.protocol === 'https:' || parsed.protocol === 'http:'
   } catch {
     return false
   }
 }
 
+function isEscaped(input: string, idx: number): boolean {
+  let backslashes = 0
+  let j = idx - 1
+  while (j >= 0 && input[j] === '\\') {
+    backslashes++
+    j--
+  }
+  return backslashes % 2 === 1
+}
+
+function findUnescaped(input: string, delim: string, fromIndex: number): number {
+  let pos = input.indexOf(delim, fromIndex)
+  while (pos !== -1 && isEscaped(input, pos)) {
+    pos = input.indexOf(delim, pos + 1)
+  }
+  return pos
+}
+
+function findBalancedCloseBracket(input: string, openIdx: number): number {
+  let depth = 0
+  for (let j = openIdx + 1; j < input.length; j++) {
+    const ch = input[j]
+    if (ch === '\\' && j + 1 < input.length) {
+      j++
+      continue
+    }
+    if (ch === '[') {
+      depth++
+    } else if (ch === ']') {
+      if (depth === 0) return j
+      depth--
+    }
+  }
+  return -1
+}
+
+function findBalancedCloseParen(input: string, openIdx: number): number {
+  let depth = 0
+  for (let j = openIdx + 1; j < input.length; j++) {
+    const ch = input[j]
+    if (ch === '\\' && j + 1 < input.length) {
+      j++
+      continue
+    }
+    if (ch === '(') {
+      depth++
+    } else if (ch === ')') {
+      if (depth === 0) return j
+      depth--
+    }
+  }
+  return -1
+}
+
 /**
  * Parse inline GitHub-flavored Markdown tokens:
  * - Inline code: `code` (parsed first so underscores/asterisks inside code stay literal)
  * - Links: [label](https://...) and bare https://... URLs
+ * - Bold + Italic: ***text*** or ___text___
  * - Bold: **text** or __text__
  * - Italic: *text* or _text_
  * - Strikethrough: ~~text~~
  */
-export function parseInline(input: string, depth = 0): MdInline[] {
+export function parseInline(input: string, depth = 0, inLink = false): MdInline[] {
   if (!input) return []
   if (depth > 4) return [{ type: 'text', text: input }]
 
@@ -73,11 +129,11 @@ export function parseInline(input: string, depth = 0): MdInline[] {
       }
     }
 
-    // Markdown link: [label](url)
-    if (input[i] === '[') {
-      const closeBracket = input.indexOf(']', i + 1)
+    // Markdown link: [label](url) (skipped when already inside a link to prevent nested <a>)
+    if (!inLink && input[i] === '[') {
+      const closeBracket = findBalancedCloseBracket(input, i)
       if (closeBracket !== -1 && input[closeBracket + 1] === '(') {
-        const closeParen = input.indexOf(')', closeBracket + 2)
+        const closeParen = findBalancedCloseParen(input, closeBracket + 1)
         if (closeParen !== -1) {
           const label = input.slice(i + 1, closeBracket)
           const href = input.slice(closeBracket + 2, closeParen).trim()
@@ -86,7 +142,7 @@ export function parseInline(input: string, depth = 0): MdInline[] {
             tokens.push({
               type: 'link',
               href,
-              children: parseInline(label, depth + 1),
+              children: parseInline(label, depth + 1, true),
             })
             i = closeParen + 1
             continue
@@ -95,15 +151,31 @@ export function parseInline(input: string, depth = 0): MdInline[] {
       }
     }
 
-    // Bare https:// or http:// URL
-    if ((input.startsWith('https://', i) || input.startsWith('http://', i)) && (i === 0 || /[\s(]/.test(input[i - 1]))) {
+    // Bare https:// or http:// URL (skipped when already inside a link)
+    if (
+      !inLink &&
+      (input.startsWith('https://', i) || input.startsWith('http://', i)) &&
+      (i === 0 || /[\s(]/.test(input[i - 1]))
+    ) {
       const rest = input.slice(i)
-      const match = rest.match(/^https?:\/\/[^\s<>)\]]+/)
+      const match = rest.match(/^https?:\/\/[^\s<>\]]+/)
       if (match) {
         let url = match[0]
-        // Trim trailing sentence punctuation
-        while (/[.,;:!?]$/.test(url)) {
-          url = url.slice(0, -1)
+        // Trim trailing sentence punctuation and unbalanced closing parentheses
+        while (url.length > 0) {
+          if (/[.,;:!?]$/.test(url)) {
+            url = url.slice(0, -1)
+            continue
+          }
+          if (url.endsWith(')')) {
+            const opens = (url.match(/\(/g) || []).length
+            const closes = (url.match(/\)/g) || []).length
+            if (closes > opens) {
+              url = url.slice(0, -1)
+              continue
+            }
+          }
+          break
         }
         if (isSafeHttpUrl(url)) {
           flushText()
@@ -118,15 +190,38 @@ export function parseInline(input: string, depth = 0): MdInline[] {
       }
     }
 
+    // Bold + Italic: ***text*** or ___text___
+    if (
+      input.startsWith('***', i) ||
+      (input.startsWith('___', i) && (i === 0 || !/\w/.test(input[i - 1])))
+    ) {
+      const delim = input.slice(i, i + 3)
+      const end = findUnescaped(input, delim, i + 3)
+      if (end !== -1 && end > i + 3) {
+        flushText()
+        tokens.push({
+          type: 'strong',
+          children: [
+            {
+              type: 'em',
+              children: parseInline(input.slice(i + 3, end), depth + 1, inLink),
+            },
+          ],
+        })
+        i = end + 3
+        continue
+      }
+    }
+
     // Strong: **text** or __text__
     if (input.startsWith('**', i) || (input.startsWith('__', i) && (i === 0 || !/\w/.test(input[i - 1])))) {
       const delim = input.slice(i, i + 2)
-      const end = input.indexOf(delim, i + 2)
+      const end = findUnescaped(input, delim, i + 2)
       if (end !== -1 && end > i + 2) {
         flushText()
         tokens.push({
           type: 'strong',
-          children: parseInline(input.slice(i + 2, end), depth + 1),
+          children: parseInline(input.slice(i + 2, end), depth + 1, inLink),
         })
         i = end + 2
         continue
@@ -135,33 +230,33 @@ export function parseInline(input: string, depth = 0): MdInline[] {
 
     // Strikethrough: ~~text~~
     if (input.startsWith('~~', i)) {
-      const end = input.indexOf('~~', i + 2)
+      const end = findUnescaped(input, '~~', i + 2)
       if (end !== -1 && end > i + 2) {
         flushText()
         tokens.push({
           type: 'del',
-          children: parseInline(input.slice(i + 2, end), depth + 1),
+          children: parseInline(input.slice(i + 2, end), depth + 1, inLink),
         })
         i = end + 2
         continue
       }
     }
 
-    // Emphasis: *text* or _text_ (avoid splitting snake_case identifiers)
+    // Emphasis: *text* or _text_ (avoid splitting snake_case identifiers and respect escaped \*)
     if (
       (input[i] === '*' && input[i + 1] !== ' ' && input[i + 1] !== '*') ||
       (input[i] === '_' && input[i + 1] !== ' ' && input[i + 1] !== '_' && (i === 0 || !/\w/.test(input[i - 1])))
     ) {
       const delim = input[i]
-      let end = input.indexOf(delim, i + 1)
+      let end = findUnescaped(input, delim, i + 1)
       while (end !== -1 && delim === '_' && end + 1 < input.length && /\w/.test(input[end + 1])) {
-        end = input.indexOf(delim, end + 1)
+        end = findUnescaped(input, delim, end + 1)
       }
       if (end !== -1 && end > i + 1 && input[end - 1] !== ' ') {
         flushText()
         tokens.push({
           type: 'em',
-          children: parseInline(input.slice(i + 1, end), depth + 1),
+          children: parseInline(input.slice(i + 1, end), depth + 1, inLink),
         })
         i = end + 1
         continue
@@ -230,7 +325,7 @@ export function parseMarkdown(source: string): MdBlock[] {
     }
 
     // Headings: # .. ######
-    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+?)\s*#*$/)
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+?)(?:\s+#+)?$/)
     if (headingMatch) {
       const rawLevel = headingMatch[1].length
       const level = (rawLevel <= 4 ? rawLevel : 4) as 1 | 2 | 3 | 4

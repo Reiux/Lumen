@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest'
 import { isSafeHttpUrl, parseInline, parseMarkdown } from './markdown'
 
 describe('markdown parser', () => {
-  it('validates safe http/https URLs and rejects unsafe schemes', () => {
+  it('validates safe http/https URLs and rejects unsafe schemes and credentials', () => {
     expect(isSafeHttpUrl('https://github.com/Reiux/Lumen')).toBe(true)
     expect(isSafeHttpUrl('http://example.com/test')).toBe(true)
     expect(isSafeHttpUrl('javascript:alert(1)')).toBe(false)
     expect(isSafeHttpUrl('data:text/html,<script>alert(1)</script>')).toBe(false)
     expect(isSafeHttpUrl('file:///etc/passwd')).toBe(false)
+    expect(isSafeHttpUrl('https://user:pass@github.com/Reiux/Lumen')).toBe(false)
+    expect(isSafeHttpUrl('https://user@github.com/Reiux/Lumen')).toBe(false)
+    expect(isSafeHttpUrl('https://:pass@github.com/Reiux/Lumen')).toBe(false)
   })
 
   it('parses headings, horizontal rules, paragraphs, and lists from GitHub release notes', () => {
@@ -111,5 +114,78 @@ describe('markdown parser', () => {
         { checked: undefined, children: [{ type: 'text', text: 'Second step' }] },
       ],
     })
+  })
+
+  it('prevents nested links and bare URLs inside link labels', () => {
+    const nestedMd = parseInline('[outer [inner](https://inner.example)](https://outer.example)')
+    expect(nestedMd).toEqual([
+      {
+        type: 'link',
+        href: 'https://outer.example',
+        children: [{ type: 'text', text: 'outer [inner](https://inner.example)' }],
+      },
+    ])
+
+    const bareInsideLabel = parseInline('[See https://inner.example](https://outer.example)')
+    expect(bareInsideLabel).toEqual([
+      {
+        type: 'link',
+        href: 'https://outer.example',
+        children: [{ type: 'text', text: 'See https://inner.example' }],
+      },
+    ])
+  })
+
+  it('preserves trailing # attached to words in headings while stripping spaced closing hashes', () => {
+    const blocks = parseMarkdown('## Added C#\n\n## Section Title ##')
+    expect(blocks).toEqual([
+      {
+        type: 'heading',
+        level: 2,
+        children: [{ type: 'text', text: 'Added C#' }],
+      },
+      {
+        type: 'heading',
+        level: 2,
+        children: [{ type: 'text', text: 'Section Title' }],
+      },
+    ])
+  })
+
+  it('supports bold italic (***...***), escaped \\* inside emphasis, and balanced parentheses in URLs', () => {
+    expect(parseInline('This is ***bold italic*** text')).toEqual([
+      { type: 'text', text: 'This is ' },
+      {
+        type: 'strong',
+        children: [{ type: 'em', children: [{ type: 'text', text: 'bold italic' }] }],
+      },
+      { type: 'text', text: ' text' },
+    ])
+
+    expect(parseInline('Note *2 \\* 3 = 6* here')).toEqual([
+      { type: 'text', text: 'Note ' },
+      { type: 'em', children: [{ type: 'text', text: '2 * 3 = 6' }] },
+      { type: 'text', text: ' here' },
+    ])
+
+    expect(parseInline('See [Wikipedia](https://en.wikipedia.org/wiki/Foo_(bar)) now')).toEqual([
+      { type: 'text', text: 'See ' },
+      {
+        type: 'link',
+        href: 'https://en.wikipedia.org/wiki/Foo_(bar)',
+        children: [{ type: 'text', text: 'Wikipedia' }],
+      },
+      { type: 'text', text: ' now' },
+    ])
+
+    expect(parseInline('Direct (https://en.wikipedia.org/wiki/Foo_(bar)).')).toEqual([
+      { type: 'text', text: 'Direct (' },
+      {
+        type: 'link',
+        href: 'https://en.wikipedia.org/wiki/Foo_(bar)',
+        children: [{ type: 'text', text: 'https://en.wikipedia.org/wiki/Foo_(bar)' }],
+      },
+      { type: 'text', text: ').' },
+    ])
   })
 })
