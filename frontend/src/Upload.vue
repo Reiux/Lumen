@@ -444,10 +444,10 @@ const totalQueueCount = computed(() => {
       </div>
     </div>
 
-    <!-- Main Layout: clean flex on narrow/mobile, 2-pane grid on >=860px -->
-    <div class="flex flex-col min-[860px]:grid min-[860px]:grid-cols-[380px_1fr] min-[1280px]:grid-cols-[440px_1fr] gap-4 min-[860px]:gap-5 flex-1 min-h-0 w-full min-[860px]:items-stretch">
-      <!-- Left Column: Hero Summary Card + M3E Queue Drop Card below -->
-      <div class="flex flex-col gap-4 w-full min-h-0 shrink-0">
+    <!-- Main Layout: clean flex on narrow/mobile, symmetrical 2-pane grid on >=860px -->
+    <div class="flex flex-col min-[860px]:grid min-[860px]:grid-cols-[380px_1fr] min-[1280px]:grid-cols-[440px_1fr] gap-4 min-[860px]:gap-5 flex-1 min-h-0 min-[860px]:max-h-[calc(100vh-130px)] w-full min-[860px]:items-stretch">
+      <!-- Left Column: Hero Summary Card + M3E Queue Drop Card below (flush height with File Queue) -->
+      <div class="flex flex-col gap-4 w-full min-[860px]:h-full min-h-0 shrink-0">
         <!-- Summary Header Card (28px rounded, surface-container) -->
         <div class="bg-[var(--md-sys-color-surface-container)] rounded-[28px] p-5 sm:p-6 border border-[var(--md-sys-color-outline-variant)]/40 shadow-sm flex flex-col">
           <div class="flex items-start justify-between gap-3">
@@ -601,8 +601,8 @@ const totalQueueCount = computed(() => {
         </div>
       </div>
 
-      <!-- Right Column: File Queue List (fills the height and scrolls) -->
-      <div class="flex flex-col min-h-0 flex-1 min-[860px]:h-full max-h-[calc(100vh-320px)] min-[860px]:max-h-[calc(100vh-130px)] bg-[var(--md-sys-color-surface-container)] rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 overflow-hidden shadow-sm w-full">
+      <!-- Right Column: File Queue List (fills the height and scrolls, symmetrical with left column) -->
+      <div class="flex flex-col min-h-[260px] flex-1 min-[860px]:h-full max-h-[calc(100vh-320px)] min-[860px]:max-h-none bg-[var(--md-sys-color-surface-container)] rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 overflow-hidden shadow-sm w-full">
         <div class="px-5 py-3 border-b border-[var(--md-sys-color-outline-variant)]/30 flex items-center justify-between m3-label-small text-[var(--md-sys-color-on-surface-variant)] shrink-0">
           <span>{{ t('upload.fileQueue') }}</span>
           <span>{{ t('upload.statusProgress') }}</span>
@@ -790,8 +790,10 @@ const totalQueueCount = computed(() => {
     color var(--md-sys-motion-duration-fast-effects, 150ms) var(--md-sys-motion-easing-fast-effects, cubic-bezier(0.31, 0.94, 0.34, 1.00));
 }
 
+/* Exact circle radius (28px for 56px box) instead of 9999px so the overshooting
+   spatial spring never underflows border-radius to 0px (sharp corners) on release. */
 .m3-queue-drop-icon.is-drag-active {
-  border-radius: var(--md-sys-shape-corner-full, 9999px);
+  border-radius: 28px;
   transform: scale(1.1) translateY(2px);
   animation: m3-drop-bob 900ms var(--md-sys-motion-easing-default-spatial, cubic-bezier(0.38, 1.21, 0.22, 1.00)) infinite alternate;
 }

@@ -280,7 +280,7 @@ async function removeAccount() {
 
           <!-- M3E Grouped Segmented List (4px gaps, 20px outer / 4px inner corners, surface-container tones) -->
           <div class="flex flex-col gap-2">
-            <span class="m3-label-small text-[var(--md-sys-color-primary)] px-1">
+            <span class="m3-label-large text-[var(--md-sys-color-on-surface-variant)] px-1">
               {{ t('circuitBreaker.safetyModalP2') }}
             </span>
 

@@ -2147,13 +2147,13 @@ onUnmounted(() => {
               ref="dropZoneRef"
               data-file-drop-target
               data-drop-zone="regular"
-              class="drop-zone m3-drop-zone-glow group relative flex w-full min-h-[320px] flex-col items-center justify-center rounded-[28px] border-2 border-dashed p-10 text-center transition-all duration-300 shadow-lg cursor-default select-none"
+              class="drop-zone m3-drop-zone-glow group relative flex w-full min-h-[320px] flex-col items-center justify-center p-10 text-center shadow-lg cursor-default select-none"
               :class="[
                 isUploadBlocked
-                  ? 'opacity-50 pointer-events-none border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container)]'
+                  ? 'is-disabled opacity-50 pointer-events-none border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container)]'
                   : isDraggingFiles
-                    ? 'is-dragging border-[var(--md-sys-color-primary)] bg-[var(--md-sys-color-primary-container)]/20 shadow-2xl ring-4 ring-[var(--md-sys-color-primary)]/20'
-                    : 'border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container)] hover:border-[var(--md-sys-color-outline)]/80',
+                    ? 'is-dragging border-[var(--md-sys-color-primary)] bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)] shadow-2xl ring-4 ring-[var(--md-sys-color-primary)]/20'
+                    : 'border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container)] hover:border-[var(--md-sys-color-primary)]/70',
               ]"
               style="--wails-draggable: none"
               @dragenter.prevent="onDropZoneDragEnter"
@@ -2162,101 +2162,78 @@ onUnmounted(() => {
               @drop.prevent="onDropZoneDrop"
               @click="clearDragState"
             >
-              <Transition name="fade" mode="out-in">
-                <!-- State A: Actively Dragging Files Over (Animated Drop State, buttons hidden) -->
-                <div
-                  v-if="isDraggingFiles"
-                  key="dragging"
-                  class="flex flex-col items-center justify-center py-4 pointer-events-none"
-                >
-                  <div class="relative flex size-24 items-center justify-center rounded-[32px] bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-primary)] shadow-lg animate-bounce">
-                    <M3Icon
-                      name="arrow_downward"
-                      :size="48"
-                    />
-                  </div>
-                  <h2 class="mt-6 m3-headline-small text-[var(--md-sys-color-primary)]">
-                    {{ t('backup.dropFiles') }}
-                  </h2>
-                  <p class="mt-2 m3-body-medium">
-                    {{ t('backup.releaseFiles') }}
-                  </p>
-                </div>
+              <!-- Persistent M3E Morphing Icon Tile (80x80: 24px resting -> 40px exact circle on drag-over) -->
+              <div
+                class="m3-drop-zone-icon flex size-20 items-center justify-center mb-5"
+                :class="
+                  isDraggingFiles
+                    ? 'is-dragging bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] shadow-lg'
+                    : 'bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-primary)] group-hover:bg-[var(--md-sys-color-primary-container)] group-hover:text-[var(--md-sys-color-on-primary-container)]'
+                "
+              >
+                <M3Icon
+                  :name="isDraggingFiles ? 'arrow_downward' : 'add_photo_alternate'"
+                  :filled="isDraggingFiles"
+                  :size="isDraggingFiles ? 40 : 36"
+                />
+              </div>
 
-                <!-- State B: Resting Idle Drop Target State -->
-                <div
-                  v-else
-                  key="idle"
-                  class="flex flex-col items-center justify-center w-full"
-                >
-                  <!-- 80x80 Icon Tile -->
-                  <div class="w-20 h-20 rounded-[28px] bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-primary)] flex items-center justify-center mb-5 group-hover:scale-105 transition duration-300">
-                    <svg
-                      class="w-10 h-10"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="1.8"
-                        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                      />
-                    </svg>
-                  </div>
+              <!-- Headline & Supporting Copy -->
+              <h2
+                class="m3-headline-small select-none"
+                :class="isDraggingFiles ? 'text-[var(--md-sys-color-on-primary-container)]' : 'text-[var(--md-sys-color-on-surface)]'"
+              >
+                {{ isDraggingFiles ? t('backup.dropFiles') : t('dropzone.readyToBackup') }}
+              </h2>
 
-                  <!-- 24px Medium Title -->
-                  <h2 class="m3-headline-small text-[var(--md-sys-color-on-surface)] select-none">
-                    {{ t('dropzone.readyToBackup') }}
-                  </h2>
+              <p
+                class="m3-body-medium mt-1.5 max-w-[384px] select-none"
+                :class="isDraggingFiles ? '!text-[var(--md-sys-color-on-primary-container)]/85' : ''"
+              >
+                {{ isDraggingFiles ? t('backup.releaseFiles') : t('backup.dragPrompt') }}
+              </p>
 
-                  <!-- 12-13px Description Line -->
-                  <p class="m3-body-medium mt-1 max-w-[384px] select-none">
-                    {{ t('backup.dragPrompt') }}
-                  </p>
-
-                  <!-- Action buttons directly under text with 24px gap -->
-                  <div
-                    class="flex flex-col items-center gap-3 mt-6 z-10"
-                    style="--wails-draggable: none"
+              <!-- Action buttons (hidden smoothly while dragging over) -->
+              <div
+                class="m3-drop-zone-actions flex flex-col items-center gap-3 mt-6 z-10"
+                :class="isDraggingFiles ? 'opacity-0 scale-95 pointer-events-none' : 'opacity-100 scale-100'"
+                style="--wails-draggable: none"
+              >
+                <!-- Connected button group (segmented) for Choose from Files / Choose folder -->
+                <M3ButtonGroup :connected="true">
+                  <M3Button
+                    variant="filled"
+                    size="m"
+                    icon="add"
+                    :disabled="isPickingMedia || isUploadBlocked"
+                    @click="handlePickFiles"
                   >
-                    <!-- Connected button group (segmented) for Choose from Files / Choose folder -->
-                    <M3ButtonGroup :connected="true">
-                      <M3Button
-                        variant="filled"
-                        size="m"
-                        icon="add"
-                        :disabled="isPickingMedia || isUploadBlocked"
-                        @click="handlePickFiles"
-                      >
-                        <span>{{ t('backup.chooseFromFiles') }}</span>
-                      </M3Button>
+                    <span>{{ t('backup.chooseFromFiles') }}</span>
+                  </M3Button>
 
-                      <M3Button
-                        variant="tonal"
-                        size="m"
-                        icon="folder"
-                        :disabled="isPickingMedia || isUploadBlocked"
-                        @click="handlePickFolder"
-                      >
-                        <span>{{ t('backup.chooseFolder') }}</span>
-                      </M3Button>
-                    </M3ButtonGroup>
+                  <M3Button
+                    variant="tonal"
+                    size="m"
+                    icon="folder"
+                    :disabled="isPickingMedia || isUploadBlocked"
+                    @click="handlePickFolder"
+                  >
+                    <span>{{ t('backup.chooseFolder') }}</span>
+                  </M3Button>
+                </M3ButtonGroup>
 
-                    <!-- Album Option Button -->
-                    <M3Button
-                      variant="tonal"
-                      size="s"
-                      icon="folder_special"
-                      :title="t('backup.albumButtonTitle')"
-                      @click="openAlbumPrompt"
-                    >
-                      <span>{{ t('backup.albumPrefix', { name: albumDisplayLabel }) }}</span>
-                    </M3Button>
-                  </div>
-                </div>
-              </Transition>
+                <!-- Album Option Button -->
+                <M3Button
+                  variant="tonal"
+                  size="s"
+                  icon="folder_special"
+                  :disabled="isUploadBlocked"
+                  :title="t('backup.albumButtonTitle')"
+                  @click="openAlbumPrompt"
+                >
+                  <span>{{ t('backup.albumPrefix', { name: albumDisplayLabel }) }}</span>
+                </M3Button>
+              </div>
             </div>
 
             <!-- Below the card: one slim row -->
