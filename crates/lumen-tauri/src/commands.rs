@@ -999,7 +999,7 @@ fn check_account_blocked(state: &AppState, account: &str) -> Result<(), String> 
 #[tauri::command]
 pub fn remove_credentials(email: String, state: tauri::State<AppState>) -> Result<(), String> {
     let res = state.config_manager.remove_credential(&email);
-    if res.is_ok() {
+    if res.is_ok() && !email.trim().is_empty() {
         clear_account_blocked_for_email(&state, &email);
     }
     res

@@ -299,7 +299,7 @@ fn register_windows_notification_aumid(data_dir: &Path) {
     };
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    for target_aumid in [AUMID, "com.reiux.lumen"] {
+    for target_aumid in [AUMID] {
         let aumid_subkey = format!("Software\\Classes\\AppUserModelId\\{}", target_aumid);
         let notif_subkey = format!(
             "Software\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings\\{}",
