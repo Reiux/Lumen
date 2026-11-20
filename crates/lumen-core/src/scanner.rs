@@ -63,6 +63,8 @@ pub fn is_ignored_temp_file(path: &Path) -> bool {
     )
 }
 
+pub const MAX_EXCLUDE_REGEX_SIZE_BYTES: usize = 1024 * 1024;
+
 pub fn validate_exclude_pattern(pattern: &str) -> Result<(), String> {
     let trimmed = pattern.trim();
     if trimmed.is_empty() {
@@ -71,23 +73,46 @@ pub fn validate_exclude_pattern(pattern: &str) -> Result<(), String> {
     if trimmed.len() > 1024 {
         return Err("Exclude pattern must not exceed 1024 characters".to_string());
     }
-    regex::Regex::new(trimmed).map_err(|e| format!("Invalid regular expression: {}", e))?;
+    regex::RegexBuilder::new(trimmed)
+        .size_limit(MAX_EXCLUDE_REGEX_SIZE_BYTES)
+        .build()
+        .map_err(|e| format!("Invalid regular expression: {}", e))?;
     Ok(())
 }
 
-pub fn is_path_excluded(path: &Path, pattern: &str) -> bool {
+pub fn compile_exclude_regex(pattern: &str) -> Option<regex::Regex> {
+    let trimmed = pattern.trim();
+    if trimmed.is_empty() || trimmed.len() > 1024 {
+        return None;
+    }
+    regex::RegexBuilder::new(trimmed)
+        .size_limit(MAX_EXCLUDE_REGEX_SIZE_BYTES)
+        .build()
+        .ok()
+}
+
+pub fn is_path_excluded_with_regex(
+    path: &Path,
+    pattern: &str,
+    compiled_regex: Option<&regex::Regex>,
+) -> bool {
     let pattern = pattern.trim();
     if pattern.is_empty() {
         return false;
     }
     let file_name = path.file_name().unwrap_or_default().to_string_lossy();
     let full_path = path.to_string_lossy();
-    if let Ok(re) = regex::Regex::new(pattern) {
+    if let Some(re) = compiled_regex {
         if re.is_match(&file_name) || re.is_match(&full_path) {
             return true;
         }
     }
     file_name == pattern || full_path.contains(pattern)
+}
+
+pub fn is_path_excluded(path: &Path, pattern: &str) -> bool {
+    let compiled = compile_exclude_regex(pattern);
+    is_path_excluded_with_regex(path, pattern, compiled.as_ref())
 }
 
 #[derive(Debug, Clone)]
@@ -135,6 +160,7 @@ where
     let mut seen_files = HashSet::new();
     let mut visited_dirs = HashSet::new();
     let mut last_emit = Instant::now();
+    let exclude_regex = compile_exclude_regex(&opts.exclude_pattern);
 
     for root_path in paths {
         if cancelled.load(Ordering::Relaxed) {
@@ -153,7 +179,10 @@ where
             if !root_meta.is_file() {
                 continue;
             }
-            if is_path_excluded(root_path, &opts.exclude_pattern) {
+            if is_ignored_temp_file(root_path) {
+                continue;
+            }
+            if is_path_excluded_with_regex(root_path, &opts.exclude_pattern, exclude_regex.as_ref()) {
                 continue;
             }
             if !opts.filter_unsupported_files || is_supported_by_google_photos(root_path) {
@@ -233,7 +262,7 @@ where
                     if !opts.recursive {
                         continue;
                     }
-                    if is_path_excluded(&path, &opts.exclude_pattern) {
+                    if is_path_excluded_with_regex(&path, &opts.exclude_pattern, exclude_regex.as_ref()) {
                         continue;
                     }
                     if is_trash_or_hidden_directory(&file_name) {
@@ -251,7 +280,7 @@ where
                     if is_ignored_temp_file(&path) {
                         continue;
                     }
-                    if is_path_excluded(&path, &opts.exclude_pattern) {
+                    if is_path_excluded_with_regex(&path, &opts.exclude_pattern, exclude_regex.as_ref()) {
                         continue;
                     }
                     if opts.filter_unsupported_files && !is_supported_by_google_photos(&path) {
@@ -335,5 +364,27 @@ mod tests {
 
         assert_eq!(files.len(), 2);
         assert!(!files.iter().any(|p| p.to_string_lossy().contains("secret")));
+    }
+
+    #[test]
+    fn test_direct_file_root_ignores_temp_files() {
+        let dir = tempdir().unwrap();
+        let valid = dir.path().join("photo1.jpg");
+        let hidden_temp = dir.path().join(".hidden.jpg");
+        let partial_temp = dir.path().join("photo2.jpg.tmp");
+        fs::write(&valid, b"data").unwrap();
+        fs::write(&hidden_temp, b"data").unwrap();
+        fs::write(&partial_temp, b"data").unwrap();
+
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let files = scan_directories_incremental(
+            &[valid.clone(), hidden_temp, partial_temp],
+            &ScanOptions::default(),
+            cancelled,
+            |_| {},
+        )
+        .unwrap();
+
+        assert_eq!(files, vec![valid]);
     }
 }

@@ -444,12 +444,42 @@ export function WasBrowserCloseFailed(): $CancellablePromise<boolean> {
     return $Call.ByID(1455959379);
 }
 
+export function StartEmbeddedSignIn(): $CancellablePromise<string> {
+    return $Call.ByID(9999999904);
+}
+
+export function StartExternalBrowserSignIn(): $CancellablePromise<string> {
+    return $Call.ByID(9999999906);
+}
+
+export function HasBattery(): $CancellablePromise<boolean> {
+    return $Call.ByID(9999999907);
+}
+
+export function GetAutoUpdateIntervalHours(): $CancellablePromise<number> {
+    return $Call.ByID(9999999908);
+}
+
+export function SetAutoUpdateIntervalHours(hours: number): $CancellablePromise<void> {
+    return $Call.ByID(9999999909, hours);
+}
+
 export function OpenDevTools(): $CancellablePromise<void> {
     return $Call.ByID(9999999901);
 }
 
 export function ToggleDevTools(): $CancellablePromise<void> {
     return $Call.ByID(9999999902);
+}
+
+export function GetAccountBlockedState(email: string): $CancellablePromise<$models.AccountBlockedEvent | null> {
+    return $Call.ByID(9999999910, email).then(($result: any) => {
+        return $$createType11($result);
+    });
+}
+
+export function StartWatchedFolderUpload(folderPath: string): $CancellablePromise<void> {
+    return $Call.ByID(9999999911, folderPath);
 }
 
 // Private type creation functions
@@ -463,3 +493,5 @@ const $$createType6 = $models.Preferences.createFrom;
 const $$createType7 = $models.WatchedFolderConfig.createFrom;
 const $$createType8 = $Create.Nullable($$createType7);
 const $$createType9 = $Create.Array($$createType7);
+const $$createType10 = $models.AccountBlockedEvent.createFrom;
+const $$createType11 = $Create.Nullable($$createType10);

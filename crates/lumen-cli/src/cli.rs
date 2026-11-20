@@ -28,11 +28,17 @@ use lumen_core::net::create_http_client;
 use lumen_core::scanner::{scan_directories_incremental, ScanOptions};
 use lumen_core::upload::{UploadEngine, UploadEvent, UploadOptions};
 
+const CLI_VERSION: &str = if cfg!(debug_assertions) {
+    concat!(env!("CARGO_PKG_VERSION"), "-dev")
+} else {
+    env!("CARGO_PKG_VERSION")
+};
+
 #[derive(Parser, Debug)]
 #[command(
     name = "lumen-cli",
     about = "Native Google Photos desktop uploader with Material Design 3 and Live Photos support",
-    version
+    version = CLI_VERSION
 )]
 pub struct Cli {
     /// Path to configuration file (overrides default config path)
@@ -69,24 +75,24 @@ pub struct UploadArgs {
     pub paths: Vec<PathBuf>,
 
     /// Recurse into subdirectories
-    #[arg(short = 'r', long)]
-    pub recursive: bool,
+    #[arg(short = 'r', long, default_missing_value = "true", num_args = 0..=1, require_equals = true)]
+    pub recursive: Option<bool>,
 
     /// Force re-uploading files even if already present in library or cache
-    #[arg(short = 'f', long, alias = "force")]
-    pub force_upload: bool,
+    #[arg(short = 'f', long, alias = "force", default_missing_value = "true", num_args = 0..=1, require_equals = true)]
+    pub force_upload: Option<bool>,
 
     /// Use Google Photos Storage Saver quality (free high-quality compression)
-    #[arg(short = 's', long)]
-    pub saver: bool,
+    #[arg(short = 's', long, default_missing_value = "true", num_args = 0..=1, require_equals = true)]
+    pub saver: Option<bool>,
 
     /// Number of concurrent upload threads (default from config or 5)
     #[arg(short = 't', long)]
     pub threads: Option<usize>,
 
     /// Count against Google Drive/Photos storage quota
-    #[arg(short = 'u', long)]
-    pub use_quota: bool,
+    #[arg(short = 'u', long, default_missing_value = "true", num_args = 0..=1, require_equals = true)]
+    pub use_quota: Option<bool>,
 
     /// Album name or existing album link/key to add uploaded items to
     #[arg(short = 'a', long)]
@@ -97,32 +103,32 @@ pub struct UploadArgs {
     pub album_auto: bool,
 
     /// Pair matching photos (.heic, .jpg) and videos (.mov) as Live Photos
-    #[arg(short = 'p', long)]
-    pub pair_live_photos: bool,
+    #[arg(short = 'p', long, default_missing_value = "true", num_args = 0..=1, require_equals = true)]
+    pub pair_live_photos: Option<bool>,
 
     /// Skip incomplete Live Photos missing their photo or video component
-    #[arg(long, default_value_t = true)]
-    pub skip_incomplete_live_photos: bool,
+    #[arg(long, default_missing_value = "true", num_args = 0..=1, require_equals = true)]
+    pub skip_incomplete_live_photos: Option<bool>,
 
     /// Update existing still photos in Google Photos into Live Photos if video found
-    #[arg(long)]
-    pub update_existing_photos_to_live: bool,
+    #[arg(long, default_missing_value = "true", num_args = 0..=1, require_equals = true)]
+    pub update_existing_photos_to_live: Option<bool>,
 
     /// Pair Live Photos strictly by filename stem instead of Apple MakerNote metadata
     #[arg(long)]
     pub ignore_apple_metadata: bool,
 
     /// Delete local files from computer upon successful upload
-    #[arg(short = 'd', long = "delete-from-host", alias = "delete")]
-    pub delete_from_host: bool,
+    #[arg(short = 'd', long = "delete-from-host", alias = "delete", default_missing_value = "true", num_args = 0..=1, require_equals = true)]
+    pub delete_from_host: Option<bool>,
 
     /// Upload all files regardless of Google Photos supported formats
-    #[arg(long = "disable-unsupported-files-filter", alias = "disable-filter")]
-    pub disable_unsupported_files_filter: bool,
+    #[arg(long = "disable-unsupported-files-filter", alias = "disable-filter", default_missing_value = "true", num_args = 0..=1, require_equals = true)]
+    pub disable_unsupported_files_filter: Option<bool>,
 
     /// Extract capture date from filename instead of file modification time
-    #[arg(long = "set-date-from-filename", alias = "date-from-filename")]
-    pub set_date_from_filename: bool,
+    #[arg(long = "set-date-from-filename", alias = "date-from-filename", default_missing_value = "true", num_args = 0..=1, require_equals = true)]
+    pub set_date_from_filename: Option<bool>,
 
     /// Regular expression pattern of filenames to exclude
     #[arg(short = 'e', long = "exclude-pattern", alias = "exclude")]
@@ -151,16 +157,16 @@ pub struct WatchArgs {
     pub paths: Vec<PathBuf>,
 
     /// Recurse into subdirectories
-    #[arg(short = 'r', long, default_value_t = true)]
-    pub recursive: bool,
+    #[arg(short = 'r', long, default_missing_value = "true", num_args = 0..=1, require_equals = true)]
+    pub recursive: Option<bool>,
 
     /// Number of concurrent upload threads
     #[arg(short = 't', long)]
     pub threads: Option<usize>,
 
     /// Use Storage Saver quality
-    #[arg(short = 's', long)]
-    pub saver: bool,
+    #[arg(short = 's', long, default_missing_value = "true", num_args = 0..=1, require_equals = true)]
+    pub saver: Option<bool>,
 
     /// Account email to use (overrides active selected account)
     #[arg(long)]
@@ -261,9 +267,20 @@ pub async fn handle_upload(
 
     // Scan paths
     println!("Scanning files...");
+    let effective_recursive = args.recursive.unwrap_or(cfg.preferences.recursive);
+    let effective_disable_filter = args
+        .disable_unsupported_files_filter
+        .unwrap_or(cfg.preferences.disable_unsupported_files_filter);
+    let effective_pair_live = args
+        .pair_live_photos
+        .unwrap_or(cfg.preferences.pair_live_photos);
+    let effective_skip_incomplete = args
+        .skip_incomplete_live_photos
+        .unwrap_or(cfg.preferences.skip_incomplete_live_photos);
+
     let scan_opts = ScanOptions {
-        recursive: args.recursive || cfg.preferences.recursive,
-        filter_unsupported_files: !(args.disable_unsupported_files_filter || cfg.preferences.disable_unsupported_files_filter),
+        recursive: effective_recursive,
+        filter_unsupported_files: !effective_disable_filter,
         exclude_pattern: args.exclude_pattern.clone().unwrap_or_else(|| cfg.preferences.exclude_pattern.clone()),
         ..Default::default()
     };
@@ -280,8 +297,8 @@ pub async fn handle_upload(
 
     // Live Photo classification
     let live_opts = LivePhotoClassificationOptions {
-        enabled: args.pair_live_photos || cfg.preferences.pair_live_photos,
-        skip_incomplete: args.skip_incomplete_live_photos && cfg.preferences.skip_incomplete_live_photos,
+        enabled: effective_pair_live,
+        skip_incomplete: effective_skip_incomplete,
         ignore_apple_metadata: args.ignore_apple_metadata,
         default_account: selected_account.clone(),
     };
@@ -320,19 +337,23 @@ pub async fn handle_upload(
     let speed_limit = args.speed_limit.unwrap_or(cfg.preferences.upload_speed_limit_kbps);
     let upload_opts = UploadOptions {
         threads,
-        saver: args.saver || cfg.preferences.saver,
-        use_quota: args.use_quota || cfg.preferences.use_quota,
-        recursive: args.recursive || cfg.preferences.recursive,
-        force_upload: args.force_upload || cfg.preferences.force_upload,
-        delete_from_host: args.delete_from_host || cfg.preferences.delete_from_host,
-        pair_live_photos: args.pair_live_photos || cfg.preferences.pair_live_photos,
-        skip_incomplete_live_photos: args.skip_incomplete_live_photos && cfg.preferences.skip_incomplete_live_photos,
-        update_existing_photos_to_live: args.update_existing_photos_to_live || cfg.preferences.update_existing_photos_to_live,
+        saver: args.saver.unwrap_or(cfg.preferences.saver),
+        use_quota: args.use_quota.unwrap_or(cfg.preferences.use_quota),
+        recursive: effective_recursive,
+        force_upload: args.force_upload.unwrap_or(cfg.preferences.force_upload),
+        delete_from_host: args.delete_from_host.unwrap_or(cfg.preferences.delete_from_host),
+        pair_live_photos: effective_pair_live,
+        skip_incomplete_live_photos: effective_skip_incomplete,
+        update_existing_photos_to_live: args
+            .update_existing_photos_to_live
+            .unwrap_or(cfg.preferences.update_existing_photos_to_live),
         ignore_apple_metadata: args.ignore_apple_metadata,
-        set_date_from_filename: args.set_date_from_filename || cfg.preferences.set_date_from_filename,
-        disable_unsupported_files_filter: args.disable_unsupported_files_filter || cfg.preferences.disable_unsupported_files_filter,
+        set_date_from_filename: args
+            .set_date_from_filename
+            .unwrap_or(cfg.preferences.set_date_from_filename),
+        disable_unsupported_files_filter: effective_disable_filter,
         exclude_pattern: args.exclude_pattern.unwrap_or(cfg.preferences.exclude_pattern),
-        use_local_hash_cache: true,
+        use_local_hash_cache: cfg.preferences.use_local_hash_cache,
         upload_speed_limit_kbps: speed_limit,
         album_name: args.album.unwrap_or_default(),
         album_auto_mode: args.album_auto,
@@ -355,7 +376,17 @@ pub async fn handle_upload(
     );
     total_bar.set_message("Uploading...");
 
-    let engine = UploadEngine::new(config_manager, hash_cache, album_registry);
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let cancel_sig = cancelled.clone();
+    let sig_task = tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            eprintln!("\nCancellation requested, stopping active uploads...");
+            cancel_sig.store(true, Ordering::SeqCst);
+        }
+    });
+
+    let engine = UploadEngine::new(config_manager, hash_cache, album_registry)
+        .with_cancelled(cancelled.clone());
     let (event_tx, mut event_rx) = mpsc::channel(100);
 
     let total_items = work_items.len();
@@ -405,6 +436,7 @@ pub async fn handle_upload(
     let results = engine.run_upload(work_items, upload_opts, event_tx).await
         .map_err(|e| anyhow::anyhow!("{}", e))?;
 
+    sig_task.abort();
     let _ = mp_handle.await;
 
     // Print summary
@@ -433,6 +465,9 @@ pub async fn handle_upload(
     println!("Failed:      {}", failed);
     println!("=========================================");
 
+    if cancelled.load(Ordering::Relaxed) {
+        bail!("Upload cancelled by user.");
+    }
     if failed > 0 {
         bail!("{} upload(s) failed.", failed);
     }
@@ -456,6 +491,9 @@ pub async fn handle_creds(args: CredsArgs, config_manager: Arc<ConfigManager>) -
                 bail!("Credential string cannot be empty.");
             }
 
+            let prefs = config_manager.get_preferences();
+            let proxy = (!prefs.proxy.trim().is_empty()).then_some(prefs.proxy.as_str());
+
             let (email, full_credential) = if looks_like_auth_string(cred_str) {
                 let params: HashMap<String, String> = url::form_urlencoded::parse(cred_str.as_bytes())
                     .into_owned()
@@ -473,7 +511,7 @@ pub async fn handle_creds(args: CredsArgs, config_manager: Arc<ConfigManager>) -
                 let clean_token = normalize_oauth_token(cred_str)
                     .map_err(|e| anyhow::anyhow!("Invalid oauth token: {}", e))?;
 
-                let client = create_http_client(None)
+                let client = create_http_client(proxy)
                     .map_err(|e| anyhow::anyhow!("Failed to initialize HTTP client: {}", e))?;
                 let android_id = generate_android_id();
                 let exchange = exchange_embedded_setup_token(
@@ -492,6 +530,23 @@ pub async fn handle_creds(args: CredsArgs, config_manager: Arc<ConfigManager>) -
                 let cred = build_google_photos_credential(&exchange.email, &exchange.master_token, &android_id);
                 (exchange.email, cred)
             };
+
+            let custom_endpoint = std::env::var("LUMEN_API_ENDPOINT")
+                .ok()
+                .filter(|s| !s.trim().is_empty());
+            lumen_core::api::validate_google_photos_credential(
+                &full_credential,
+                proxy,
+                custom_endpoint.as_deref(),
+            )
+            .await
+            .map_err(|e| {
+                anyhow::anyhow!(
+                    "Google Photos authorization (Stage 2) failed for {}: {}",
+                    email,
+                    e
+                )
+            })?;
 
             let save_status = config_manager.save_credential(&email, &full_credential)
                 .map_err(|e| anyhow::anyhow!("Failed to save credential: {}", e))?;
@@ -528,19 +583,51 @@ pub async fn handle_creds(args: CredsArgs, config_manager: Arc<ConfigManager>) -
 
             println!("Configured Accounts ({}):", emails.len());
             for email in emails {
-                let marker = if email == cfg.account.selected { "* (active)" } else { "  " };
+                let marker = if email.eq_ignore_ascii_case(&cfg.account.selected) {
+                    "* (active)"
+                } else {
+                    "  "
+                };
                 println!("{} {}", marker, email);
             }
         }
         CredsCommands::Set { email } => {
-            config_manager.update(|c| c.account.selected = email.clone())
+            let trimmed = email.trim();
+            if trimmed.is_empty() {
+                bail!("Account email cannot be empty.");
+            }
+            let cfg = config_manager.get_config();
+            let mut matched_email: Option<String> = None;
+            for cred in &cfg.account.credentials {
+                if let Some((_, stored)) = url::form_urlencoded::parse(cred.as_bytes()).find(|(k, _)| k == "Email") {
+                    if stored.eq_ignore_ascii_case(trimmed) {
+                        matched_email = Some(stored.into_owned());
+                        break;
+                    }
+                }
+            }
+            if matched_email.is_none() && config_manager.get_credential_for_account(Some(trimmed)).is_ok() {
+                matched_email = Some(trimmed.to_string());
+            }
+            let canonical = matched_email.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Account '{}' is not configured. Use 'lumen-cli creds list' to see available accounts.",
+                    trimmed
+                )
+            })?;
+            config_manager.update(|c| c.account.selected = canonical.clone())
                 .map_err(|e| anyhow::anyhow!("Failed to set active account: {}", e))?;
-            println!("Active account set to: {}", email);
+            println!("Active account set to: {}", canonical);
         }
         CredsCommands::Remove { email } => {
-            config_manager.remove_credential(&email)
+            let trimmed = email.trim();
+            let removed = config_manager.remove_credential_if_present(trimmed)
                 .map_err(|e| anyhow::anyhow!("Failed to remove account: {}", e))?;
-            println!("Successfully removed account: {}", email);
+            if removed {
+                println!("Successfully removed account: {}", trimmed);
+            } else {
+                bail!("Account '{}' is not configured. Use 'lumen-cli creds list' to see available accounts.", trimmed);
+            }
         }
     }
     Ok(())
@@ -568,6 +655,54 @@ pub fn handle_cache(args: CacheArgs, config_path: &Path) -> Result<()> {
     Ok(())
 }
 
+fn canonicalize_lossy(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| {
+        if let (Some(parent), Some(name)) = (path.parent(), path.file_name()) {
+            if let Ok(cp) = std::fs::canonicalize(parent) {
+                return cp.join(name);
+            }
+        }
+        path.to_path_buf()
+    })
+}
+
+fn watched_folder_matches_file(
+    file: &Path,
+    folder_path: &Path,
+    include_subfolders: bool,
+) -> bool {
+    let norm_file = canonicalize_lossy(file);
+    let norm_folder = canonicalize_lossy(folder_path);
+
+    let file_cmp = if include_subfolders {
+        norm_file.as_path()
+    } else {
+        match norm_file.parent() {
+            Some(p) => p,
+            None => return false,
+        }
+    };
+
+    #[cfg(windows)]
+    {
+        let a = file_cmp.to_string_lossy().to_lowercase();
+        let b = norm_folder.to_string_lossy().to_lowercase();
+        if include_subfolders {
+            Path::new(&a).starts_with(Path::new(&b))
+        } else {
+            a == b
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        if include_subfolders {
+            file_cmp.starts_with(&norm_folder)
+        } else {
+            file_cmp == norm_folder.as_path()
+        }
+    }
+}
+
 pub async fn handle_watch(
     args: WatchArgs,
     config_manager: Arc<ConfigManager>,
@@ -590,7 +725,7 @@ pub async fn handle_watch(
     let mut folders = std::collections::HashMap::new();
     if !args.paths.is_empty() {
         for p in &args.paths {
-            folders.insert(p.clone(), args.recursive);
+            folders.insert(p.clone(), args.recursive.unwrap_or(true));
         }
     } else if cfg.preferences.watch_folders_enabled && !cfg.preferences.watched_folder_configs.is_empty() {
         for c in &cfg.preferences.watched_folder_configs {
@@ -621,97 +756,164 @@ pub async fn handle_watch(
     let album_reg_path = determine_album_registry_path(cache_dir);
     let album_registry = AlbumRegistry::new(album_reg_path).unwrap_or_else(|_| AlbumRegistry::in_memory());
 
-    let (file_tx, mut file_rx) = tokio::sync::mpsc::channel::<Vec<PathBuf>>(100);
+    let (file_tx, mut file_rx) = tokio::sync::mpsc::unbounded_channel::<Vec<PathBuf>>();
 
     let mut fw = lumen_core::watcher::FolderWatcher::new(std::time::Duration::from_millis(2000));
+    fw.set_filter_options(
+        !cfg.preferences.disable_unsupported_files_filter,
+        cfg.preferences.exclude_pattern.clone(),
+    );
     fw.set_folders(folders).map_err(|e| anyhow::anyhow!("{}", e))?;
     fw.start(move |ready_files| {
-        let _ = file_tx.blocking_send(ready_files);
+        let _ = file_tx.send(ready_files);
     }).map_err(|e| anyhow::anyhow!("Watcher error: {}", e))?;
 
     let is_running = Arc::new(AtomicBool::new(true));
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let stop_notify = Arc::new(tokio::sync::Notify::new());
     let r_sig = is_running.clone();
-    tokio::spawn(async move {
+    let c_sig = cancelled.clone();
+    let n_sig = stop_notify.clone();
+    let sig_task = tokio::spawn(async move {
         let _ = tokio::signal::ctrl_c().await;
         println!("\nShutdown signal received. Exiting watch mode...");
         r_sig.store(false, Ordering::SeqCst);
+        c_sig.store(true, Ordering::SeqCst);
+        n_sig.notify_waiters();
     });
 
     while is_running.load(Ordering::Relaxed) {
         tokio::select! {
-            Some(ready_files) = file_rx.recv() => {
+            _ = stop_notify.notified() => break,
+            recv = file_rx.recv() => {
+                let Some(ready_files) = recv else { break; };
                 if ready_files.is_empty() {
                     continue;
                 }
                 println!("[watch] Detected {} new or modified file(s).", ready_files.len());
 
-                let live_opts = LivePhotoClassificationOptions {
-                    enabled: cfg.preferences.pair_live_photos,
-                    skip_incomplete: cfg.preferences.skip_incomplete_live_photos,
-                    ignore_apple_metadata: false,
-                    default_account: selected_account.clone(),
-                };
-                let (work_items, _) = classify_upload_work(&ready_files, &live_opts);
-
-                let threads = args.threads.unwrap_or(cfg.preferences.upload_threads);
-                let upload_opts = UploadOptions {
-                    threads,
-                    saver: args.saver || cfg.preferences.saver,
-                    use_quota: cfg.preferences.use_quota,
-                    recursive: args.recursive,
-                    force_upload: cfg.preferences.force_upload,
-                    delete_from_host: cfg.preferences.delete_from_host,
-                    pair_live_photos: cfg.preferences.pair_live_photos,
-                    skip_incomplete_live_photos: cfg.preferences.skip_incomplete_live_photos,
-                    update_existing_photos_to_live: cfg.preferences.update_existing_photos_to_live,
-                    ignore_apple_metadata: false,
-                    set_date_from_filename: cfg.preferences.set_date_from_filename,
-                    disable_unsupported_files_filter: cfg.preferences.disable_unsupported_files_filter,
-                    exclude_pattern: cfg.preferences.exclude_pattern.clone(),
-                    use_local_hash_cache: true,
-                    upload_speed_limit_kbps: cfg.preferences.upload_speed_limit_kbps,
-                    album_name: String::new(),
-                    album_auto_mode: false,
-                    custom_endpoint_base: None,
-                    dry_run: args.dry_run,
-                    schedule_enabled: cfg.preferences.schedule_enabled,
-                    schedule_start_hour: cfg.preferences.schedule_start_hour,
-                    schedule_end_hour: cfg.preferences.schedule_end_hour,
-                    pause_on_battery: cfg.preferences.pause_on_battery,
-                };
-
-                let engine = UploadEngine::new(config_manager.clone(), hash_cache.clone(), album_registry.clone());
-                let (event_tx, mut event_rx) = mpsc::channel(100);
-
-                let ev_task = tokio::spawn(async move {
-                    while let Some(ev) = event_rx.recv().await {
-                        match ev {
-                            UploadEvent::FileCompleted(res) => {
-                                if res.skipped {
-                                    println!("  [skip] {} ({})", res.path.display(), res.skip_reason);
-                                } else if res.is_error {
-                                    eprintln!("  [error] {}: {}", res.path.display(), res.error_message);
-                                } else if res.skip_code == "dry-run" {
-                                    println!("  [dry-run] {} (would back up)", res.path.display());
-                                } else {
-                                    println!("  [done] {}", res.path.display());
-                                }
+                let mut grouped_batches: HashMap<(String, String, bool), Vec<PathBuf>> = HashMap::new();
+                if args.paths.is_empty() {
+                    let mut folder_cfgs = cfg.preferences.watched_folder_configs.clone();
+                    folder_cfgs.sort_by_key(|c| std::cmp::Reverse(canonicalize_lossy(Path::new(&c.path)).components().count()));
+                    for file in &ready_files {
+                        let matched = if cfg.preferences.watch_folders_enabled && !folder_cfgs.is_empty() {
+                            folder_cfgs
+                                .iter()
+                                .find(|c| c.enabled && watched_folder_matches_file(file, Path::new(&c.path), c.include_subfolders))
+                        } else {
+                            None
+                        };
+                        if matched.is_none() {
+                            if let Some((legacy_dir, rec)) = cfg.preferences.watched_folders.iter().find_map(|p| {
+                                let d = Path::new(p);
+                                watched_folder_matches_file(file, d, true).then_some((d, true))
+                            }) {
+                                let _ = (legacy_dir, rec);
+                                grouped_batches
+                                    .entry((selected_account.clone(), String::new(), false))
+                                    .or_default()
+                                    .push(file.clone());
                             }
-                            UploadEvent::BatchComplete { uploaded, skipped, failed } => {
-                                println!("[watch] Batch finished: {} backed up, {} skipped, {} failed.", uploaded, skipped, failed);
-                            }
-                            _ => {}
+                            continue;
                         }
+                        let target_account = if args.account.is_some() {
+                            selected_account.clone()
+                        } else if let Some(fc) = matched.filter(|fc| !fc.account_email.is_empty()) {
+                            fc.account_email.clone()
+                        } else {
+                            selected_account.clone()
+                        };
+                        let (album_name, album_auto_mode) = match matched {
+                            Some(fc) if fc.album_mode == "auto" => (String::new(), true),
+                            Some(fc) if fc.album_mode == "custom" && !fc.album_name_or_key.is_empty() => {
+                                (fc.album_name_or_key.clone(), false)
+                            }
+                            _ => (String::new(), false),
+                        };
+                        grouped_batches
+                            .entry((target_account, album_name, album_auto_mode))
+                            .or_default()
+                            .push(file.clone());
                     }
-                });
+                } else {
+                    grouped_batches.insert((selected_account.clone(), String::new(), false), ready_files);
+                }
 
-                let _ = engine.run_upload(work_items, upload_opts, event_tx).await;
-                let _ = ev_task.await;
+                for ((batch_account, batch_album, batch_album_auto), batch_files) in grouped_batches {
+                    if cancelled.load(Ordering::Relaxed) {
+                        break;
+                    }
+                    let live_opts = LivePhotoClassificationOptions {
+                        enabled: cfg.preferences.pair_live_photos,
+                        skip_incomplete: cfg.preferences.skip_incomplete_live_photos,
+                        ignore_apple_metadata: false,
+                        default_account: batch_account,
+                    };
+                    let (work_items, _) = classify_upload_work(&batch_files, &live_opts);
+
+                    let threads = args.threads.unwrap_or(cfg.preferences.upload_threads);
+                    let upload_opts = UploadOptions {
+                        threads,
+                        saver: args.saver.unwrap_or(cfg.preferences.saver),
+                        use_quota: cfg.preferences.use_quota,
+                        recursive: args.recursive.unwrap_or(cfg.preferences.recursive),
+                        force_upload: cfg.preferences.force_upload,
+                        delete_from_host: cfg.preferences.delete_from_host,
+                        pair_live_photos: cfg.preferences.pair_live_photos,
+                        skip_incomplete_live_photos: cfg.preferences.skip_incomplete_live_photos,
+                        update_existing_photos_to_live: cfg.preferences.update_existing_photos_to_live,
+                        ignore_apple_metadata: false,
+                        set_date_from_filename: cfg.preferences.set_date_from_filename,
+                        disable_unsupported_files_filter: cfg.preferences.disable_unsupported_files_filter,
+                        exclude_pattern: cfg.preferences.exclude_pattern.clone(),
+                        use_local_hash_cache: cfg.preferences.use_local_hash_cache,
+                        upload_speed_limit_kbps: cfg.preferences.upload_speed_limit_kbps,
+                        album_name: batch_album,
+                        album_auto_mode: batch_album_auto,
+                        custom_endpoint_base: None,
+                        dry_run: args.dry_run,
+                        schedule_enabled: cfg.preferences.schedule_enabled,
+                        schedule_start_hour: cfg.preferences.schedule_start_hour,
+                        schedule_end_hour: cfg.preferences.schedule_end_hour,
+                        pause_on_battery: cfg.preferences.pause_on_battery,
+                    };
+
+                    let engine = UploadEngine::new(config_manager.clone(), hash_cache.clone(), album_registry.clone())
+                        .with_cancelled(cancelled.clone());
+                    let (event_tx, mut event_rx) = mpsc::channel(100);
+
+                    let ev_task = tokio::spawn(async move {
+                        while let Some(ev) = event_rx.recv().await {
+                            match ev {
+                                UploadEvent::FileCompleted(res) => {
+                                    if res.skipped {
+                                        println!("  [skip] {} ({})", res.path.display(), res.skip_reason);
+                                    } else if res.is_error {
+                                        eprintln!("  [error] {}: {}", res.path.display(), res.error_message);
+                                    } else if res.skip_code == "dry-run" {
+                                        println!("  [dry-run] {} (would back up)", res.path.display());
+                                    } else {
+                                        println!("  [done] {}", res.path.display());
+                                    }
+                                }
+                                UploadEvent::BatchComplete { uploaded, skipped, failed } => {
+                                    println!("[watch] Batch finished: {} backed up, {} skipped, {} failed.", uploaded, skipped, failed);
+                                }
+                                _ => {}
+                            }
+                        }
+                    });
+
+                    let _ = engine.run_upload(work_items, upload_opts, event_tx).await;
+                    let _ = ev_task.await;
+                }
             }
-            _ = tokio::time::sleep(tokio::time::Duration::from_millis(500)) => {}
         }
     }
 
+    sig_task.abort();
+    fw.stop();
     Ok(())
 }
 
@@ -738,8 +940,8 @@ mod tests {
         match cli.command {
             Commands::Upload(u) => {
                 assert_eq!(u.paths, vec![PathBuf::from("/photos")]);
-                assert!(u.recursive);
-                assert!(u.saver);
+                assert_eq!(u.recursive, Some(true));
+                assert_eq!(u.saver, Some(true));
                 assert_eq!(u.threads, Some(4));
                 assert_eq!(u.album.as_deref(), Some("Vacation 2026"));
                 assert_eq!(u.speed_limit, Some(1024));
@@ -764,11 +966,11 @@ mod tests {
         let cli = Cli::try_parse_from(args).unwrap();
         match cli.command {
             Commands::Upload(u) => {
-                assert!(u.force_upload);
-                assert!(u.delete_from_host);
+                assert_eq!(u.force_upload, Some(true));
+                assert_eq!(u.delete_from_host, Some(true));
                 assert_eq!(u.exclude_pattern.as_deref(), Some("@eaDir"));
-                assert!(u.disable_unsupported_files_filter);
-                assert!(u.set_date_from_filename);
+                assert_eq!(u.disable_unsupported_files_filter, Some(true));
+                assert_eq!(u.set_date_from_filename, Some(true));
             }
             _ => panic!("expected Upload command"),
         }
@@ -838,5 +1040,98 @@ mod tests {
         // Verify nothing was saved as unknown@example.com
         assert_ne!(cfg_mgr.get_config().account.selected, "unknown@example.com");
         assert!(cfg_mgr.get_config().account.credentials.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_creds_set_rejects_unconfigured_and_canonicalizes_case() {
+        let temp = tempfile::tempdir().unwrap();
+        let cfg_path = temp.path().join("lumen.config");
+        let cfg_mgr = Arc::new(ConfigManager::new_with_mock_keyring(cfg_path));
+        cfg_mgr
+            .save_credential("Alice@Example.com", "androidId=1&Email=Alice@Example.com&Token=tok1")
+            .unwrap();
+
+        let err = handle_creds(
+            CredsArgs {
+                command: CredsCommands::Set {
+                    email: "missing@example.com".to_string(),
+                },
+            },
+            cfg_mgr.clone(),
+        )
+        .await
+        .unwrap_err();
+        assert!(err.to_string().contains("is not configured"));
+
+        handle_creds(
+            CredsArgs {
+                command: CredsCommands::Set {
+                    email: "alice@example.com".to_string(),
+                },
+            },
+            cfg_mgr.clone(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(cfg_mgr.get_config().account.selected, "Alice@Example.com");
+    }
+
+    #[test]
+    fn test_cli_parsing_upload_and_watch_false_overrides() {
+        let upload_cli = Cli::try_parse_from([
+            "lumen-cli",
+            "upload",
+            "/photos",
+            "--skip-incomplete-live-photos=false",
+            "--saver=false",
+            "-r",
+        ])
+        .unwrap();
+        match upload_cli.command {
+            Commands::Upload(u) => {
+                assert_eq!(u.skip_incomplete_live_photos, Some(false));
+                assert_eq!(u.saver, Some(false));
+                assert_eq!(u.recursive, Some(true));
+            }
+            _ => panic!("expected Upload"),
+        }
+
+        // Flag before positional path should not consume positional path as bool value
+        let flag_before_path = Cli::try_parse_from(["lumen-cli", "upload", "-r", "/photos"]).unwrap();
+        match flag_before_path.command {
+            Commands::Upload(u) => {
+                assert_eq!(u.recursive, Some(true));
+                assert_eq!(u.paths, vec![PathBuf::from("/photos")]);
+            }
+            _ => panic!("expected Upload"),
+        }
+
+        let watch_cli = Cli::try_parse_from([
+            "lumen-cli",
+            "watch",
+            "/photos",
+            "-r=false",
+        ])
+        .unwrap();
+        match watch_cli.command {
+            Commands::Watch(w) => assert_eq!(w.recursive, Some(false)),
+            _ => panic!("expected Watch"),
+        }
+    }
+
+    #[test]
+    fn test_watched_folder_matches_file_respects_include_subfolders() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("Photos");
+        let sub = root.join("Sub");
+        std::fs::create_dir_all(&sub).unwrap();
+        let root_file = root.join("a.jpg");
+        let nested_file = sub.join("b.jpg");
+        std::fs::write(&root_file, b"x").unwrap();
+        std::fs::write(&nested_file, b"x").unwrap();
+
+        assert!(watched_folder_matches_file(&root_file, &root, false));
+        assert!(!watched_folder_matches_file(&nested_file, &root, false));
+        assert!(watched_folder_matches_file(&nested_file, &root, true));
     }
 }

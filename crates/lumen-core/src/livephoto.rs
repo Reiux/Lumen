@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
@@ -138,22 +138,33 @@ fn parse_apple_maker_note(data: &[u8]) -> Result<String, LivePhotoError> {
         }
     };
 
-    // Offset of first IFD is at 14..18 relative to TIFF header (offset 12)
-    if data.len() < 20 {
-        return Err(LivePhotoError::ParseError("data too short".to_string()));
-    }
-    let ifd_offset = read_u32(&data[16..20]) as usize;
-    let tiff_base = 12usize;
-    let mut curr_offset = match tiff_base.checked_add(ifd_offset) {
-        Some(o) => o,
-        None => return Err(LivePhotoError::ParseError("ifd offset overflow".to_string())),
+    // Real Apple iOS MakerNote layout:
+    //   0..10  "Apple iOS\0"
+    //   10..12 version (e.g. 0x0001)
+    //   12..14 endianness ("MM" or "II")
+    //   14..16 IFD entry count (or 0x002A if a standard TIFF header follows)
+    //   16..   IFD entries (12 bytes each), with value offsets relative to base 0.
+    // Some producers/fixtures embed a full TIFF header starting at offset 12
+    // (14..16 == 0x002A, 16..20 == IFD offset relative to 12).
+    let (offset_base, mut curr_offset, num_entries) = if read_u16(&data[14..16]) == 0x002A {
+        if data.len() < 20 {
+            return Err(LivePhotoError::ParseError("data too short".to_string()));
+        }
+        let ifd_offset = read_u32(&data[16..20]) as usize;
+        let tiff_base = 12usize;
+        let ifd_pos = match tiff_base.checked_add(ifd_offset) {
+            Some(o) => o,
+            None => return Err(LivePhotoError::ParseError("ifd offset overflow".to_string())),
+        };
+        if data.len() < ifd_pos.saturating_add(2) {
+            return Err(LivePhotoError::ParseError("ifd out of bounds".to_string()));
+        }
+        let entries = read_u16(&data[ifd_pos..ifd_pos + 2]) as usize;
+        (tiff_base, ifd_pos + 2, entries)
+    } else {
+        let entries = read_u16(&data[14..16]) as usize;
+        (0usize, 16usize, entries)
     };
-
-    if data.len() < curr_offset.saturating_add(2) {
-        return Err(LivePhotoError::ParseError("ifd out of bounds".to_string()));
-    }
-    let num_entries = read_u16(&data[curr_offset..curr_offset + 2]) as usize;
-    curr_offset += 2;
 
     for _ in 0..num_entries {
         if data.len() < curr_offset.saturating_add(12) {
@@ -168,7 +179,7 @@ fn parse_apple_maker_note(data: &[u8]) -> Result<String, LivePhotoError> {
             let val_bytes = if count <= 4 {
                 &value_or_offset[..count]
             } else {
-                let offset = match tiff_base.checked_add(read_u32(value_or_offset) as usize) {
+                let offset = match offset_base.checked_add(read_u32(value_or_offset) as usize) {
                     Some(o) => o,
                     None => return Err(LivePhotoError::ParseError("offset overflow".to_string())),
                 };
@@ -192,37 +203,18 @@ fn parse_apple_maker_note(data: &[u8]) -> Result<String, LivePhotoError> {
     Err(LivePhotoError::MissingContentIdentifier)
 }
 
-pub fn read_video_live_photo_metadata(path: &Path) -> Result<LivePhotoMetadata, LivePhotoError> {
-    let meta = std::fs::symlink_metadata(path).map_err(|e| LivePhotoError::Io(e.to_string()))?;
-    if !meta.is_file() || meta.file_type().is_symlink() {
-        return Err(LivePhotoError::Io("Not a regular file".to_string()));
-    }
-    let mut file = File::open(path).map_err(|e| LivePhotoError::Io(e.to_string()))?;
-    let mut buf = Vec::new();
-    // Read up to 2MB to find QuickTime metadata atoms
-    file.by_ref()
-        .take(2 * 1024 * 1024)
-        .read_to_end(&mut buf)
-        .map_err(|e| LivePhotoError::Io(e.to_string()))?;
-
-    let mut content_id = String::new();
-    let mut has_still = false;
-
-    // Scan for QuickTime string keys: com.apple.quicktime.content.identifier and still-image-time
+fn scan_quicktime_buffer(buf: &[u8]) -> (String, bool) {
     let id_key = b"com.apple.quicktime.content.identifier";
     let still_key = b"com.apple.quicktime.still-image-time";
 
-    if buf.windows(still_key.len()).any(|w| w == still_key) {
-        has_still = true;
-    }
+    let has_still = buf.windows(still_key.len()).any(|w| w == still_key);
+    let mut content_id = String::new();
 
     if let Some(pos) = buf.windows(id_key.len()).position(|w| w == id_key) {
-        // Look ahead for the value string (UUID format, approx 36 chars)
         let search_start = pos + id_key.len();
-        let search_end = std::cmp::min(search_start + 256, buf.len());
+        let search_end = std::cmp::min(search_start + 4096, buf.len());
         if search_start < search_end {
             let slice = &buf[search_start..search_end];
-            // Look for UUID-like format (8-4-4-4-12 hex) or alphanumeric identifier
             for window in slice.windows(36) {
                 if let Ok(s) = std::str::from_utf8(window) {
                     if s.chars().all(|c| c.is_ascii_hexdigit() || c == '-') && s.contains('-') {
@@ -230,6 +222,42 @@ pub fn read_video_live_photo_metadata(path: &Path) -> Result<LivePhotoMetadata, 
                         break;
                     }
                 }
+            }
+        }
+    }
+
+    (content_id, has_still)
+}
+
+pub fn read_video_live_photo_metadata(path: &Path) -> Result<LivePhotoMetadata, LivePhotoError> {
+    const WINDOW_BYTES: u64 = 2 * 1024 * 1024;
+    let meta = std::fs::symlink_metadata(path).map_err(|e| LivePhotoError::Io(e.to_string()))?;
+    if !meta.is_file() || meta.file_type().is_symlink() {
+        return Err(LivePhotoError::Io("Not a regular file".to_string()));
+    }
+    let mut file = File::open(path).map_err(|e| LivePhotoError::Io(e.to_string()))?;
+    let mut buf = Vec::new();
+    // Read up to 2MB at the start (faststart moov), and scan the trailing 2MB when moov sits at EOF
+    file.by_ref()
+        .take(WINDOW_BYTES)
+        .read_to_end(&mut buf)
+        .map_err(|e| LivePhotoError::Io(e.to_string()))?;
+
+    let (mut content_id, mut has_still) = scan_quicktime_buffer(&buf);
+
+    if (content_id.is_empty() || !has_still) && meta.len() > WINDOW_BYTES {
+        let tail_start = meta.len().saturating_sub(WINDOW_BYTES);
+        if file.seek(SeekFrom::Start(tail_start)).is_ok() {
+            let mut tail_buf = Vec::new();
+            file.take(WINDOW_BYTES)
+                .read_to_end(&mut tail_buf)
+                .map_err(|e| LivePhotoError::Io(e.to_string()))?;
+            let (tail_id, tail_still) = scan_quicktime_buffer(&tail_buf);
+            if content_id.is_empty() && !tail_id.is_empty() {
+                content_id = tail_id;
+            }
+            if tail_still {
+                has_still = true;
             }
         }
     }
@@ -489,5 +517,23 @@ mod tests {
         data[12..14].copy_from_slice(b"MM");
         data[16..20].copy_from_slice(&u32::to_be_bytes(0xffff_ff00));
         assert!(parse_apple_maker_note(&data).is_err());
+    }
+
+    #[test]
+    fn test_read_video_live_photo_metadata_trailing_moov() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let mov = dir.path().join("IMG_9999.MOV");
+        let mut f = File::create(&mov).unwrap();
+        // > 2 MB leading mdat padding before QuickTime moov keys
+        let padding = vec![0u8; 2 * 1024 * 1024 + 4096];
+        f.write_all(&padding).unwrap();
+        f.write_all(b"com.apple.quicktime.content.identifier\0\0=12345678-1234-1234-1234-1234567890AB").unwrap();
+        f.write_all(b"com.apple.quicktime.still-image-time").unwrap();
+        f.flush().unwrap();
+
+        let meta = read_video_live_photo_metadata(&mov).unwrap();
+        assert_eq!(meta.content_identifier, "12345678-1234-1234-1234-1234567890AB");
+        assert!(meta.has_still_image_time);
     }
 }

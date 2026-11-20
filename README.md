@@ -2,7 +2,7 @@
 
 **Fast, open-source desktop backup client for Google Photos.**
 
-![Version](https://img.shields.io/badge/version-2.0.1-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-2.1.1-blue?style=for-the-badge)
 ![Downloads](https://img.shields.io/github/downloads/Reiux/Lumen/total?style=for-the-badge)
 ![Backend](https://img.shields.io/badge/backend-Rust%20%2B%20Tauri%202-orange?style=for-the-badge)
 ![Platforms](https://img.shields.io/badge/platforms-Windows%20%7C%20macOS%20%7C%20Linux-blue?style=for-the-badge)

@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -52,11 +53,25 @@ impl GlobalRateLimiter {
     }
 
     pub async fn wait(&self, n: usize) {
-        loop {
+        let _ = self.wait_cancellable(n, None).await;
+    }
+
+    /// Waits until `n` bytes are permitted by the rate limiter, waking at most
+    /// every 250ms to check `cancelled`. Returns `true` if the wait completed
+    /// or `false` if cancelled before completion.
+    pub async fn wait_cancellable(&self, n: usize, cancelled: Option<&AtomicBool>) -> bool {
+        if n == 0 {
+            return true;
+        }
+        let mut remaining = n as f64;
+        while remaining > 0.0 {
+            if cancelled.is_some_and(|c| c.load(Ordering::Relaxed)) {
+                return false;
+            }
             let wait_dur = {
                 let mut state = self.inner.lock().unwrap();
                 if state.bytes_per_sec == 0 {
-                    return;
+                    return true;
                 }
 
                 let now = Instant::now();
@@ -68,19 +83,50 @@ impl GlobalRateLimiter {
                     state.tokens = state.capacity;
                 }
 
-                let needed = n as f64;
-                if state.tokens >= needed {
-                    state.tokens -= needed;
-                    return;
+                // Consume at most `state.capacity` per step so chunks larger than
+                // the burst cap (e.g. 1 MiB upload chunks vs 64 KiB cap) never deadlock.
+                let step = remaining.min(state.capacity.max(1.0));
+                if state.tokens >= step {
+                    state.tokens -= step;
+                    remaining -= step;
+                    if remaining <= 0.0 {
+                        return true;
+                    }
+                    let next_step = remaining.min(state.capacity.max(1.0));
+                    let deficit = (next_step - state.tokens).max(0.0);
+                    Duration::from_secs_f64(deficit / (state.bytes_per_sec as f64))
+                } else {
+                    let deficit = step - state.tokens;
+                    Duration::from_secs_f64(deficit / (state.bytes_per_sec as f64))
                 }
-
-                let deficit = needed - state.tokens;
-                Duration::from_secs_f64(deficit / (state.bytes_per_sec as f64))
             };
 
-            tokio::time::sleep(wait_dur).await;
+            if !wait_dur.is_zero() {
+                tokio::time::sleep(wait_dur.min(Duration::from_millis(250))).await;
+            } else {
+                tokio::task::yield_now().await;
+            }
         }
+        true
     }
+}
+
+pub fn format_reqwest_error(e: &reqwest::Error) -> String {
+    use std::error::Error;
+    let mut msg = e.to_string();
+    let mut src = e.source();
+    while let Some(cause) = src {
+        let cause_str = cause.to_string();
+        if !cause_str.is_empty() && !msg.contains(&cause_str) {
+            msg.push_str(": ");
+            msg.push_str(&cause_str);
+        }
+        src = cause.source();
+    }
+    if e.is_timeout() && !msg.to_ascii_lowercase().contains("timed out") {
+        msg.push_str(" (timed out)");
+    }
+    msg
 }
 
 pub fn validate_proxy_url(proxy: &str) -> Result<(), String> {
@@ -90,8 +136,11 @@ pub fn validate_proxy_url(proxy: &str) -> Result<(), String> {
     }
     let parsed = url::Url::parse(trimmed).map_err(|e| format!("Invalid proxy URL: {}", e))?;
     let scheme = parsed.scheme();
-    if scheme != "http" && scheme != "https" && scheme != "socks5" && scheme != "socks5h" {
-        return Err("Proxy URL must use http, https, or socks5 protocol".to_string());
+    if scheme != "http" && scheme != "https" {
+        if scheme == "socks5" || scheme == "socks5h" || scheme == "socks4" || scheme == "socks4a" {
+            return Err("SOCKS proxies are not supported in this build; use an http or https proxy URL".to_string());
+        }
+        return Err("Proxy URL must use http or https protocol".to_string());
     }
     if parsed.host_str().is_none() {
         return Err("Proxy URL must specify a valid host".to_string());
@@ -112,7 +161,7 @@ pub async fn read_response_bytes_bounded(
         }
     }
     let mut buf = Vec::new();
-    while let Some(chunk) = resp.chunk().await.map_err(|e| e.to_string())? {
+    while let Some(chunk) = resp.chunk().await.map_err(|e| format_reqwest_error(&e))? {
         if buf.len().saturating_add(chunk.len()) > max_bytes {
             return Err(format!("Response body exceeds maximum allowed size ({} bytes)", max_bytes));
         }
@@ -121,11 +170,18 @@ pub async fn read_response_bytes_bounded(
 
     if buf.starts_with(&[0x1f, 0x8b]) {
         use std::io::Read;
-        let mut decoder = flate2::read::GzDecoder::new(&buf[..]);
+        let decoder = flate2::read::GzDecoder::new(&buf[..]);
         let mut decompressed = Vec::new();
         decoder
+            .take((max_bytes as u64).saturating_add(1))
             .read_to_end(&mut decompressed)
             .map_err(|e| format!("Failed to decompress gzip body: {}", e))?;
+        if decompressed.len() > max_bytes {
+            return Err(format!(
+                "Decompressed response body exceeds maximum allowed size ({} bytes)",
+                max_bytes
+            ));
+        }
         return Ok(decompressed);
     }
 
@@ -161,5 +217,24 @@ mod tests {
         limiter.set_limit(0);
         assert_eq!(limiter.get_limit(), 0);
         limiter.wait(50_000).await; // Unlimited should return immediately
+    }
+
+    #[tokio::test]
+    async fn test_rate_limiter_large_chunk_does_not_deadlock() {
+        // With 1 MiB/s limit, bucket capacity is capped at 64 KiB.
+        // Waiting for a 128 KiB chunk (> capacity) must still complete cleanly.
+        let limiter = GlobalRateLimiter::new(1024 * 1024);
+        tokio::time::timeout(Duration::from_secs(2), limiter.wait(128 * 1024))
+            .await
+            .expect("rate limiter wait for chunk larger than capacity must not deadlock");
+    }
+
+    #[test]
+    fn test_validate_proxy_url_rejects_unsupported_socks() {
+        assert!(validate_proxy_url("").is_ok());
+        assert!(validate_proxy_url("http://127.0.0.1:8080").is_ok());
+        assert!(validate_proxy_url("https://proxy.example.com:8443").is_ok());
+        let err = validate_proxy_url("socks5://127.0.0.1:1080").unwrap_err();
+        assert!(err.contains("SOCKS"));
     }
 }

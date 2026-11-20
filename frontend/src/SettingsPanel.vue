@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { toast } from 'vue-sonner'
 import { ConfigManager } from '../bindings/app/core'
 import { setLocale } from './i18n'
 import M3Switch from './components/ui/M3Switch.vue'
@@ -22,9 +23,16 @@ import {
   matugenColors,
   setMatugenEnabled,
 } from './utils/theme'
-import { preferencesState, setUseQuota, setSaver } from './utils/configStore'
+import {
+  preferencesState,
+  setUseQuota,
+  setSaver,
+  setNotifyOnComplete,
+  setAutoCheckUpdates,
+} from './utils/configStore'
+import { useDialogFocusTrap } from './utils/useDialogFocusTrap'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const _emit = defineEmits<{
   (e: 'uploadFolder', path: string): void
@@ -43,6 +51,7 @@ interface Settings {
   deleteFromHost: boolean
   disableUnsupportedFilesFilter: boolean
   setDateFromFilename: boolean
+  excludePattern: string
   uploadThreads: number
   minimizeToTray: boolean
   launchOnStartup: boolean
@@ -70,6 +79,7 @@ const settings = ref<Settings>({
   deleteFromHost: false,
   disableUnsupportedFilesFilter: false,
   setDateFromFilename: false,
+  excludePattern: '',
   uploadThreads: 1,
   minimizeToTray: false,
   launchOnStartup: false,
@@ -87,10 +97,21 @@ const settings = ref<Settings>({
 
 const isHydrating = ref(true)
 const showDeleteConfirm = ref(false)
+const deleteDialogCardRef = ref<HTMLElement | null>(null)
+const languageDialogCardRef = ref<HTMLElement | null>(null)
 const hashCacheCount = ref(0)
 const isClearingCache = ref(false)
 const isTrayAvailable = ref(true)
+const hasBattery = ref(false)
 const activeAccountEmail = ref('')
+const proxyError = ref('')
+const excludeError = ref('')
+let proxySaveTimer: ReturnType<typeof setTimeout> | null = null
+let excludeSaveTimer: ReturnType<typeof setTimeout> | null = null
+let threadsSaveTimer: ReturnType<typeof setTimeout> | null = null
+let speedLimitSaveTimer: ReturnType<typeof setTimeout> | null = null
+let lastCommittedThreads = 4
+let lastCommittedSpeedLimit = 0
 
 // Sticky Navigation Sections matching Mockup A
 const sections = computed(() => [
@@ -209,24 +230,38 @@ function cancelDeleteFromHost() {
   showDeleteConfirm.value = false
 }
 
+useDialogFocusTrap(() => showDeleteConfirm.value, deleteDialogCardRef, {
+  onEscape: cancelDeleteFromHost,
+})
+
 async function clearHashCache() {
   try {
     isClearingCache.value = true
     await ConfigManager.ClearHashCache()
     hashCacheCount.value = 0
+  } catch (err) {
+    console.error('Failed to clear hash cache:', err)
+    toast.error(t('settings.saveFailed'), {
+      description: err instanceof Error ? err.message : String(err),
+    })
   } finally {
     isClearingCache.value = false
   }
 }
 
+let isUnmounted = false
+
 onMounted(async () => {
   try {
-    const [config, hashCount, trayAvail] = await Promise.all([
+    const [config, hashCount, trayAvail, batteryPresent] = await Promise.all([
       ConfigManager.GetSettings(),
       ConfigManager.GetHashCacheCount(),
       ConfigManager.IsTrayAvailable(),
+      ConfigManager.HasBattery().catch(() => false),
       refreshActiveAccount(),
     ])
+    if (isUnmounted) return
+    hasBattery.value = !!batteryPresent
     settings.value = {
       proxy: config.proxy || '',
       useQuota: config.useQuota || false,
@@ -239,6 +274,7 @@ onMounted(async () => {
       deleteFromHost: config.deleteFromHost || false,
       disableUnsupportedFilesFilter: config.disableUnsupportedFilesFilter || false,
       setDateFromFilename: config.setDateFromFilename || false,
+      excludePattern: config.excludePattern || '',
       uploadThreads: config.uploadThreads || 4,
       minimizeToTray: config.minimizeToTray || false,
       launchOnStartup: config.launchOnStartup || false,
@@ -258,12 +294,20 @@ onMounted(async () => {
     if (!isTrayAvailable.value) {
       settings.value.minimizeToTray = false
     }
+    lastCommittedThreads = settings.value.uploadThreads
+    lastCommittedSpeedLimit = settings.value.uploadSpeedLimitKBps
     preferencesState.useQuota = settings.value.useQuota
     preferencesState.saver = settings.value.saver
+  } catch (err) {
+    console.error('Failed to load settings:', err)
   } finally {
     await nextTick()
-    isHydrating.value = false
+    if (!isUnmounted) {
+      isHydrating.value = false
+    }
   }
+
+  if (isUnmounted) return
 
   // Setup scroll-spy inside the tab pane container
   scrollContainerEl = document.querySelector('[data-tab="settings"]') as HTMLElement | null
@@ -273,122 +317,370 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  isUnmounted = true
   if (scrollContainerEl) {
     scrollContainerEl.removeEventListener('scroll', handleScroll)
     scrollContainerEl = null
   }
   if (scrollResetTimer) clearTimeout(scrollResetTimer)
+  if (proxySaveTimer) {
+    clearTimeout(proxySaveTimer)
+    proxySaveTimer = null
+    ConfigManager.SetProxy(settings.value.proxy).catch((err) => {
+      toast.error(t('settings.saveFailed'), {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    })
+  }
+  if (excludeSaveTimer) {
+    clearTimeout(excludeSaveTimer)
+    excludeSaveTimer = null
+    ConfigManager.SetExcludePattern(settings.value.excludePattern).catch((err) => {
+      toast.error(t('settings.saveFailed'), {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    })
+  }
+  if (threadsSaveTimer) {
+    clearTimeout(threadsSaveTimer)
+    threadsSaveTimer = null
+    ConfigManager.SetUploadThreads(settings.value.uploadThreads).catch((err) => {
+      toast.error(t('settings.saveFailed'), {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    })
+  }
+  if (speedLimitSaveTimer) {
+    clearTimeout(speedLimitSaveTimer)
+    speedLimitSaveTimer = null
+    ConfigManager.SetUploadSpeedLimitKBps(settings.value.uploadSpeedLimitKBps).catch((err) => {
+      toast.error(t('settings.saveFailed'), {
+        description: err instanceof Error ? err.message : String(err),
+      })
+    })
+  }
 })
 
-watch(() => settings.value.proxy, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetProxy(newValue)
+const suppressedKeyDepth: Record<string, number> = {}
+const saveRequestSeq: Record<string, number> = {}
+
+function isKeySuppressed(key: string): boolean {
+  return isHydrating.value || (suppressedKeyDepth[key] ?? 0) > 0
+}
+
+function runSuppressedFor(keys: string | string[], fn: () => void) {
+  const keyList = Array.isArray(keys) ? keys : [keys]
+  for (const k of keyList) {
+    suppressedKeyDepth[k] = (suppressedKeyDepth[k] ?? 0) + 1
+  }
+  try {
+    fn()
+  } finally {
+    nextTick(() => {
+      for (const k of keyList) {
+        const next = (suppressedKeyDepth[k] ?? 1) - 1
+        if (next <= 0) {
+          delete suppressedKeyDepth[k]
+        } else {
+          suppressedKeyDepth[k] = next
+        }
+      }
+    })
+  }
+}
+
+async function saveSetting(
+  key: string,
+  fn: () => Promise<unknown>,
+  revert?: () => void,
+  suppressKeys?: string | string[],
+) {
+  const seq = (saveRequestSeq[key] ?? 0) + 1
+  saveRequestSeq[key] = seq
+  try {
+    await fn()
+  } catch (err) {
+    if (saveRequestSeq[key] !== seq) {
+      return
+    }
+    if (revert) {
+      runSuppressedFor(suppressKeys ?? key, revert)
+    }
+    console.error('Failed to save setting:', err)
+    toast.error(t('settings.saveFailed'), {
+      description: err instanceof Error ? err.message : String(err),
+    })
+  }
+}
+
+watch(() => settings.value.proxy, (newValue) => {
+  if (isKeySuppressed('proxy')) return
+  if (proxySaveTimer) clearTimeout(proxySaveTimer)
+  const seq = (saveRequestSeq.proxy ?? 0) + 1
+  saveRequestSeq.proxy = seq
+  proxySaveTimer = setTimeout(async () => {
+    proxySaveTimer = null
+    try {
+      await ConfigManager.SetProxy(newValue)
+      if (saveRequestSeq.proxy === seq) {
+        proxyError.value = ''
+      }
+    } catch (err) {
+      if (saveRequestSeq.proxy === seq) {
+        proxyError.value = err instanceof Error ? err.message : String(err)
+      }
+    }
+  }, 400)
 })
 
-watch(() => settings.value.useQuota, async (newValue) => {
-  if (isHydrating.value) return
+watch(() => settings.value.excludePattern, (newValue) => {
+  if (isKeySuppressed('excludePattern')) return
+  if (excludeSaveTimer) clearTimeout(excludeSaveTimer)
+  const seq = (saveRequestSeq.excludePattern ?? 0) + 1
+  saveRequestSeq.excludePattern = seq
+  excludeSaveTimer = setTimeout(async () => {
+    excludeSaveTimer = null
+    try {
+      await ConfigManager.SetExcludePattern(newValue)
+      if (saveRequestSeq.excludePattern === seq) {
+        excludeError.value = ''
+      }
+    } catch (err) {
+      if (saveRequestSeq.excludePattern === seq) {
+        excludeError.value = err instanceof Error ? err.message : String(err)
+      }
+    }
+  }, 400)
+})
+
+watch(() => settings.value.useQuota, (newValue, oldValue) => {
+  if (isKeySuppressed('useQuota')) return
+  const prevSaver = settings.value.saver
   if (newValue && settings.value.saver) {
-    settings.value.saver = false
-    await setSaver(false)
+    runSuppressedFor('saver', () => {
+      settings.value.saver = false
+    })
   }
-  await setUseQuota(newValue)
+  saveSetting(
+    'storageMode',
+    async () => {
+      if (newValue && prevSaver) {
+        await setSaver(false)
+      }
+      await setUseQuota(newValue)
+    },
+    () => {
+      settings.value.useQuota = oldValue
+      settings.value.saver = prevSaver
+    },
+    ['useQuota', 'saver'],
+  )
 })
 
-watch(() => settings.value.saver, async (newValue) => {
-  if (isHydrating.value) return
+watch(() => settings.value.saver, (newValue, oldValue) => {
+  if (isKeySuppressed('saver')) return
+  const prevQuota = settings.value.useQuota
   if (newValue && settings.value.useQuota) {
-    settings.value.useQuota = false
-    await setUseQuota(false)
+    runSuppressedFor('useQuota', () => {
+      settings.value.useQuota = false
+    })
   }
-  await setSaver(newValue)
+  saveSetting(
+    'storageMode',
+    async () => {
+      if (newValue && prevQuota) {
+        await setUseQuota(false)
+      }
+      await setSaver(newValue)
+    },
+    () => {
+      settings.value.saver = oldValue
+      settings.value.useQuota = prevQuota
+    },
+    ['useQuota', 'saver'],
+  )
 })
 
-watch(() => settings.value.recursive, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetRecursive(newValue)
+watch(() => settings.value.recursive, (newValue, oldValue) => {
+  if (isKeySuppressed('recursive')) return
+  saveSetting(
+    'recursive',
+    () => ConfigManager.SetRecursive(newValue),
+    () => { settings.value.recursive = oldValue },
+  )
 })
 
-watch(() => settings.value.forceUpload, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetForceUpload(newValue)
+watch(() => settings.value.forceUpload, (newValue, oldValue) => {
+  if (isKeySuppressed('forceUpload')) return
+  saveSetting(
+    'forceUpload',
+    () => ConfigManager.SetForceUpload(newValue),
+    () => { settings.value.forceUpload = oldValue },
+  )
 })
 
-watch(() => settings.value.pairLivePhotos, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetPairLivePhotos(newValue)
-  if (newValue && !settings.value.skipIncompleteLivePhotos) {
-    settings.value.skipIncompleteLivePhotos = true
-    await ConfigManager.SetSkipIncompleteLivePhotos(true)
+watch(() => settings.value.pairLivePhotos, (newValue, oldValue) => {
+  if (isKeySuppressed('pairLivePhotos')) return
+  const prevSkip = settings.value.skipIncompleteLivePhotos
+  const autoEnableSkip = newValue && !prevSkip
+  if (autoEnableSkip) {
+    runSuppressedFor('skipIncompleteLivePhotos', () => {
+      settings.value.skipIncompleteLivePhotos = true
+    })
   }
+  saveSetting(
+    'livePhotos',
+    async () => {
+      await ConfigManager.SetPairLivePhotos(newValue)
+      if (autoEnableSkip) {
+        await ConfigManager.SetSkipIncompleteLivePhotos(true)
+      }
+    },
+    () => {
+      settings.value.pairLivePhotos = oldValue
+      settings.value.skipIncompleteLivePhotos = prevSkip
+    },
+    ['pairLivePhotos', 'skipIncompleteLivePhotos'],
+  )
 })
 
-watch(() => settings.value.skipIncompleteLivePhotos, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetSkipIncompleteLivePhotos(newValue)
+watch(() => settings.value.skipIncompleteLivePhotos, (newValue, oldValue) => {
+  if (isKeySuppressed('skipIncompleteLivePhotos')) return
+  saveSetting(
+    'livePhotos',
+    () => ConfigManager.SetSkipIncompleteLivePhotos(newValue),
+    () => { settings.value.skipIncompleteLivePhotos = oldValue },
+    'skipIncompleteLivePhotos',
+  )
 })
 
-watch(() => settings.value.updateExistingPhotosToLive, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetUpdateExistingPhotosToLive(newValue)
+watch(() => settings.value.updateExistingPhotosToLive, (newValue, oldValue) => {
+  if (isKeySuppressed('updateExistingPhotosToLive')) return
+  saveSetting(
+    'updateExistingPhotosToLive',
+    () => ConfigManager.SetUpdateExistingPhotosToLive(newValue),
+    () => { settings.value.updateExistingPhotosToLive = oldValue },
+  )
 })
 
-watch(() => settings.value.deleteFromHost, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetDeleteFromHost(newValue)
+watch(() => settings.value.deleteFromHost, (newValue, oldValue) => {
+  if (isKeySuppressed('deleteFromHost')) return
+  saveSetting(
+    'deleteFromHost',
+    () => ConfigManager.SetDeleteFromHost(newValue),
+    () => { settings.value.deleteFromHost = oldValue },
+  )
 })
 
-watch(() => settings.value.disableUnsupportedFilesFilter, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetDisableUnsupportedFilesFilter(newValue)
+watch(() => settings.value.disableUnsupportedFilesFilter, (newValue, oldValue) => {
+  if (isKeySuppressed('disableUnsupportedFilesFilter')) return
+  saveSetting(
+    'disableUnsupportedFilesFilter',
+    () => ConfigManager.SetDisableUnsupportedFilesFilter(newValue),
+    () => { settings.value.disableUnsupportedFilesFilter = oldValue },
+  )
 })
 
-watch(() => settings.value.setDateFromFilename, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetSetDateFromFilename(newValue)
+watch(() => settings.value.setDateFromFilename, (newValue, oldValue) => {
+  if (isKeySuppressed('setDateFromFilename')) return
+  saveSetting(
+    'setDateFromFilename',
+    () => ConfigManager.SetSetDateFromFilename(newValue),
+    () => { settings.value.setDateFromFilename = oldValue },
+  )
 })
 
-watch(() => settings.value.uploadThreads, async (newValue) => {
-  if (isHydrating.value) return
+watch(() => settings.value.uploadThreads, (newValue) => {
+  if (isKeySuppressed('uploadThreads')) return
   if (newValue < 1) {
     settings.value.uploadThreads = 1
-  } else {
-    await ConfigManager.SetUploadThreads(newValue)
+    return
   }
+  if (threadsSaveTimer) clearTimeout(threadsSaveTimer)
+  const rollbackValue = lastCommittedThreads
+  threadsSaveTimer = setTimeout(() => {
+    threadsSaveTimer = null
+    void saveSetting(
+      'uploadThreads',
+      async () => {
+        await ConfigManager.SetUploadThreads(newValue)
+        lastCommittedThreads = newValue
+      },
+      () => { settings.value.uploadThreads = rollbackValue },
+    )
+  }, 200)
 })
 
-watch(() => settings.value.minimizeToTray, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetMinimizeToTray(newValue)
+watch(() => settings.value.minimizeToTray, (newValue, oldValue) => {
+  if (isKeySuppressed('minimizeToTray')) return
+  saveSetting(
+    'minimizeToTray',
+    () => ConfigManager.SetMinimizeToTray(newValue),
+    () => { settings.value.minimizeToTray = oldValue },
+  )
 })
 
-watch(() => settings.value.launchOnStartup, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetLaunchOnStartup(newValue)
+watch(() => settings.value.launchOnStartup, (newValue, oldValue) => {
+  if (isKeySuppressed('launchOnStartup')) return
+  saveSetting(
+    'launchOnStartup',
+    () => ConfigManager.SetLaunchOnStartup(newValue),
+    () => { settings.value.launchOnStartup = oldValue },
+  )
 })
 
-watch(() => settings.value.notifyOnComplete, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetNotifyOnComplete(newValue)
+watch(() => settings.value.notifyOnComplete, (newValue, oldValue) => {
+  if (isKeySuppressed('notifyOnComplete')) return
+  saveSetting(
+    'notifyOnComplete',
+    () => setNotifyOnComplete(newValue),
+    () => { settings.value.notifyOnComplete = oldValue },
+  )
 })
 
-watch(() => settings.value.useLocalHashCache, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetUseLocalHashCache(newValue)
+watch(() => settings.value.useLocalHashCache, (newValue, oldValue) => {
+  if (isKeySuppressed('useLocalHashCache')) return
+  saveSetting(
+    'useLocalHashCache',
+    () => ConfigManager.SetUseLocalHashCache(newValue),
+    () => { settings.value.useLocalHashCache = oldValue },
+  )
 })
 
-watch(() => settings.value.uploadSpeedLimitKBps, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetUploadSpeedLimitKBps(newValue)
+watch(() => settings.value.uploadSpeedLimitKBps, (newValue) => {
+  if (isKeySuppressed('uploadSpeedLimitKBps')) return
+  if (speedLimitSaveTimer) clearTimeout(speedLimitSaveTimer)
+  const rollbackValue = lastCommittedSpeedLimit
+  speedLimitSaveTimer = setTimeout(() => {
+    speedLimitSaveTimer = null
+    void saveSetting(
+      'uploadSpeedLimitKBps',
+      async () => {
+        await ConfigManager.SetUploadSpeedLimitKBps(newValue)
+        lastCommittedSpeedLimit = newValue
+      },
+      () => { settings.value.uploadSpeedLimitKBps = rollbackValue },
+    )
+  }, 200)
 })
 
-watch(() => settings.value.watchFoldersEnabled, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetWatchFoldersEnabled(newValue)
+watch(() => settings.value.watchFoldersEnabled, (newValue, oldValue) => {
+  if (isKeySuppressed('watchFoldersEnabled')) return
+  saveSetting(
+    'watchFoldersEnabled',
+    () => ConfigManager.SetWatchFoldersEnabled(newValue),
+    () => { settings.value.watchFoldersEnabled = oldValue },
+  )
 })
 
-const savedLang = typeof localStorage !== 'undefined' ? localStorage.getItem('lumen_locale') || 'en' : 'en'
-const currentLanguage = ref(savedLang)
+const currentLanguage = computed(() => String(locale.value || 'en'))
 const showLanguageDialog = ref(false)
+
+useDialogFocusTrap(() => showLanguageDialog.value, languageDialogCardRef, {
+  onEscape: () => {
+    showLanguageDialog.value = false
+  },
+})
 
 const availableLanguages = [
   { code: 'en', nativeName: 'English', englishName: 'English' },
@@ -403,7 +695,6 @@ const currentLanguageLabel = computed(() => {
 })
 
 function selectLanguage(lang: string) {
-  currentLanguage.value = lang
   try {
     setLocale(lang)
   } catch (err) {
@@ -412,24 +703,54 @@ function selectLanguage(lang: string) {
   showLanguageDialog.value = false
 }
 
-watch(() => settings.value.scheduleEnabled, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetScheduleEnabled(newValue)
+const autoCheckUpdatesEnabled = computed(() => preferencesState.autoCheckUpdates)
+
+async function handleAutoCheckUpdates(enabled: boolean) {
+  try {
+    await setAutoCheckUpdates(enabled)
+  } catch {
+    toast.error(t('settings.saveFailed'))
+  }
+}
+
+watch(() => settings.value.scheduleEnabled, (newValue, oldValue) => {
+  if (isKeySuppressed('scheduleEnabled')) return
+  saveSetting(
+    'scheduleEnabled',
+    () => ConfigManager.SetScheduleEnabled(newValue),
+    () => { settings.value.scheduleEnabled = oldValue },
+  )
 })
 
-watch([() => settings.value.scheduleStartHour, () => settings.value.scheduleEndHour], async ([start, end]) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetScheduleHours(Number(start), Number(end))
+watch([() => settings.value.scheduleStartHour, () => settings.value.scheduleEndHour], ([start, end], [oldStart, oldEnd]) => {
+  if (isKeySuppressed('scheduleStartHour') || isKeySuppressed('scheduleEndHour')) return
+  saveSetting(
+    'scheduleHours',
+    () => ConfigManager.SetScheduleHours(Number(start), Number(end)),
+    () => {
+      settings.value.scheduleStartHour = oldStart
+      settings.value.scheduleEndHour = oldEnd
+    },
+    ['scheduleStartHour', 'scheduleEndHour'],
+  )
 })
 
-watch(() => settings.value.pauseOnBattery, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetPauseOnBattery(newValue)
+watch(() => settings.value.pauseOnBattery, (newValue, oldValue) => {
+  if (isKeySuppressed('pauseOnBattery')) return
+  saveSetting(
+    'pauseOnBattery',
+    () => ConfigManager.SetPauseOnBattery(newValue),
+    () => { settings.value.pauseOnBattery = oldValue },
+  )
 })
 
-watch(() => settings.value.dryRun, async (newValue) => {
-  if (isHydrating.value) return
-  await ConfigManager.SetDryRun(newValue)
+watch(() => settings.value.dryRun, (newValue, oldValue) => {
+  if (isKeySuppressed('dryRun')) return
+  saveSetting(
+    'dryRun',
+    () => ConfigManager.SetDryRun(newValue),
+    () => { settings.value.dryRun = oldValue },
+  )
 })
 </script>
 
@@ -833,6 +1154,29 @@ watch(() => settings.value.dryRun, async (newValue) => {
                 :aria-label="t('settings.dateFromFilename')"
               />
             </div>
+
+            <!-- Exclude Pattern -->
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5">
+              <div class="flex flex-col pr-2">
+                <label for="exclude-pattern-input" class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
+                  {{ t('settings.excludePattern') }}
+                </label>
+                <span class="m3-body-medium mt-0.5">
+                  {{ t('settings.excludePatternSubtitle') }}
+                </span>
+              </div>
+              <div class="w-64 shrink-0 self-start sm:self-auto">
+                <M3TextField
+                  id="exclude-pattern-input"
+                  v-model="settings.excludePattern"
+                  placeholder="\.tmp$|@eaDir"
+                  variant="outlined"
+                  leading-icon="filter_alt_off"
+                  :error="!!excludeError"
+                  :error-text="excludeError"
+                />
+              </div>
+            </div>
           </div>
         </div>
 
@@ -916,6 +1260,8 @@ watch(() => settings.value.dryRun, async (newValue) => {
                   placeholder="http://127.0.0.1:7890"
                   variant="outlined"
                   leading-icon="vpn_lock"
+                  :error="!!proxyError"
+                  :error-text="proxyError"
                 />
               </div>
             </div>
@@ -991,6 +1337,27 @@ watch(() => settings.value.dryRun, async (newValue) => {
                 id="desktop-notifications-switch"
                 v-model="settings.notifyOnComplete"
                 :aria-label="t('settings.desktopNotifications')"
+              />
+            </div>
+
+            <!-- Automatic Update Checks -->
+            <div class="flex items-center justify-between gap-4 p-5">
+              <div class="flex flex-col pr-2">
+                <label
+                  for="settings-auto-updates-switch"
+                  class="m3-title-medium text-[var(--md-sys-color-on-surface)] cursor-pointer"
+                >
+                  {{ t('settings.autoCheckUpdates') }}
+                </label>
+                <span class="m3-body-medium mt-0.5">
+                  {{ t('settings.autoCheckUpdatesSubtitle') }}
+                </span>
+              </div>
+              <M3Switch
+                id="settings-auto-updates-switch"
+                :model-value="autoCheckUpdatesEnabled"
+                :aria-label="t('settings.autoCheckUpdates')"
+                @update:model-value="handleAutoCheckUpdates"
               />
             </div>
 
@@ -1072,8 +1439,11 @@ watch(() => settings.value.dryRun, async (newValue) => {
               </div>
             </div>
 
-            <!-- Pause on Battery Power -->
-            <div class="flex items-center justify-between gap-4 p-5">
+            <!-- Pause on Battery Power (shown only on laptops / battery-equipped devices) -->
+            <div
+              v-if="hasBattery"
+              class="flex items-center justify-between gap-4 p-5"
+            >
               <div class="flex flex-col pr-2">
                 <label
                   for="battery-pause-switch"
@@ -1134,42 +1504,59 @@ watch(() => settings.value.dryRun, async (newValue) => {
       <Transition name="m3-dialog-modal">
         <div
           v-if="showDeleteConfirm"
-          class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 select-none"
+          class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center p-4 select-none overflow-y-auto"
           style="--wails-draggable: none"
           @click.self="cancelDeleteFromHost"
         >
           <div
-            class="m3-dialog-card relative flex w-full max-w-md flex-col gap-5 rounded-[28px] border border-[var(--md-sys-color-error)]/40 bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl"
+            ref="deleteDialogCardRef"
+            tabindex="-1"
+            class="m3-dialog-card relative flex w-full max-w-[440px] flex-col gap-5 rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl outline-none focus-visible:outline-[3px] focus-visible:outline-[var(--md-sys-color-primary)]"
             role="alertdialog"
             aria-modal="true"
             aria-labelledby="delete-confirm-title"
+            aria-describedby="delete-confirm-desc"
           >
-            <div class="flex items-center gap-3">
-              <div class="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-[var(--md-sys-color-error-container)] text-[var(--md-sys-color-error)]">
+            <!-- M3E Centered Hero Icon + Headline -->
+            <div class="flex flex-col items-center text-center gap-3">
+              <div class="flex size-14 items-center justify-center rounded-[20px] bg-[var(--md-sys-color-error-container)] text-[var(--md-sys-color-on-error-container)]">
                 <M3Icon
-                  name="warning"
-                  :size="24"
+                  name="delete_forever"
+                  :size="28"
                   :filled="true"
                 />
               </div>
-              <h3
-                id="delete-confirm-title"
-                class="m3-headline-small text-[var(--md-sys-color-on-surface)]"
-              >
-                {{ t('settings.deleteConfirmTitle') }}
-              </h3>
+              <div class="flex flex-col gap-1.5">
+                <h3
+                  id="delete-confirm-title"
+                  class="m3-headline-small text-[var(--md-sys-color-on-surface)]"
+                >
+                  {{ t('settings.deleteConfirmTitle') }}
+                </h3>
+                <p
+                  id="delete-confirm-desc"
+                  class="m3-body-medium leading-relaxed text-[var(--md-sys-color-on-surface-variant)]"
+                >
+                  {{ t('settings.deleteConfirmP1') }}
+                </p>
+              </div>
             </div>
 
-            <div class="flex flex-col gap-3 text-[var(--md-sys-color-on-surface-variant)] m3-body-medium leading-relaxed">
-              <p>
-                {{ t('settings.deleteConfirmP1') }}
-              </p>
-              <p>
+            <!-- Tonal Error Warning Callout -->
+            <div class="flex items-start gap-3 rounded-[16px] bg-[var(--md-sys-color-error-container)] px-4 py-3.5 text-[var(--md-sys-color-on-error-container)]">
+              <M3Icon
+                name="warning"
+                :filled="true"
+                :size="20"
+                class="shrink-0 mt-0.5"
+              />
+              <p class="m3-body-medium leading-snug !text-[var(--md-sys-color-on-error-container)]">
                 {{ t('settings.deleteConfirmP2') }}
               </p>
             </div>
 
-            <div class="flex items-center justify-end gap-2 pt-2">
+            <!-- M3E Action Row -->
+            <div class="flex items-center justify-end gap-2 pt-1">
               <M3Button
                 variant="text"
                 size="s"
@@ -1180,7 +1567,7 @@ watch(() => settings.value.dryRun, async (newValue) => {
               <M3Button
                 variant="filled"
                 destructive
-                size="s"
+                size="m"
                 icon="delete_forever"
                 @click="confirmDeleteFromHost"
               >
@@ -1192,84 +1579,101 @@ watch(() => settings.value.dryRun, async (newValue) => {
       </Transition>
     </Teleport>
 
-    <!-- Language Selection Modal Dialog (M3 Selection Dialog) -->
+    <!-- Language Selection Modal Dialog (M3E Selection Dialog with Grouped Segmented List) -->
     <Teleport to="body">
       <Transition name="m3-dialog-modal">
         <div
           v-if="showLanguageDialog"
-          class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 select-none backdrop-blur-xs"
+          class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center p-4 select-none overflow-y-auto"
           style="--wails-draggable: none"
           @click.self="showLanguageDialog = false"
         >
           <div
-            class="m3-dialog-card relative flex w-full max-w-sm flex-col gap-4 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/40 bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl"
+            ref="languageDialogCardRef"
+            tabindex="-1"
+            class="m3-dialog-card relative flex w-full max-w-[400px] flex-col gap-5 rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl outline-none focus-visible:outline-[3px] focus-visible:outline-[var(--md-sys-color-primary)]"
             role="dialog"
             aria-modal="true"
             aria-labelledby="language-dialog-title"
+            aria-describedby="language-dialog-desc"
           >
-            <!-- Dialog Header -->
-            <div class="flex items-center gap-3.5">
-              <div class="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-primary)]">
+            <!-- M3E Centered Hero Icon + Headline -->
+            <div class="flex flex-col items-center text-center gap-3">
+              <div class="flex size-14 items-center justify-center rounded-[20px] bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
                 <M3Icon
                   name="language"
-                  :size="24"
+                  :filled="true"
+                  :size="28"
                 />
               </div>
-              <div class="flex flex-col min-w-0">
+              <div class="flex flex-col gap-1">
                 <h3
                   id="language-dialog-title"
                   class="m3-headline-small text-[var(--md-sys-color-on-surface)]"
                 >
                   {{ t('settings.selectLanguage') }}
                 </h3>
-                <span class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)] leading-snug">
+                <span
+                  id="language-dialog-desc"
+                  class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)] leading-snug"
+                >
                   {{ t('settings.selectLanguageSubtitle') }}
                 </span>
               </div>
             </div>
 
-            <!-- Scrollable Language List with M3 Selection Tiles -->
-            <div class="flex flex-col gap-1.5 max-h-72 overflow-y-auto py-1 pr-0.5">
+            <!-- M3E Grouped Segmented Language List (4px gaps, 20px outer / 4px inner corners) -->
+            <div
+              role="radiogroup"
+              :aria-label="t('settings.selectLanguage')"
+              class="flex flex-col gap-1 max-h-72 overflow-y-auto pr-0.5"
+            >
               <button
                 v-for="lang in availableLanguages"
                 :key="lang.code"
                 type="button"
-                class="flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left transition-all cursor-pointer border"
+                role="radio"
+                :aria-checked="currentLanguage === lang.code"
+                class="flex items-center justify-between gap-3 rounded-[4px] first:rounded-t-[20px] last:rounded-b-[20px] px-4 py-3.5 text-left transition-colors cursor-pointer outline-none focus-visible:outline-[3px] focus-visible:outline-[var(--md-sys-color-primary)] focus-visible:outline-offset-[-3px]"
                 :class="currentLanguage === lang.code
-                  ? 'border-[var(--md-sys-color-primary)]/50 bg-[var(--md-sys-color-primary-container)]/30 text-[var(--md-sys-color-on-surface)] shadow-xs'
-                  : 'border-transparent hover:bg-[var(--md-sys-color-surface-container-highest)]/60 text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'"
+                  ? 'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]'
+                  : 'bg-[var(--md-sys-color-surface-container)] text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container-highest)]'"
                 @click="selectLanguage(lang.code)"
               >
                 <div class="flex flex-col min-w-0">
-                  <span class="m3-title-medium leading-tight text-[var(--md-sys-color-on-surface)]">
+                  <span
+                    class="m3-title-medium leading-tight"
+                    :class="currentLanguage === lang.code ? 'text-[var(--md-sys-color-on-primary-container)]' : 'text-[var(--md-sys-color-on-surface)]'"
+                  >
                     {{ lang.nativeName }}
                   </span>
                   <span
                     v-if="lang.englishName !== lang.nativeName"
-                    class="m3-body-small opacity-70 mt-0.5"
+                    class="m3-body-small mt-0.5"
+                    :class="currentLanguage === lang.code ? '!text-[var(--md-sys-color-on-primary-container)]/80' : 'text-[var(--md-sys-color-on-surface-variant)]'"
                   >
                     {{ lang.englishName }}
                   </span>
                 </div>
 
-                <!-- Radio Check Indicator -->
+                <!-- Selection Indicator -->
                 <div
-                  class="flex size-5 shrink-0 items-center justify-center rounded-full border transition-all"
+                  class="flex size-6 shrink-0 items-center justify-center rounded-full transition-colors"
                   :class="currentLanguage === lang.code
-                    ? 'border-[var(--md-sys-color-primary)] bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)]'
-                    : 'border-[var(--md-sys-color-outline)] bg-transparent'"
+                    ? 'bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)]'
+                    : 'border-2 border-[var(--md-sys-color-outline)] bg-transparent'"
                 >
                   <M3Icon
                     v-if="currentLanguage === lang.code"
                     name="check"
-                    :size="14"
+                    :size="15"
                   />
                 </div>
               </button>
             </div>
 
             <!-- Dialog Actions -->
-            <div class="flex items-center justify-end gap-2 pt-2 border-t border-[var(--md-sys-color-outline-variant)]/20">
+            <div class="flex items-center justify-end gap-2 pt-1">
               <M3Button
                 variant="text"
                 size="s"
@@ -1283,5 +1687,4 @@ watch(() => settings.value.dryRun, async (newValue) => {
       </Transition>
     </Teleport>
   </div>
-
 </template>

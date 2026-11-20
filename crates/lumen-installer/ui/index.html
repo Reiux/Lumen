@@ -783,7 +783,7 @@
       <div class="hero-area" data-tauri-drag-region>
         <div class="hero-text-align">
           <div class="hero-title" id="heroTitle">
-            Lumen <span class="version-tag">v2.0.1</span>
+            Lumen <span class="version-tag">v2.1.1</span>
           </div>
           <div class="hero-subtitle" id="heroSubtitle">
             Unofficial desktop client for Google Photos
@@ -805,7 +805,7 @@
           </label>
           <label class="checkbox-label">
             <input type="checkbox" id="chkStartupLaunch">
-            <span>Start Lumen on system startup</span>
+            <span id="startupLaunchLabel">Start Lumen on system startup</span>
           </label>
         </div>
       </div>
@@ -872,6 +872,7 @@
         </div>
         <div class="install-error-text" id="installErrorText"></div>
         <div class="install-error-actions">
+          <button class="btn-m3-tonal" id="btnBackFromError" style="margin-right: auto;">Back</button>
           <button class="btn-m3-tonal" id="btnCancelInstall">Close</button>
           <button class="btn-m3-primary" id="btnRetryInstall">Retry</button>
         </div>
@@ -893,7 +894,7 @@
       <div class="bottom-actions">
         <label class="checkbox-label" id="finishLaunchWrapper">
           <input type="checkbox" id="chkFinishLaunch" checked>
-          <span>Launch Lumen</span>
+          <span id="finishLaunchLabel">Launch Lumen</span>
         </label>
         <button class="btn-m3-primary" id="btnFinishAction">Finish</button>
       </div>
@@ -905,8 +906,10 @@
     const invoke = window.__TAURI__ ? window.__TAURI__.core.invoke : async () => {};
 
     let isUninstallMode = false;
+    let startedInUninstallMode = false;
     let isInstalledState = false;
     let isUpdateState = false;
+    let appName = "Lumen";
     let installedVersion = "";
     let currentVersion = "";
     let installedTargetDir = "";
@@ -987,9 +990,9 @@
 
     function switchToUninstallUI() {
       isUninstallMode = true;
-      document.getElementById('windowTitle').textContent = "Lumen Uninstaller";
-      document.getElementById('heroTitle').innerHTML = "Uninstall Lumen?";
-      document.getElementById('heroSubtitle').textContent = "Remove Lumen and shortcuts from your computer";
+      document.getElementById('windowTitle').textContent = `${appName} Uninstaller`;
+      document.getElementById('heroTitle').textContent = `Uninstall ${appName}?`;
+      document.getElementById('heroSubtitle').textContent = `Remove ${appName} and shortcuts from your computer`;
 
       customDrawer.classList.remove('expanded');
       if (btnToggleCustom) btnToggleCustom.textContent = "Customize";
@@ -1015,9 +1018,14 @@
 
     function switchToInstalledUI() {
       isUninstallMode = false;
-      document.getElementById('windowTitle').textContent = "Lumen Setup";
-      document.getElementById('heroTitle').innerHTML = 'Lumen <span class="version-tag">Installed</span>';
-      document.getElementById('heroSubtitle').textContent = "Lumen is installed on your computer. Choose an action below.";
+      document.getElementById('windowTitle').textContent = `${appName} Setup`;
+      const heroTitle = document.getElementById('heroTitle');
+      heroTitle.textContent = `${appName} `;
+      const instSpan = document.createElement('span');
+      instSpan.className = 'version-tag';
+      instSpan.textContent = 'Installed';
+      heroTitle.appendChild(instSpan);
+      document.getElementById('heroSubtitle').textContent = `${appName} is installed on your computer. Choose an action below.`;
 
       customDrawer.classList.remove('expanded');
       if (btnToggleCustom) btnToggleCustom.textContent = "Customize";
@@ -1038,8 +1046,14 @@
 
     function switchToFreshInstallUI() {
       isUninstallMode = false;
-      document.getElementById('windowTitle').textContent = "Lumen Setup";
-      document.getElementById('heroTitle').innerHTML = 'Lumen <span class="version-tag">v2.0.1</span>';
+      document.getElementById('windowTitle').textContent = `${appName} Setup`;
+      const heroTitle = document.getElementById('heroTitle');
+      heroTitle.textContent = `${appName} `;
+      const verSpan = document.createElement('span');
+      verSpan.className = 'version-tag';
+      const displayVer = currentVersion ? `v${currentVersion.replace(/^v/, '')}` : 'v2.1.1';
+      verSpan.textContent = displayVer;
+      heroTitle.appendChild(verSpan);
       document.getElementById('heroSubtitle').textContent = "Unofficial desktop client for Google Photos";
 
       customDrawer.classList.remove('expanded');
@@ -1061,15 +1075,15 @@
 
     function switchToUpdateUI(installedVer, curVer) {
       isUninstallMode = false;
-      document.getElementById('windowTitle').textContent = "Lumen Update";
+      document.getElementById('windowTitle').textContent = `${appName} Update`;
       const tagText = installedVer ? `Update from v${installedVer.replace(/^v/, '')}` : "Update Available";
       const heroTitle = document.getElementById('heroTitle');
-      heroTitle.textContent = "Lumen ";
+      heroTitle.textContent = `${appName} `;
       const span = document.createElement('span');
       span.className = 'version-tag';
       span.textContent = tagText;
       heroTitle.appendChild(span);
-      document.getElementById('heroSubtitle').textContent = "A previous installation was detected. Update to the latest version seamlessly.";
+      document.getElementById('heroSubtitle').textContent = `A previous ${appName} installation was detected. Update to the latest version seamlessly.`;
 
       customDrawer.classList.remove('expanded');
       if (btnToggleCustom) btnToggleCustom.textContent = "Customize";
@@ -1092,7 +1106,19 @@
     async function init() {
       try {
         const info = await invoke('get_setup_info');
-        isUninstallMode = info.is_uninstall;
+        appName = info.app_name || (info.is_dev ? "Lumen Dev" : "Lumen");
+        document.title = `${appName} Setup`;
+        const startupLbl = document.getElementById('startupLaunchLabel');
+        if (startupLbl) startupLbl.textContent = `Start ${appName} on system startup`;
+        const launchExistingBtn = document.getElementById('btnLaunchExisting');
+        if (launchExistingBtn) launchExistingBtn.textContent = `Launch ${appName}`;
+        const finishLaunchLbl = document.getElementById('finishLaunchLabel');
+        if (finishLaunchLbl) finishLaunchLbl.textContent = `Launch ${appName}`;
+        const completeSub = document.getElementById('completeSubtitle');
+        if (completeSub) completeSub.textContent = `${appName} has been installed to your computer and is ready for use.`;
+
+        startedInUninstallMode = !!info.is_uninstall;
+        isUninstallMode = startedInUninstallMode;
         isInstalledState = info.is_installed;
         isUpdateState = info.is_update;
         installedVersion = info.installed_version || "";
@@ -1132,14 +1158,16 @@
     document.getElementById('btnRepair').addEventListener('click', () => {
       const desktopShortcut = document.getElementById('chkDesktopShortcut').checked;
       const launchOnStartup = document.getElementById('chkStartupLaunch').checked;
+      const customPath = document.getElementById('installPathInput').value;
+      const targetDir = (customPath && customPath.trim()) ? customPath.trim() : installedTargetDir;
 
       transitionScreens(
         document.getElementById('screenWelcome'),
         document.getElementById('screenInstalling'),
         () => {
-          document.getElementById('installingTitle').textContent = "Repairing Lumen...";
+          document.getElementById('installingTitle').textContent = `Repairing ${appName}...`;
           document.getElementById('installingSubtitle').textContent = "Restoring application binaries...";
-          performInstall(installedTargetDir, desktopShortcut, launchOnStartup);
+          performInstall(targetDir, desktopShortcut, launchOnStartup);
         }
       );
     });
@@ -1154,7 +1182,9 @@
     });
 
     document.getElementById('btnCancelUninstall').addEventListener('click', () => {
-      if (isUpdateState) {
+      if (startedInUninstallMode) {
+        invoke('close_installer');
+      } else if (isUpdateState) {
         switchToUpdateUI(installedVersion, currentVersion);
       } else if (isInstalledState) {
         switchToInstalledUI();
@@ -1174,7 +1204,7 @@
         document.getElementById('screenWelcome'),
         document.getElementById('screenInstalling'),
         () => {
-          document.getElementById('installingTitle').textContent = "Uninstalling Lumen...";
+          document.getElementById('installingTitle').textContent = `Uninstalling ${appName}...`;
           document.getElementById('installingSubtitle').textContent = "Removing application files and shortcuts...";
           performUninstall(purge);
         }
@@ -1182,7 +1212,10 @@
     }
 
     // Error Box handlers
+    let lastErrorWasUninstall = false;
+
     function showProgressError(err, isUninstall) {
+      lastErrorWasUninstall = Boolean(isUninstall);
       const progressWrapper = document.getElementById('progressWrapper');
       if (progressWrapper) progressWrapper.style.display = 'none';
 
@@ -1208,10 +1241,25 @@
       if (errBox) errBox.style.display = 'flex';
     }
 
+    document.getElementById('btnBackFromError').addEventListener('click', () => {
+      document.getElementById('installErrorBox').style.display = 'none';
+      document.getElementById('progressWrapper').style.display = 'flex';
+      transitionScreens(
+        document.getElementById('screenInstalling'),
+        document.getElementById('screenWelcome'),
+        () => {
+          document.body.classList.remove('installing-active');
+          if (!lastErrorWasUninstall && customDrawer && !customDrawer.classList.contains('expanded')) {
+            toggleCustomDrawer();
+          }
+        }
+      );
+    });
+
     document.getElementById('btnRetryInstall').addEventListener('click', async () => {
       document.getElementById('installErrorBox').style.display = 'none';
       document.getElementById('progressWrapper').style.display = 'flex';
-      document.getElementById('installingTitle').textContent = "Installing Lumen...";
+      document.getElementById('installingTitle').textContent = `Installing ${appName}...`;
       document.getElementById('installingSubtitle').textContent = "Extracting application binaries...";
       const targetDir = document.getElementById('installPathInput').value || installedTargetDir;
       const desktopShortcut = document.getElementById('chkDesktopShortcut').checked;
@@ -1234,7 +1282,7 @@
         document.getElementById('screenWelcome'),
         document.getElementById('screenInstalling'),
         () => {
-          document.getElementById('installingTitle').textContent = "Installing Lumen...";
+          document.getElementById('installingTitle').textContent = `Installing ${appName}...`;
           document.getElementById('installingSubtitle').textContent = "Extracting application binaries...";
           performInstall(targetDir, desktopShortcut, launchOnStartup);
         }
@@ -1252,7 +1300,7 @@
         document.getElementById('screenWelcome'),
         document.getElementById('screenInstalling'),
         () => {
-          document.getElementById('installingTitle').textContent = "Updating Lumen...";
+          document.getElementById('installingTitle').textContent = `Updating ${appName}...`;
           document.getElementById('installingSubtitle').textContent = "Removing legacy version and upgrading files...";
           performInstall(targetDir, desktopShortcut, launchOnStartup);
         }
@@ -1299,7 +1347,7 @@
                 document.body.classList.remove('installing-active');
                 if (isUpdateState) {
                   document.getElementById('completeTitle').textContent = "Update Complete";
-                  document.getElementById('completeSubtitle').textContent = "Lumen has been updated to the latest version and is ready for use.";
+                  document.getElementById('completeSubtitle').textContent = `${appName} has been updated to the latest version and is ready for use.`;
                 }
               }
             );
@@ -1339,7 +1387,7 @@
               () => {
                 document.body.classList.remove('installing-active');
                 document.getElementById('completeTitle').textContent = "Uninstalled Successfully";
-                document.getElementById('completeSubtitle').textContent = "Lumen has been completely removed from your PC.";
+                document.getElementById('completeSubtitle').textContent = `${appName} has been completely removed from your PC.`;
                 document.getElementById('finishLaunchWrapper').style.display = 'none';
 
                 const finishBtn = document.getElementById('btnFinishAction');

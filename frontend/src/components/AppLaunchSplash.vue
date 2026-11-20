@@ -17,7 +17,7 @@ export function getLaunchMultiplier(): number {
 
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref, watch } from 'vue'
-import { Window } from '@wailsio/runtime'
+import { Events, Window } from '@wailsio/runtime'
 import LumenLogo from './LumenLogo.vue'
 import { launchReplayTrigger } from '../utils/launchState'
 
@@ -39,12 +39,13 @@ const isVisible = ref(true)
 const isSwirling = ref(false)
 const splashOpacity = ref(1)
 const splashTransition = ref('none')
-const logoOpacity = ref(1)
+const logoOpacity = ref(0)
 const logoTransform = ref('none')
 const logoTransition = ref('none')
 const splashLogoEl = ref<HTMLElement | null>(null)
 
 let hasEnded = false
+let isUnmounted = false
 let timerIds: number[] = []
 let startTime = 0
 let isHandoffActive = false
@@ -102,6 +103,14 @@ function updateHandoffTransform() {
   logoTransform.value = `translate(${dx}px, ${dy}px) scale(${scale})`
 }
 
+function waitTwoFrames(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => resolve())
+    })
+  })
+}
+
 async function prepareWindow() {
   try {
     await Window.SetResizable(true)
@@ -112,11 +121,22 @@ async function prepareWindow() {
     // Non-Wails / mock environment
   }
 
+  // Paint dark splash backdrop before revealing the initially-hidden window
+  await waitTwoFrames()
+
+  // Reveal the window BEFORE starting the 500ms spin so the animation does not
+  // run offscreen while macOS NSWindow / WKWebView is still hidden.
+  try {
+    await Events.Emit('app:ready')
+  } catch {
+    // Non-Tauri / mock environment
+  }
+
+  // Allow macOS window order-front & WebKit compositor to present the window
   await new Promise<void>((resolve) => {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => resolve())
-    })
+    schedule(() => resolve(), 80)
   })
+  await waitTwoFrames()
 }
 
 async function startSequence(isReplay = false) {
@@ -126,7 +146,7 @@ async function startSequence(isReplay = false) {
   isVisible.value = true
   splashOpacity.value = 1
   splashTransition.value = 'none'
-  logoOpacity.value = 1
+  logoOpacity.value = isReplay ? 1 : 0
   logoTransform.value = 'scale(1)'
   logoTransition.value = 'none'
   isSwirling.value = false
@@ -137,9 +157,11 @@ async function startSequence(isReplay = false) {
   if (!isReplay) {
     await prepareWindow()
   }
+  if (isUnmounted || hasEnded) return
 
   // Accessibility: prefers-reduced-motion crossfades in <= 200ms
   if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) {
+    logoOpacity.value = 1
     splashTransition.value = 'opacity 180ms ease-out'
     splashOpacity.value = 0
     schedule(() => {
@@ -157,10 +179,22 @@ async function startSequence(isReplay = false) {
   const maxWaitAfterReady = 2000 * mult
   const handoffDuration = 500 * mult
 
-  // (b) Trigger blade swirl animation immediately
-  requestAnimationFrame(() => {
+  // Start the visible spin clock once the window is presented on screen
+  startTime = Date.now()
+
+  // (b) Trigger blade swirl animation (double-rAF on replay so WebKit flushes class removal)
+  if (isReplay) {
+    await waitTwoFrames()
+    if (isUnmounted || hasEnded) return
+    logoOpacity.value = 1
     isSwirling.value = true
-  })
+  } else {
+    requestAnimationFrame(() => {
+      if (isUnmounted || hasEnded) return
+      logoOpacity.value = 1
+      isSwirling.value = true
+    })
+  }
 
   // (c) Wait until minDuration has elapsed AND app is ready
   function checkReadyAndProceed() {
@@ -235,6 +269,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  isUnmounted = true
   cleanupEvents()
   clearTimers()
 })

@@ -1,5 +1,6 @@
 import { Clipboard, Events } from "@wailsio/runtime";
 import { reactive } from "vue";
+import { hasTauri } from "../tauri-compat/wails-runtime";
 import {
   recordUploadResult,
   type UploadResults,
@@ -26,6 +27,7 @@ export interface FileUploadResult {
   SkipReason: string;
   Path: string;
   Paths: string[];
+  SizeBytes?: number;
 }
 
 export interface PreflightWarning {
@@ -152,6 +154,9 @@ class UploadManager {
   // True between the moment the user picks/drops files and the first upload
   // worker reporting activity. Keeps the indexing/preparation screen sticky.
   private preparationActive: boolean = false;
+  // Per-account circuit breaker state cache keyed by lowercased email
+  private blockedByAccount: Record<string, AccountBlockedState> = {};
+  private syncBlockedSeq: number = 0;
 
   private constructor() {
     // Bind all methods to ensure 'this' context is preserved
@@ -173,12 +178,17 @@ class UploadManager {
     // Handle upload start
     Events.On("uploadStart", (event: { data: UploadBatchStart }) => {
       const data = (event?.data || {}) as Record<string, any>;
-      this.state.totalFiles = Number(data.Total ?? data.total ?? 0);
-      this.state.totalBytes = Number(data.TotalBytes ?? data.totalBytes ?? 0); // May be 0 initially
-      this.state.isDryRun = Boolean(data.IsDryRun ?? data.isDryRun ?? false);
-      this.state.uploadedFiles = 0;
-      this.state.uploadedBytes = 0;
-      this.state.isUploading = true;
+      const totalFiles = Number(data.Total ?? data.total ?? 0);
+      const totalBytes = Number(data.TotalBytes ?? data.totalBytes ?? 0);
+      const isDryRun = Boolean(data.IsDryRun ?? data.isDryRun ?? false);
+
+      this.resetUploadResults();
+      this.state.totalFiles = totalFiles;
+      this.state.totalBytes = totalBytes; // May be 0 initially
+      this.state.isDryRun = isDryRun;
+      this.state.isPaused = false;
+      this.state.albumStatus = null;
+      this.state.isCreatingAlbum = false;
       this.state.threads.clear();
       this.state.startTime = Date.now();
       this.state.uploadSpeed = 0;
@@ -188,8 +198,17 @@ class UploadManager {
       this.completedBytes = 0;
       this.fileBytes.clear();
       this.totalBytesAdjustment = 0;
-      this.resetUploadResults();
       this.state.warnings = [];
+
+      if (totalFiles === 0) {
+        this.state.isUploading = false;
+        this.preparationActive = false;
+        this.state.scanProgress.isScanning = false;
+        window.dispatchEvent(new CustomEvent('uploadEmpty'));
+        return;
+      }
+
+      this.state.isUploading = true;
     });
 
     // Handle async total bytes update (calculated after uploadStart)
@@ -247,8 +266,8 @@ class UploadManager {
 
       this.state.uploadedFiles += recordUploadResult(this.state.results, event.data);
       if (!event.data.IsError) {
-        const completedFileBytes = this.fileBytes.get(Path);
-        if (completedFileBytes && completedFileBytes > 0) {
+        const completedFileBytes = this.fileBytes.get(Path) || Number(event.data.SizeBytes || 0);
+        if (completedFileBytes > 0) {
           this.completedBytes += completedFileBytes;
         }
       }
@@ -274,6 +293,12 @@ class UploadManager {
       this.state.isUploading = false;
       this.preparationActive = false;
       this.state.scanProgress.isScanning = false;
+    });
+
+    Events.On("upload:error", (event: { data?: string } | string) => {
+      const msg = typeof event === 'string' ? event : String(event?.data || 'Failed to start upload batch');
+      this.endPreparation();
+      window.dispatchEvent(new CustomEvent('uploadError', { detail: { Message: msg } }));
     });
 
     // Handle incremental folder scan progress
@@ -333,24 +358,135 @@ class UploadManager {
     // Handle circuit breaker account blocked / rate limited events
     Events.On("account:blocked", (event: { data: { reason: string; email: string; message: string; resumeAt?: number } }) => {
       this.state.isUploading = false;
-      this.state.accountBlocked = {
+      const blockedState: AccountBlockedState = {
         isBlocked: true,
         reason: (event.data?.reason || 'SIGN_IN_REQUIRED') as AccountBlockedState['reason'],
         email: event.data?.email || '',
         message: event.data?.message || '',
         resumeAt: event.data?.resumeAt,
       };
+      const key = blockedState.email.trim().toLowerCase();
+      if (key) {
+        this.blockedByAccount[key] = { ...blockedState };
+      }
+      this.state.accountBlocked = blockedState;
       window.dispatchEvent(new CustomEvent('accountBlocked', { detail: event.data }));
     });
   }
 
-  public clearAccountBlocked() {
-    this.state.accountBlocked = {
+  private emptyAccountBlocked(): AccountBlockedState {
+    return {
       isBlocked: false,
       reason: '',
       email: '',
       message: '',
+      resumeAt: undefined,
     };
+  }
+
+  public clearAccountBlocked(email?: string) {
+    if (email) {
+      const targetKey = email.trim().toLowerCase();
+      if (targetKey) {
+        delete this.blockedByAccount[targetKey];
+      }
+      const activeKey = this.state.accountBlocked.email.trim().toLowerCase();
+      if (!activeKey || activeKey === targetKey) {
+        this.state.accountBlocked = this.emptyAccountBlocked();
+      }
+      return;
+    }
+
+    const activeKey = this.state.accountBlocked.email.trim().toLowerCase();
+    if (activeKey) {
+      delete this.blockedByAccount[activeKey];
+    }
+    this.state.accountBlocked = this.emptyAccountBlocked();
+  }
+
+  public async syncAccountBlockedFor(email: string): Promise<void> {
+    const seq = ++this.syncBlockedSeq;
+    const trimmed = (email || '').trim();
+    const key = trimmed.toLowerCase();
+
+    // Preserve any active blocked state (including mock triggers) in the per-account cache
+    const current = this.state.accountBlocked;
+    if (current.isBlocked && current.email) {
+      const currentKey = current.email.trim().toLowerCase();
+      const expired =
+        current.reason === 'RATE_LIMITED' && current.resumeAt && Date.now() >= current.resumeAt;
+      if (expired) {
+        delete this.blockedByAccount[currentKey];
+      } else if (currentKey) {
+        this.blockedByAccount[currentKey] = { ...current };
+      }
+    }
+
+    if (!key) {
+      this.state.accountBlocked = this.emptyAccountBlocked();
+      return;
+    }
+
+    const applyLocalFallback = () => {
+      const cached = this.blockedByAccount[key];
+      if (cached && cached.isBlocked) {
+        if (cached.reason === 'RATE_LIMITED' && cached.resumeAt && Date.now() >= cached.resumeAt) {
+          delete this.blockedByAccount[key];
+          this.state.accountBlocked = this.emptyAccountBlocked();
+          return;
+        }
+        this.state.accountBlocked = { ...cached };
+      } else {
+        this.state.accountBlocked = this.emptyAccountBlocked();
+      }
+    };
+
+    if (!hasTauri()) {
+      applyLocalFallback();
+      return;
+    }
+
+    try {
+      const { ConfigManager } = await import('../../bindings/app/core');
+      const backendState = await ConfigManager.GetAccountBlockedState(trimmed);
+      if (seq !== this.syncBlockedSeq) return;
+      if (backendState && backendState.reason) {
+        if (
+          backendState.reason === 'RATE_LIMITED'
+          && backendState.resumeAt
+          && Date.now() >= backendState.resumeAt
+        ) {
+          delete this.blockedByAccount[key];
+          this.state.accountBlocked = this.emptyAccountBlocked();
+          return;
+        }
+        const next: AccountBlockedState = {
+          isBlocked: true,
+          reason: backendState.reason as AccountBlockedState['reason'],
+          email: backendState.email || trimmed,
+          message: backendState.message || '',
+          resumeAt: backendState.resumeAt,
+        };
+        this.blockedByAccount[key] = { ...next };
+        this.state.accountBlocked = next;
+      } else {
+        delete this.blockedByAccount[key];
+        this.state.accountBlocked = this.emptyAccountBlocked();
+      }
+    } catch {
+      if (seq !== this.syncBlockedSeq) return;
+      applyLocalFallback();
+    }
+  }
+
+  public isUploadBlocked(): boolean {
+    const blocked = this.state.accountBlocked;
+    if (!blocked.isBlocked) return false;
+    if (blocked.reason === 'RATE_LIMITED' && blocked.resumeAt && Date.now() >= blocked.resumeAt) {
+      this.clearAccountBlocked();
+      return false;
+    }
+    return true;
   }
 
   /**
@@ -411,6 +547,16 @@ class UploadManager {
     }
   }
 
+  public async cancelReviewScan() {
+    this.state.scanProgress.isScanning = false;
+    try {
+      const { ConfigManager } = await import('../../bindings/app/core');
+      await ConfigManager.CancelScan();
+    } catch (e) {
+      console.warn("Failed to cancel review scan:", e);
+    }
+  }
+
   private updateBytesAndSpeed() {
     // Calculate bytes from currently active uploads
     let activeUploadedBytes = 0;
@@ -455,7 +601,16 @@ class UploadManager {
     this.state.totalFiles = 0;
     this.state.uploadedBytes = 0;
     this.state.totalBytes = 0;
+    this.state.uploadSpeed = 0;
     this.state.isDryRun = false;
+    this.state.isPaused = false;
+    this.state.albumStatus = null;
+    this.state.isCreatingAlbum = false;
+    this.completedBytes = 0;
+    this.fileBytes.clear();
+    this.totalBytesAdjustment = 0;
+    this.lastBytesUploaded = 0;
+    this.speedSamples = [];
     this.state.results.success = [];
     this.state.results.fail = [];
     this.state.results.skipped = [];
@@ -464,10 +619,11 @@ class UploadManager {
 
   public async upload(paths: string[]) {
     if (!paths || paths.length === 0) return;
+    if (this.isUploadBlocked()) return;
     this.resetUploadResults();
     this.beginPreparation();
     try {
-      await Events.Emit("startUpload", { files: paths });
+      await Events.Emit("startUpload", { files: paths, dryRun: false });
     } catch (e) {
       this.endPreparation();
       throw e;

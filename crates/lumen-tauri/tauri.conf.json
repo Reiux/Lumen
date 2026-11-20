@@ -1,10 +1,10 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Lumen",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "identifier": "com.reiux.lumen",
   "build": {
-    "beforeDevCommand": "npm run dev --prefix frontend",
+    "beforeDevCommand": "npm run dev --prefix ../../frontend",
     "beforeBuildCommand": "",
     "frontendDist": "../../frontend/dist"
   },
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Lumen v2.1.0",
+        "title": "Lumen v2.1.1",
         "width": 1000,
         "height": 680,
         "minWidth": 800,
@@ -26,7 +26,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: https: data:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost https://github.com https://*.googleapis.com;"
+      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' asset: https: data: blob:; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost; object-src 'none'; base-uri 'self'; form-action 'none'; frame-ancestors 'none';"
     }
   },
   "bundle": {

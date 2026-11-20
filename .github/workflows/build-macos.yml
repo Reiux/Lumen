@@ -1,4 +1,4 @@
-name: Build macOS (Artifacts Only)
+name: Build macOS Dev (Artifacts Only)
 
 on:
   workflow_dispatch:
@@ -8,23 +8,24 @@ permissions:
 
 jobs:
   build-macos:
-    name: Build macOS Universal
+    name: Build macOS Dev Artifacts (Universal)
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
           targets: x86_64-apple-darwin,aarch64-apple-darwin
 
       - name: Install Protoc
-        uses: arduino/setup-protoc@v3
+        uses: arduino/setup-protoc@c65c819552d16ad3c9b72d9dfd5ba5237b9c906b # v3
         with:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -36,35 +37,48 @@ jobs:
       - name: Build Frontend
         run: npm run build --prefix frontend
 
-      - name: Build Tauri Universal Bundle (.app)
+      - name: Build Tauri Universal Bundle (.app & .dmg)
         working-directory: crates/lumen-tauri
-        run: npx --prefix ../../frontend tauri build --target universal-apple-darwin --bundles app
+        run: npx --prefix ../../frontend tauri build --debug --target universal-apple-darwin --bundles app,dmg
 
       - name: Build Standalone Universal CLI
         run: |
-          cargo build --release -p lumen-cli --bin lumen-cli --target x86_64-apple-darwin
-          cargo build --release -p lumen-cli --bin lumen-cli --target aarch64-apple-darwin
+          cargo build -p lumen-cli --bin lumen-cli --target x86_64-apple-darwin
+          cargo build -p lumen-cli --bin lumen-cli --target aarch64-apple-darwin
 
-      - name: Stage Artifacts
+      - name: Stage Dev Artifacts
         shell: bash
         run: |
-          V=$(grep -m1 '^version =' crates/lumen-tauri/Cargo.toml | cut -d '"' -f2)
+          CARGO_VER=$(grep -m1 '^version =' crates/lumen-tauri/Cargo.toml | cut -d '"' -f2)
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          V="${CARGO_VER}-dev.${SHORT_SHA}"
           mkdir -p dist
+          shopt -s nullglob
 
           # 1. Universal DMG installer (styled using dmgbuild to write .DS_Store directly on headless CI)
           python3 -m pip install --break-system-packages --require-hashes -r scripts/dmg-requirements.txt || python3 -m pip install --require-hashes -r scripts/dmg-requirements.txt
-          APP_PATH="target/universal-apple-darwin/release/bundle/macos/Lumen.app"
+          APP_PATH=""
+          for p in target/universal-apple-darwin/debug/bundle/macos/Lumen.app target/universal-apple-darwin/release/bundle/macos/Lumen.app; do
+            if [ -d "$p" ]; then
+              APP_PATH="$p"
+              break
+            fi
+          done
           OUT_DMG="dist/lumen_${V}_macos_universal.dmg"
 
           if [ -d "$APP_PATH" ]; then
             echo "Building styled DMG with dmgbuild..."
-            python3 -m dmgbuild -s scripts/dmg_settings.py -D app="$APP_PATH" -D repo_root="$PWD" "Lumen" "$OUT_DMG"
+            python3 -m dmgbuild -s scripts/dmg_settings.py -D app="$APP_PATH" -D repo_root="$PWD" "Lumen" "$OUT_DMG" || true
           fi
 
           # Fallback to Tauri DMG only if dmgbuild failed to generate the file
           if [ ! -f "$OUT_DMG" ]; then
             echo "Warning: dmgbuild failed, falling back to Tauri DMG..."
-            DMG_FILE=$(find target/universal-apple-darwin/release/bundle -name "*.dmg" 2>/dev/null | head -n 1)
+            DMG_FILE=""
+            for f in target/universal-apple-darwin/debug/bundle/dmg/*.dmg target/universal-apple-darwin/release/bundle/dmg/*.dmg target/universal-apple-darwin/*.dmg; do
+              DMG_FILE="$f"
+              break
+            done
             if [ -n "$DMG_FILE" ] && [ -f "$DMG_FILE" ]; then
               cp "$DMG_FILE" "$OUT_DMG"
             else
@@ -74,21 +88,42 @@ jobs:
           fi
 
           # 2. Universal .app zip bundle
-          if [ -d "target/universal-apple-darwin/release/bundle/macos/Lumen.app" ]; then
-            (cd target/universal-apple-darwin/release/bundle/macos && zip -r "../../../../../dist/lumen_${V}_macos_universal.zip" Lumen.app)
+          if [ -d "$APP_PATH" ]; then
+            APP_DIR=$(dirname "$APP_PATH")
+            (cd "$APP_DIR" && zip -r "../../../../../dist/lumen_${V}_macos_universal.zip" Lumen.app)
+          else
+            echo "Error: Missing Lumen.app bundle."
+            exit 1
           fi
 
           # 3. Universal CLI binary
-          lipo -create -output "dist/lumen-cli_${V}_macos_universal" \
-            target/x86_64-apple-darwin/release/lumen-cli \
-            target/aarch64-apple-darwin/release/lumen-cli
-          chmod +x "dist/lumen-cli_${V}_macos_universal"
+          CLI_X86=""
+          for f in target/x86_64-apple-darwin/debug/lumen-cli target/x86_64-apple-darwin/release/lumen-cli; do
+            if [ -f "$f" ]; then
+              CLI_X86="$f"
+              break
+            fi
+          done
+          CLI_ARM=""
+          for f in target/aarch64-apple-darwin/debug/lumen-cli target/aarch64-apple-darwin/release/lumen-cli; do
+            if [ -f "$f" ]; then
+              CLI_ARM="$f"
+              break
+            fi
+          done
+          if [ -f "$CLI_X86" ] && [ -f "$CLI_ARM" ]; then
+            lipo -create -output "dist/lumen-cli_${V}_macos_universal" "$CLI_X86" "$CLI_ARM"
+            chmod +x "dist/lumen-cli_${V}_macos_universal"
+          else
+            echo "Error: Missing standalone CLI binaries."
+            exit 1
+          fi
 
           ls -la dist/
 
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v4
+      - name: Upload Dev Artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: lumen-macos-universal
+          name: lumen-dev-macos-universal
           path: dist/*
           retention-days: 7

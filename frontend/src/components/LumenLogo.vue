@@ -28,60 +28,67 @@ const sizeValue = computed(() => (typeof props.size === 'number' ? `${props.size
     }"
     aria-hidden="true"
   >
-    <svg
-      xmlns="http://www.w3.org/2000/svg"
-      viewBox="0 0 108 108"
-      width="100%"
-      height="100%"
-      class="block size-full overflow-visible"
+    <div
+      class="lumen-logo-rotate flex size-full items-center justify-center"
+      :class="{ 'is-launching': animated }"
     >
-      <!-- Single wrapper group for whole-logo animation -->
-      <g
-        class="aperture-group"
+      <div
+        class="lumen-logo-scale flex size-full items-center justify-center"
         :class="{ 'is-launching': animated }"
       >
-        <!-- Blade 1: Top-Right (0 deg) - Primary -->
-        <g transform="rotate(0 54 54)">
-          <path
-            :fill="blade1Color || 'var(--md-sys-color-primary, #38BDF8)'"
-            d="M 54,26 C 65,26 76,36 76,47 C 76,52 70,54 63,54 C 59,44 54,35 54,26 Z"
-            class="blade blade-1"
-          />
-        </g>
-        <!-- Blade 2: Bottom-Right (90 deg) - Secondary -->
-        <g transform="rotate(90 54 54)">
-          <path
-            :fill="blade2Color || 'var(--md-sys-color-secondary, #60A5FA)'"
-            d="M 54,26 C 65,26 76,36 76,47 C 76,52 70,54 63,54 C 59,44 54,35 54,26 Z"
-            class="blade blade-2"
-          />
-        </g>
-        <!-- Blade 3: Bottom-Left (180 deg) - Tertiary -->
-        <g transform="rotate(180 54 54)">
-          <path
-            :fill="blade3Color || 'var(--md-sys-color-tertiary, #818CF8)'"
-            d="M 54,26 C 65,26 76,36 76,47 C 76,52 70,54 63,54 C 59,44 54,35 54,26 Z"
-            class="blade blade-3"
-          />
-        </g>
-        <!-- Blade 4: Top-Left (270 deg) - Primary Container -->
-        <g transform="rotate(270 54 54)">
-          <path
-            :fill="blade4Color || 'var(--md-sys-color-primary-container, #A78BFA)'"
-            d="M 54,26 C 65,26 76,36 76,47 C 76,52 70,54 63,54 C 59,44 54,35 54,26 Z"
-            class="blade blade-4"
-          />
-        </g>
-        <!-- Center Core: Radiant lens core -->
-        <circle
-          cx="54"
-          cy="54"
-          r="7"
-          :fill="centerColor || 'var(--md-sys-color-on-surface, #FFFFFF)'"
-          class="aperture-core"
-        />
-      </g>
-    </svg>
+        <svg
+          xmlns="http://www.w3.org/2000/svg"
+          viewBox="0 0 108 108"
+          width="100%"
+          height="100%"
+          class="block size-full overflow-visible"
+        >
+          <!-- Single wrapper group for blade geometry -->
+          <g class="aperture-group">
+            <!-- Blade 1: Top-Right (0 deg) - Primary -->
+            <g transform="rotate(0 54 54)">
+              <path
+                :fill="blade1Color || 'var(--md-sys-color-primary, #38BDF8)'"
+                d="M 54,26 C 65,26 76,36 76,47 C 76,52 70,54 63,54 C 59,44 54,35 54,26 Z"
+                class="blade blade-1"
+              />
+            </g>
+            <!-- Blade 2: Bottom-Right (90 deg) - Secondary -->
+            <g transform="rotate(90 54 54)">
+              <path
+                :fill="blade2Color || 'var(--md-sys-color-secondary, #60A5FA)'"
+                d="M 54,26 C 65,26 76,36 76,47 C 76,52 70,54 63,54 C 59,44 54,35 54,26 Z"
+                class="blade blade-2"
+              />
+            </g>
+            <!-- Blade 3: Bottom-Left (180 deg) - Tertiary -->
+            <g transform="rotate(180 54 54)">
+              <path
+                :fill="blade3Color || 'var(--md-sys-color-tertiary, #818CF8)'"
+                d="M 54,26 C 65,26 76,36 76,47 C 76,52 70,54 63,54 C 59,44 54,35 54,26 Z"
+                class="blade blade-3"
+              />
+            </g>
+            <!-- Blade 4: Top-Left (270 deg) - Primary Container -->
+            <g transform="rotate(270 54 54)">
+              <path
+                :fill="blade4Color || 'var(--md-sys-color-primary-container, #A78BFA)'"
+                d="M 54,26 C 65,26 76,36 76,47 C 76,52 70,54 63,54 C 59,44 54,35 54,26 Z"
+                class="blade blade-4"
+              />
+            </g>
+            <!-- Center Core: Radiant lens core -->
+            <circle
+              cx="54"
+              cy="54"
+              r="7"
+              :fill="centerColor || 'var(--md-sys-color-on-surface, #FFFFFF)'"
+              class="aperture-core"
+            />
+          </g>
+        </svg>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -92,9 +99,11 @@ const sizeValue = computed(() => (typeof props.size === 'number' ? `${props.size
   border-radius: 0 !important;
 }
 
-/* Whole-logo animation wrapper: rotates around center 50% 50% of view-box */
-.aperture-group {
-  transform-box: view-box;
+/* Animate HTML wrappers with standard CSS transform instead of SVG <g>
+   individual rotate/scale properties, which fail to animate reliably in
+   macOS WKWebView (WebKit). Separate wrappers preserve independent easing curves. */
+.lumen-logo-rotate,
+.lumen-logo-scale {
   transform-origin: 50% 50%;
 }
 
@@ -108,32 +117,37 @@ const sizeValue = computed(() => (typeof props.size === 'number' ? `${props.size
    - Whole logo rotates clockwise 0 -> 360 deg over 500 ms with cubic-bezier(0.4, 0, 0.2, 1) (fast_out_slow_in)
    - Simultaneously scales 0.7 -> 1.0 with overshoot curve cubic-bezier(0.34, 1.56, 0.64, 1)
 */
-.is-launching {
-  animation:
-    splash-rotate 500ms cubic-bezier(0.4, 0, 0.2, 1) forwards,
-    splash-scale 500ms cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+.lumen-logo-rotate.is-launching {
+  will-change: transform;
+  animation: splash-rotate 500ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.lumen-logo-scale.is-launching {
+  will-change: transform;
+  animation: splash-scale 500ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
 }
 
 @keyframes splash-rotate {
   0% {
-    rotate: 0deg;
+    transform: rotate(0deg);
   }
   100% {
-    rotate: 360deg;
+    transform: rotate(360deg);
   }
 }
 
 @keyframes splash-scale {
   0% {
-    scale: 0.7;
+    transform: scale(0.7);
   }
   100% {
-    scale: 1;
+    transform: scale(1);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .is-launching,
+  .lumen-logo-rotate.is-launching,
+  .lumen-logo-scale.is-launching,
   .blade,
   .aperture-core {
     animation: none !important;

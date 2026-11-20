@@ -1,5 +1,5 @@
 use std::sync::{Arc, LazyLock, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
@@ -47,8 +47,20 @@ pub struct AccountBlockedEvent {
 
 pub struct CircuitBreaker {
     state: Arc<RwLock<CircuitState>>,
+    pause_until: Arc<RwLock<Option<Instant>>>,
     blocked_event: Arc<RwLock<Option<AccountBlockedEvent>>>,
     on_blocked: Arc<dyn Fn(AccountBlockedEvent) + Send + Sync>,
+}
+
+fn error_kind_reason(kind: ErrorKind) -> &'static str {
+    match kind {
+        ErrorKind::None => "NONE",
+        ErrorKind::SignInRequired => "SIGN_IN_REQUIRED",
+        ErrorKind::AccountRestricted => "ACCOUNT_RESTRICTED",
+        ErrorKind::RateLimited => "RATE_LIMITED",
+        ErrorKind::Transient => "TRANSIENT",
+        ErrorKind::Fatal => "FATAL",
+    }
 }
 
 impl CircuitBreaker {
@@ -58,6 +70,7 @@ impl CircuitBreaker {
     {
         Self {
             state: Arc::new(RwLock::new(CircuitState::Active)),
+            pause_until: Arc::new(RwLock::new(None)),
             blocked_event: Arc::new(RwLock::new(None)),
             on_blocked: Arc::new(on_blocked),
         }
@@ -71,49 +84,105 @@ impl CircuitBreaker {
         *self.state.read().unwrap() == CircuitState::Blocked
     }
 
-    pub fn trip(&self, kind: ErrorKind, email: &str, message: &str) {
-        let mut state = self.state.write().unwrap();
-        if *state == CircuitState::Blocked {
-            return;
+    pub fn pause_remaining(&self) -> Option<Duration> {
+        let now = Instant::now();
+        {
+            let state = self.state.read().unwrap();
+            if *state != CircuitState::Paused {
+                return None;
+            }
+            let until = (*self.pause_until.read().unwrap())?;
+            if until > now {
+                return Some(until.duration_since(now));
+            }
         }
-        *state = CircuitState::Blocked;
 
-        let event = AccountBlockedEvent {
-            reason: format!("{:?}", kind).to_uppercase(),
-            email: email.to_string(),
-            message: message.to_string(),
-            resume_at: None,
+        // Re-check under write locks before resetting so a concurrent pause() isn't clobbered
+        let mut state = self.state.write().unwrap();
+        if *state != CircuitState::Paused {
+            return None;
+        }
+        let mut pause_until = self.pause_until.write().unwrap();
+        let now = Instant::now();
+        match *pause_until {
+            Some(until) if until > now => Some(until.duration_since(now)),
+            _ => {
+                *state = CircuitState::Active;
+                *pause_until = None;
+                None
+            }
+        }
+    }
+
+    pub fn trip(&self, kind: ErrorKind, email: &str, message: &str) {
+        let event = {
+            let mut state = self.state.write().unwrap();
+            if *state == CircuitState::Blocked {
+                return;
+            }
+            *state = CircuitState::Blocked;
+            *self.pause_until.write().unwrap() = None;
+
+            let event = AccountBlockedEvent {
+                reason: error_kind_reason(kind).to_string(),
+                email: email.to_string(),
+                message: message.to_string(),
+                resume_at: None,
+            };
+            *self.blocked_event.write().unwrap() = Some(event.clone());
+            event
         };
-        *self.blocked_event.write().unwrap() = Some(event.clone());
         (self.on_blocked)(event);
     }
 
     pub fn pause(&self, duration: Duration, email: &str, message: &str) {
-        let mut state = self.state.write().unwrap();
-        if *state == CircuitState::Blocked {
-            return;
-        }
-        *state = CircuitState::Paused;
+        let event = {
+            let mut state = self.state.write().unwrap();
+            if *state == CircuitState::Blocked {
+                return;
+            }
+            let now = Instant::now();
+            let candidate_until = now + duration;
+            let mut pause_until = self.pause_until.write().unwrap();
+            let already_actively_paused = *state == CircuitState::Paused
+                && pause_until.is_some_and(|existing| existing > now);
+            *state = CircuitState::Paused;
+            let effective_until = match *pause_until {
+                Some(existing) if existing > candidate_until => existing,
+                _ => candidate_until,
+            };
+            *pause_until = Some(effective_until);
 
-        let resume_at = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as i64
-            + duration.as_millis() as i64;
+            let effective_duration = effective_until.saturating_duration_since(now);
+            let resume_at = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as i64
+                + effective_duration.as_millis() as i64;
 
-        let event = AccountBlockedEvent {
-            reason: "RATE_LIMITED".to_string(),
-            email: email.to_string(),
-            message: message.to_string(),
-            resume_at: Some(resume_at),
+            let event = AccountBlockedEvent {
+                reason: "RATE_LIMITED".to_string(),
+                email: email.to_string(),
+                message: message.to_string(),
+                resume_at: Some(resume_at),
+            };
+            *self.blocked_event.write().unwrap() = Some(event.clone());
+            if already_actively_paused {
+                None
+            } else {
+                Some(event)
+            }
         };
-        (self.on_blocked)(event);
+        if let Some(event) = event {
+            (self.on_blocked)(event);
+        }
     }
 
     pub fn reset_if_paused(&self) {
         let mut state = self.state.write().unwrap();
         if *state == CircuitState::Paused {
             *state = CircuitState::Active;
+            *self.pause_until.write().unwrap() = None;
         }
     }
 }
@@ -163,6 +232,9 @@ pub fn classify_error(err_msg: &str) -> ErrorKind {
         "no such host",
         "network is unreachable",
         "timed out",
+        "network error:",
+        "error sending request",
+        "error decoding response body",
     ];
     let lower = err_msg.to_lowercase();
     for phrase in &transient_phrases {
@@ -196,20 +268,120 @@ pub fn is_within_schedule(start_hour: u8, end_hour: u8) -> bool {
     is_within_schedule_at_hour(now.hour() as u8, start_hour, end_hour)
 }
 
+#[cfg(windows)]
+#[repr(C)]
+struct SystemPowerStatus {
+    ac_line_status: u8,
+    battery_flag: u8,
+    battery_life_percent: u8,
+    system_status_flag: u8,
+    battery_life_time: u32,
+    battery_full_life_time: u32,
+}
+
+#[cfg(windows)]
+unsafe extern "system" {
+    fn GetSystemPowerStatus(lp_system_power_status: *mut SystemPowerStatus) -> i32;
+}
+
+#[cfg(windows)]
+fn get_windows_power_status() -> Option<SystemPowerStatus> {
+    let mut status = SystemPowerStatus {
+        ac_line_status: 255,
+        battery_flag: 255,
+        battery_life_percent: 255,
+        system_status_flag: 0,
+        battery_life_time: u32::MAX,
+        battery_full_life_time: u32::MAX,
+    };
+    let ok = unsafe { GetSystemPowerStatus(&mut status) };
+    if ok != 0 {
+        Some(status)
+    } else {
+        None
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn is_system_battery_supply(path: &std::path::Path) -> bool {
+    let Ok(t) = std::fs::read_to_string(path.join("type")) else {
+        return false;
+    };
+    if !t.trim().eq_ignore_ascii_case("Battery") {
+        return false;
+    }
+    // Skip peripheral batteries (wireless mice, keyboards, headsets report scope = "Device")
+    if let Ok(scope) = std::fs::read_to_string(path.join("scope")) {
+        if scope.trim().eq_ignore_ascii_case("Device") {
+            return false;
+        }
+    }
+    if let Ok(present) = std::fs::read_to_string(path.join("present")) {
+        if present.trim() == "0" {
+            return false;
+        }
+    }
+    true
+}
+
+/// Returns true if the machine has a system battery (e.g., laptop/tablet),
+/// false on desktop PCs without a system battery.
+pub fn has_battery() -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(entries) = std::fs::read_dir("/sys/class/power_supply") {
+            for entry in entries.flatten() {
+                if is_system_battery_supply(&entry.path()) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+    #[cfg(windows)]
+    {
+        if let Some(status) = get_windows_power_status() {
+            // 128 = no system battery, 255 = unknown status
+            return (status.battery_flag & 128) == 0 && status.battery_flag != 255;
+        }
+        false
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(out) = std::process::Command::new("/usr/bin/pmset")
+            .args(["-g", "batt"])
+            .output()
+        {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            return stdout.contains("InternalBattery");
+        }
+        false
+    }
+    #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
+    {
+        false
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn parse_macos_pmset_on_battery(stdout: &str) -> bool {
+    stdout.contains("'Battery Power'")
+}
+
+#[cfg(target_os = "macos")]
+static MACOS_BATTERY_CACHE: LazyLock<std::sync::Mutex<Option<(Instant, bool)>>> =
+    LazyLock::new(|| std::sync::Mutex::new(None));
+
 pub fn is_running_on_battery() -> bool {
     #[cfg(target_os = "linux")]
     {
         if let Ok(entries) = std::fs::read_dir("/sys/class/power_supply") {
             for entry in entries.flatten() {
                 let path = entry.path();
-                let type_path = path.join("type");
-                let status_path = path.join("status");
-                if let Ok(t) = std::fs::read_to_string(&type_path) {
-                    if t.trim().eq_ignore_ascii_case("Battery") {
-                        if let Ok(s) = std::fs::read_to_string(&status_path) {
-                            if s.trim().eq_ignore_ascii_case("Discharging") {
-                                return true;
-                            }
+                if is_system_battery_supply(&path) {
+                    if let Ok(s) = std::fs::read_to_string(path.join("status")) {
+                        if s.trim().eq_ignore_ascii_case("Discharging") {
+                            return true;
                         }
                     }
                 }
@@ -217,7 +389,37 @@ pub fn is_running_on_battery() -> bool {
         }
         false
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(windows)]
+    {
+        if let Some(status) = get_windows_power_status() {
+            let has_batt = (status.battery_flag & 128) == 0 && status.battery_flag != 255;
+            // ac_line_status == 0 means offline (running on battery)
+            return has_batt && status.ac_line_status == 0;
+        }
+        false
+    }
+    #[cfg(target_os = "macos")]
+    {
+        const CACHE_TTL: Duration = Duration::from_secs(5);
+        if let Ok(guard) = MACOS_BATTERY_CACHE.lock() {
+            if let Some((checked_at, cached)) = *guard {
+                if checked_at.elapsed() < CACHE_TTL {
+                    return cached;
+                }
+            }
+        }
+        let on_battery = std::process::Command::new("/usr/bin/pmset")
+            .args(["-g", "batt"])
+            .output()
+            .ok()
+            .map(|out| parse_macos_pmset_on_battery(&String::from_utf8_lossy(&out.stdout)))
+            .unwrap_or(false);
+        if let Ok(mut guard) = MACOS_BATTERY_CACHE.lock() {
+            *guard = Some((Instant::now(), on_battery));
+        }
+        on_battery
+    }
+    #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
     {
         false
     }
@@ -265,5 +467,27 @@ mod tests {
         // Equal start and end means anytime
         assert!(is_within_schedule_at_hour(0, 5, 5));
         assert!(is_within_schedule_at_hour(12, 5, 5));
+    }
+
+    #[test]
+    fn test_circuit_breaker_emits_expected_reason_codes() {
+        let seen = Arc::new(RwLock::new(Vec::<String>::new()));
+        let seen_cb = seen.clone();
+        let cb = CircuitBreaker::new(move |ev| {
+            seen_cb.write().unwrap().push(ev.reason);
+        });
+        cb.trip(ErrorKind::SignInRequired, "a@example.com", "401");
+        assert_eq!(seen.read().unwrap().as_slice(), &["SIGN_IN_REQUIRED"]);
+
+        let seen2 = Arc::new(RwLock::new(Vec::<String>::new()));
+        let seen2_cb = seen2.clone();
+        let cb2 = CircuitBreaker::new(move |ev| {
+            seen2_cb.write().unwrap().push(ev.reason);
+        });
+        cb2.trip(ErrorKind::AccountRestricted, "a@example.com", "AccountDisabled");
+        assert_eq!(seen2.read().unwrap().as_slice(), &["ACCOUNT_RESTRICTED"]);
+
+        assert!(parse_macos_pmset_on_battery("Now drawing from 'Battery Power'\n -InternalBattery-0\t95%; discharging"));
+        assert!(!parse_macos_pmset_on_battery("Now drawing from 'AC Power'\n -InternalBattery-0\t100%; charged"));
     }
 }

@@ -22,7 +22,7 @@ const emit = defineEmits<{
     :interactive="interactive || undefined"
     :disabled="disabled || undefined"
     class="m3e-card w-full"
-    @click="emit('click', $event)"
+    @click="!disabled && emit('click', $event)"
   >
     <slot name="header" />
     <slot />

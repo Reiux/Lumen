@@ -26,6 +26,13 @@ export function setDevOptionsUnlocked(unlocked: boolean) {
     if (typeof localStorage !== 'undefined') {
       localStorage.setItem('lumen_mock_active', 'false')
     }
+    if (mockProgressInterval) {
+      clearInterval(mockProgressInterval)
+      mockProgressInterval = null
+    }
+    uploadManager.state.isUploading = false
+    uploadManager.state.scanProgress.isScanning = false
+    uploadManager.resetUploadResults()
   }
 }
 
@@ -219,6 +226,7 @@ export function setMockView(view: MockState['currentView']) {
 
   if (view === 'uploading') {
     uploadManager.state.scanProgress.isScanning = false
+    uploadManager.resetUploadResults()
     simulateUploadProgress()
   } else if (view === 'results') {
     uploadManager.state.scanProgress.isScanning = false
@@ -389,7 +397,7 @@ export function triggerMockCircuitBreaker(reason: 'SIGN_IN_REQUIRED' | 'ACCOUNT_
       reason: 'RATE_LIMITED',
       email: mockState.account,
       message: 'Google asked Lumen to slow down (HTTP 429)',
-      resumeAt: Date.now() + 15 * 60 * 1000,
+      resumeAt: Date.now() + 30 * 1000,
     }
   } else if (reason === 'ACCOUNT_RESTRICTED') {
     uploadManager.state.accountBlocked = {

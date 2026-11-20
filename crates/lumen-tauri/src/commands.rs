@@ -26,6 +26,15 @@ use lumen_core::upload::{UploadEngine, UploadEvent, UploadOptions};
 use crate::cdp;
 use crate::models::*;
 
+#[derive(Clone, Debug)]
+pub struct PendingUploadBatch {
+    pub files: Vec<String>,
+    pub is_watched: bool,
+    pub notify_watch_detected: bool,
+    pub dry_run_override: Option<bool>,
+    pub recursive_override: Option<bool>,
+}
+
 #[derive(Clone)]
 pub struct AppState {
     pub config_manager: Arc<ConfigManager>,
@@ -35,26 +44,47 @@ pub struct AppState {
     pub upload_cancel: Arc<AtomicBool>,
     pub upload_pause: Arc<AtomicBool>,
     pub scan_cancel: Arc<AtomicBool>,
+    pub review_scan_cancel: Arc<AtomicBool>,
     pub is_uploading: Arc<AtomicBool>,
-    pub pending_watch_files: Arc<std::sync::Mutex<Vec<String>>>,
+    pub account_blocked: Arc<std::sync::RwLock<std::collections::HashMap<String, AccountBlockedEvent>>>,
+    pub pending_watch_files: Arc<std::sync::Mutex<Vec<PendingUploadBatch>>>,
     pub watcher: Arc<tokio::sync::Mutex<Option<lumen_core::watcher::FolderWatcher>>>,
+    pub inotify_error: Arc<std::sync::RwLock<String>>,
+    pub tray_available: Arc<AtomicBool>,
+    pub initial_show_done: Arc<AtomicBool>,
+    pub update_checker: Arc<std::sync::Mutex<(String, UpdateChecker)>>,
+    pub run_seq: Arc<std::sync::atomic::AtomicU64>,
+    pub log_seq: Arc<std::sync::atomic::AtomicU64>,
 }
 
 pub fn sync_folder_watcher(state: &AppState) {
-    let cfg = state.config_manager.get_config();
-    let mut folders = std::collections::HashMap::new();
-    if cfg.preferences.watch_folders_enabled {
-        for c in &cfg.preferences.watched_folder_configs {
-            if c.enabled {
-                folders.insert(std::path::PathBuf::from(&c.path), c.include_subfolders);
-            }
-        }
-    }
+    let config_manager = state.config_manager.clone();
     let watcher_arc = state.watcher.clone();
+    let inotify_error = state.inotify_error.clone();
     tauri::async_runtime::spawn(async move {
         let mut lock = watcher_arc.lock().await;
         if let Some(ref mut w) = *lock {
-            let _ = w.set_folders(folders);
+            let cfg = config_manager.get_config();
+            let mut folders = std::collections::HashMap::new();
+            if cfg.preferences.watch_folders_enabled {
+                for c in &cfg.preferences.watched_folder_configs {
+                    if c.enabled {
+                        folders.insert(std::path::PathBuf::from(&c.path), c.include_subfolders);
+                    }
+                }
+            }
+            let filter_unsupported = !cfg.preferences.disable_unsupported_files_filter;
+            let exclude_pattern = cfg.preferences.exclude_pattern.clone();
+            w.set_filter_options(filter_unsupported, exclude_pattern);
+            match w.set_folders(folders) {
+                Ok(()) => {
+                    *inotify_error.write().unwrap_or_else(|e| e.into_inner()) = String::new();
+                }
+                Err(e) => {
+                    tracing::warn!("Folder watcher sync error: {}", e);
+                    *inotify_error.write().unwrap_or_else(|e| e.into_inner()) = e;
+                }
+            }
         }
     });
 }
@@ -81,7 +111,7 @@ pub fn get_settings(state: tauri::State<AppState>) -> Preferences {
         set_date_from_filename: cfg.preferences.set_date_from_filename,
         exclude_pattern: cfg.preferences.exclude_pattern,
         minimize_to_tray: cfg.preferences.minimize_to_tray,
-        launch_on_startup: is_launch_on_startup_active() || cfg.preferences.launch_on_startup,
+        launch_on_startup: is_launch_on_startup_active(),
         notify_on_complete: cfg.preferences.notify_on_complete,
         use_local_hash_cache: cfg.preferences.use_local_hash_cache,
         upload_speed_limit_kbps: cfg.preferences.upload_speed_limit_kbps,
@@ -102,6 +132,7 @@ pub fn get_settings(state: tauri::State<AppState>) -> Preferences {
             .collect(),
         recent_albums: cfg.preferences.recent_albums,
         auto_check_updates: cfg.preferences.auto_check_updates,
+        auto_update_interval_hours: cfg.preferences.auto_update_interval_hours.clamp(1, 168),
         last_update_check: cfg.preferences.last_update_check,
         schedule_enabled: cfg.preferences.schedule_enabled,
         schedule_start_hour: cfg.preferences.schedule_start_hour,
@@ -164,6 +195,9 @@ pub fn set_upload_threads(upload_threads: u32, state: tauri::State<AppState>) ->
 pub fn set_saver(saver: bool, state: tauri::State<AppState>) -> Result<(), String> {
     state.config_manager.update(|cfg| {
         cfg.preferences.saver = saver;
+        if saver {
+            cfg.preferences.use_quota = false;
+        }
     })
 }
 
@@ -171,6 +205,9 @@ pub fn set_saver(saver: bool, state: tauri::State<AppState>) -> Result<(), Strin
 pub fn set_use_quota(use_quota: bool, state: tauri::State<AppState>) -> Result<(), String> {
     state.config_manager.update(|cfg| {
         cfg.preferences.use_quota = use_quota;
+        if use_quota {
+            cfg.preferences.saver = false;
+        }
     })
 }
 
@@ -215,7 +252,9 @@ pub fn set_disable_unsupported_files_filter(
 ) -> Result<(), String> {
     state.config_manager.update(|cfg| {
         cfg.preferences.disable_unsupported_files_filter = disable_unsupported_files_filter;
-    })
+    })?;
+    sync_folder_watcher(&state);
+    Ok(())
 }
 
 #[tauri::command]
@@ -231,7 +270,9 @@ pub fn set_exclude_pattern(pattern: String, state: tauri::State<AppState>) -> Re
     validate_exclude_pattern(trimmed)?;
     state.config_manager.update(|cfg| {
         cfg.preferences.exclude_pattern = trimmed.to_string();
-    })
+    })?;
+    sync_folder_watcher(&state);
+    Ok(())
 }
 
 #[tauri::command]
@@ -255,6 +296,24 @@ fn escape_xml_entity(s: &str) -> String {
         .replace('\'', "&apos;")
 }
 
+const STARTUP_APP_NAME: &str = if cfg!(debug_assertions) {
+    "Lumen Dev"
+} else {
+    "Lumen"
+};
+#[cfg(target_os = "macos")]
+const LAUNCH_AGENT_LABEL: &str = if cfg!(debug_assertions) {
+    "com.reiux.lumen.dev"
+} else {
+    "com.reiux.lumen"
+};
+#[cfg(target_os = "linux")]
+const AUTOSTART_DESKTOP_FILENAME: &str = if cfg!(debug_assertions) {
+    "lumen-dev.desktop"
+} else {
+    "lumen.desktop"
+};
+
 fn is_launch_on_startup_active() -> bool {
     #[cfg(windows)]
     {
@@ -262,7 +321,7 @@ fn is_launch_on_startup_active() -> bool {
         use winreg::RegKey;
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
         if let Ok(key) = hkcu.open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run") {
-            if key.get_value::<String, _>("Lumen").is_ok() {
+            if key.get_value::<String, _>(STARTUP_APP_NAME).is_ok() {
                 return true;
             }
         }
@@ -273,7 +332,7 @@ fn is_launch_on_startup_active() -> bool {
             let plist = std::path::PathBuf::from(home)
                 .join("Library")
                 .join("LaunchAgents")
-                .join("com.reiux.lumen.plist");
+                .join(format!("{}.plist", LAUNCH_AGENT_LABEL));
             if plist.exists() {
                 return true;
             }
@@ -281,14 +340,20 @@ fn is_launch_on_startup_active() -> bool {
     }
     #[cfg(target_os = "linux")]
     {
-        let autostart_dir = if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+        let autostart_dir = if let Some(xdg) = std::env::var("XDG_CONFIG_HOME")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+        {
             std::path::PathBuf::from(xdg).join("autostart")
-        } else if let Ok(home) = std::env::var("HOME") {
+        } else if let Some(home) = std::env::var("HOME")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+        {
             std::path::PathBuf::from(home).join(".config").join("autostart")
         } else {
             std::path::PathBuf::from(".config").join("autostart")
         };
-        let desktop_file = autostart_dir.join("lumen.desktop");
+        let desktop_file = autostart_dir.join(AUTOSTART_DESKTOP_FILENAME);
         if desktop_file.exists() {
             return true;
         }
@@ -297,11 +362,8 @@ fn is_launch_on_startup_active() -> bool {
 }
 
 #[tauri::command]
-pub fn get_launch_on_startup(state: tauri::State<AppState>) -> bool {
-    if is_launch_on_startup_active() {
-        return true;
-    }
-    state.config_manager.get_config().preferences.launch_on_startup
+pub fn get_launch_on_startup(_state: tauri::State<AppState>) -> bool {
+    is_launch_on_startup_active()
 }
 
 #[tauri::command]
@@ -311,59 +373,82 @@ pub fn set_launch_on_startup(v: bool, state: tauri::State<AppState>) -> Result<(
         use winreg::enums::*;
         use winreg::RegKey;
         let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-        if let Ok((key, _)) = hkcu.create_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run") {
-            if v {
-                if let Ok(exe) = std::env::current_exe() {
-                    let exe_str = format!("\"{}\"", exe.to_string_lossy());
-                    let _ = key.set_value("Lumen", &exe_str);
-                }
-            } else {
-                let _ = key.delete_value("Lumen");
-            }
+        let (key, _) = hkcu
+            .create_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run")
+            .map_err(|e| format!("Failed to open Run registry key: {}", e))?;
+        if v {
+            let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+            let exe_str = format!("\"{}\"", exe.to_string_lossy());
+            key.set_value(STARTUP_APP_NAME, &exe_str)
+                .map_err(|e| format!("Failed to set startup registry entry: {}", e))?;
+        } else {
+            let _ = key.delete_value(STARTUP_APP_NAME);
         }
     }
     #[cfg(target_os = "macos")]
     {
         if let Ok(home) = std::env::var("HOME") {
             let launch_agents = std::path::PathBuf::from(&home).join("Library").join("LaunchAgents");
-            let plist_path = launch_agents.join("com.reiux.lumen.plist");
+            let plist_path = launch_agents.join(format!("{}.plist", LAUNCH_AGENT_LABEL));
             if v {
-                let _ = std::fs::create_dir_all(&launch_agents);
-                if let Ok(exe) = std::env::current_exe() {
-                    let escaped_exe = escape_xml_entity(&exe.to_string_lossy());
-                    let plist_content = format!(
-                        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n    <key>Label</key>\n    <string>com.reiux.lumen</string>\n    <key>ProgramArguments</key>\n    <array>\n        <string>{}</string>\n    </array>\n    <key>RunAtLoad</key>\n    <true/>\n    <key>ProcessType</key>\n    <string>Interactive</string>\n</dict>\n</plist>",
-                        escaped_exe
-                    );
-                    let _ = std::fs::write(&plist_path, plist_content);
-                }
+                std::fs::create_dir_all(&launch_agents).map_err(|e| e.to_string())?;
+                let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+                let escaped_exe = escape_xml_entity(&exe.to_string_lossy());
+                let plist_content = format!(
+                    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n    <key>Label</key>\n    <string>{}</string>\n    <key>ProgramArguments</key>\n    <array>\n        <string>{}</string>\n    </array>\n    <key>RunAtLoad</key>\n    <true/>\n    <key>ProcessType</key>\n    <string>Interactive</string>\n</dict>\n</plist>",
+                    LAUNCH_AGENT_LABEL, escaped_exe
+                );
+                std::fs::write(&plist_path, plist_content).map_err(|e| e.to_string())?;
             } else if plist_path.exists() {
-                let _ = std::fs::remove_file(&plist_path);
+                std::fs::remove_file(&plist_path).map_err(|e| e.to_string())?;
             }
         }
     }
     #[cfg(target_os = "linux")]
     {
-        let autostart_dir = if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
+        let autostart_dir = if let Some(xdg) = std::env::var("XDG_CONFIG_HOME")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+        {
             std::path::PathBuf::from(xdg).join("autostart")
-        } else if let Ok(home) = std::env::var("HOME") {
+        } else if let Some(home) = std::env::var("HOME")
+            .ok()
+            .filter(|s| !s.trim().is_empty())
+        {
             std::path::PathBuf::from(home).join(".config").join("autostart")
         } else {
             std::path::PathBuf::from(".config").join("autostart")
         };
-        let desktop_file = autostart_dir.join("lumen.desktop");
+        let desktop_file = autostart_dir.join(AUTOSTART_DESKTOP_FILENAME);
         if v {
-            let _ = std::fs::create_dir_all(&autostart_dir);
-            if let Ok(exe) = std::env::current_exe() {
-                let clean_exe = exe.to_string_lossy().replace(['\r', '\n'], "").replace('"', "\\\"");
-                let desktop_entry = format!(
-                    "[Desktop Entry]\nType=Application\nName=Lumen\nComment=Lumen Google Photos Backup\nExec=\"{}\"\nTerminal=false\nCategories=Utility;\n",
-                    clean_exe
-                );
-                let _ = std::fs::write(&desktop_file, desktop_entry);
-            }
+            std::fs::create_dir_all(&autostart_dir).map_err(|e| e.to_string())?;
+            let launch_path = std::env::var("APPIMAGE")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+                .map(std::path::PathBuf::from)
+                .unwrap_or(std::env::current_exe().map_err(|e| e.to_string())?);
+            let escaped_exe = launch_path
+                .to_string_lossy()
+                .chars()
+                .filter(|c| !c.is_control())
+                .fold(String::new(), |mut acc, c| {
+                    match c {
+                        '\\' => acc.push_str("\\\\"),
+                        '"' => acc.push_str("\\\""),
+                        '$' => acc.push_str("\\$"),
+                        '`' => acc.push_str("\\`"),
+                        '%' => acc.push_str("%%"),
+                        other => acc.push(other),
+                    }
+                    acc
+                });
+            let desktop_entry = format!(
+                "[Desktop Entry]\nType=Application\nName={}\nComment={} Google Photos Backup\nExec=\"{}\"\nTerminal=false\nCategories=Utility;\n",
+                STARTUP_APP_NAME, STARTUP_APP_NAME, escaped_exe
+            );
+            std::fs::write(&desktop_file, desktop_entry).map_err(|e| e.to_string())?;
         } else if desktop_file.exists() {
-            let _ = std::fs::remove_file(&desktop_file);
+            std::fs::remove_file(&desktop_file).map_err(|e| e.to_string())?;
         }
     }
     state.config_manager.update(|cfg| {
@@ -449,6 +534,11 @@ pub fn set_schedule_hours(start: u8, end: u8, state: tauri::State<AppState>) -> 
         cfg.preferences.schedule_start_hour = start;
         cfg.preferences.schedule_end_hour = end;
     })
+}
+
+#[tauri::command]
+pub fn has_battery() -> bool {
+    lumen_core::safety::has_battery()
 }
 
 #[tauri::command]
@@ -544,7 +634,10 @@ pub fn set_album_nickname(
     nickname: String,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    state.album_registry.set(&account, &nickname, &key).map_err(|e| e.to_string())
+    state
+        .album_registry
+        .set_nickname(&account, &key, &nickname)
+        .map_err(|e| e.to_string())
 }
 
 // -------------------------------------------------------------
@@ -676,6 +769,27 @@ pub fn update_watched_folder_config(
     res
 }
 
+fn paths_equal(a: &Path, b: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        let a_str = a.to_string_lossy().to_lowercase().replace('/', "\\");
+        let b_str = b.to_string_lossy().to_lowercase().replace('/', "\\");
+        a_str.trim_end_matches('\\') == b_str.trim_end_matches('\\')
+    }
+    #[cfg(not(windows))]
+    {
+        let a_str = a.to_string_lossy();
+        let b_str = b.to_string_lossy();
+        let a_trim = a_str.trim_end_matches('/');
+        let b_trim = b_str.trim_end_matches('/');
+        if a_trim.is_empty() && b_trim.is_empty() {
+            a_str == b_str
+        } else {
+            a_trim == b_trim
+        }
+    }
+}
+
 pub fn path_starts_with_case_insensitive(path: &Path, prefix: &Path) -> bool {
     #[cfg(windows)]
     {
@@ -698,9 +812,10 @@ pub fn path_starts_with_case_insensitive(path: &Path, prefix: &Path) -> bool {
     }
 }
 
-pub fn find_watched_folder_config_for_path(
+fn find_watched_folder_config_for_path_inner(
     file_path: &str,
     state: &AppState,
+    require_enabled: bool,
 ) -> Option<WatchedFolderConfig> {
     let p = Path::new(file_path);
     let cfg = state.config_manager.get_config();
@@ -709,23 +824,16 @@ pub fn find_watched_folder_config_for_path(
     configs.sort_by_key(|a| std::cmp::Reverse(a.path.len()));
 
     for folder_cfg in &configs {
+        if require_enabled && !folder_cfg.enabled {
+            continue;
+        }
         let folder_path = Path::new(&folder_cfg.path);
         if path_starts_with_case_insensitive(p, folder_path) {
-            if !folder_cfg.include_subfolders {
+            let is_exact_folder = paths_equal(p, folder_path);
+            if !is_exact_folder && !folder_cfg.include_subfolders {
                 if let Some(parent) = p.parent() {
-                    #[cfg(windows)]
-                    {
-                        let parent_s = parent.to_string_lossy().to_lowercase().replace('/', "\\");
-                        let folder_s = folder_path.to_string_lossy().to_lowercase().replace('/', "\\");
-                        if parent_s.trim_end_matches('\\') != folder_s.trim_end_matches('\\') {
-                            continue;
-                        }
-                    }
-                    #[cfg(not(windows))]
-                    {
-                        if parent != folder_path {
-                            continue;
-                        }
+                    if !paths_equal(parent, folder_path) {
+                        continue;
                     }
                 }
             }
@@ -742,6 +850,13 @@ pub fn find_watched_folder_config_for_path(
     None
 }
 
+pub fn find_watched_folder_config_for_path(
+    file_path: &str,
+    state: &AppState,
+) -> Option<WatchedFolderConfig> {
+    find_watched_folder_config_for_path_inner(file_path, state, true)
+}
+
 #[tauri::command]
 pub fn get_watched_folder_config_for_path(
     file_path: String,
@@ -751,15 +866,30 @@ pub fn get_watched_folder_config_for_path(
 }
 
 #[tauri::command]
-pub async fn count_folder_backlog(folder: String) -> usize {
-    tokio::task::spawn_blocking(move || {
+pub async fn count_folder_backlog(
+    folder: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<usize, String> {
+    let cfg = state.config_manager.get_config();
+    let filter_unsupported = !cfg.preferences.disable_unsupported_files_filter;
+    let exclude_pattern = cfg.preferences.exclude_pattern.clone();
+    let recursive = cfg
+        .preferences
+        .watched_folder_configs
+        .iter()
+        .find(|c| paths_equal(Path::new(&c.path), Path::new(&folder)))
+        .map(|c| c.include_subfolders)
+        .unwrap_or(false);
+
+    Ok(tokio::task::spawn_blocking(move || {
         let p = Path::new(&folder);
         if !p.exists() || !p.is_dir() {
             return 0;
         }
         let opts = ScanOptions {
-            recursive: true,
-            filter_unsupported_files: true,
+            recursive,
+            filter_unsupported_files: filter_unsupported,
+            exclude_pattern,
             ..Default::default()
         };
         let cancelled = Arc::new(AtomicBool::new(false));
@@ -769,66 +899,154 @@ pub async fn count_folder_backlog(folder: String) -> usize {
         }
     })
     .await
-    .unwrap_or(0)
+    .unwrap_or(0))
 }
 
 #[tauri::command]
-pub fn get_inotify_error() -> String {
-    String::new()
+pub fn get_inotify_error(state: tauri::State<AppState>) -> String {
+    state
+        .inotify_error
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
 }
 
 // -------------------------------------------------------------
 // Authentication & Credentials
 // -------------------------------------------------------------
 
-#[tauri::command]
-pub fn remove_credentials(email: String, state: tauri::State<AppState>) -> Result<(), String> {
-    state.config_manager.remove_credential(&email)
+fn normalize_account_key(email: &str) -> String {
+    email.trim().to_ascii_lowercase()
+}
+
+fn clear_account_blocked_for_email(state: &AppState, email: &str) {
+    let key = normalize_account_key(email);
+    let mut guard = state
+        .account_blocked
+        .write()
+        .unwrap_or_else(|e| e.into_inner());
+    if key.is_empty() {
+        guard.clear();
+    } else {
+        guard.remove(&key);
+    }
+}
+
+fn get_active_account_blocked(state: &AppState, account: &str) -> Option<AccountBlockedEvent> {
+    let key = normalize_account_key(account);
+    let mut guard = state
+        .account_blocked
+        .write()
+        .unwrap_or_else(|e| e.into_inner());
+
+    let matched_key = if guard.contains_key(&key) {
+        key
+    } else if !key.is_empty() && guard.contains_key("") {
+        String::new()
+    } else {
+        return None;
+    };
+
+    let ev = guard.get(&matched_key)?.clone();
+    if ev.reason == "RATE_LIMITED" {
+        if let Some(resume_at) = ev.resume_at {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as i64;
+            if now_ms >= resume_at {
+                guard.remove(&matched_key);
+                return None;
+            }
+        }
+    }
+    Some(ev)
 }
 
 #[tauri::command]
-pub async fn validate_and_add_credentials(
-    raw_input: String,
-    app: AppHandle,
-    state: tauri::State<'_, AppState>,
-) -> Result<String, String> {
-    let raw = raw_input.trim();
-    if raw.is_empty() {
-        return Err("Credential input cannot be empty".to_string());
+pub fn get_account_blocked_state(
+    email: String,
+    state: tauri::State<AppState>,
+) -> Option<AccountBlockedEvent> {
+    get_active_account_blocked(&state, &email)
+}
+
+fn check_account_blocked(state: &AppState, account: &str) -> Result<(), String> {
+    let Some(ev) = get_active_account_blocked(state, account) else {
+        return Ok(());
+    };
+    if ev.reason == "RATE_LIMITED" {
+        if let Some(resume_at) = ev.resume_at {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as i64;
+            let secs = ((resume_at - now_ms + 999) / 1000).max(1);
+            return Err(format!(
+                "Uploads are temporarily paused due to Google rate limiting. Try again in {}s.",
+                secs
+            ));
+        }
+        return Err("Uploads are temporarily paused due to Google rate limiting.".to_string());
+    }
+    Err(if ev.reason == "ACCOUNT_RESTRICTED" {
+        "Uploads are blocked because this Google account is restricted. Resolve the issue or remove the account to continue.".to_string()
+    } else {
+        "Uploads are blocked because Google requires you to sign in again.".to_string()
+    })
+}
+
+#[tauri::command]
+pub fn remove_credentials(email: String, state: tauri::State<AppState>) -> Result<(), String> {
+    let res = state.config_manager.remove_credential(&email);
+    if res.is_ok() && !email.trim().is_empty() {
+        clear_account_blocked_for_email(&state, &email);
+    }
+    res
+}
+
+async fn exchange_oauth_token_for_credential(
+    raw_token: &str,
+    proxy: Option<&str>,
+) -> Result<(String, String), String> {
+    let clean = normalize_oauth_token(raw_token).map_err(|e| e.to_string())?;
+    let client = create_http_client(proxy)?;
+    let android_id = generate_android_id();
+    let exchange = exchange_embedded_setup_token(&client, EMBEDDED_SETUP_AUTH_ENDPOINT, &clean, &android_id)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if exchange.email.is_empty() || exchange.email.eq_ignore_ascii_case("unknown@example.com") {
+        return Err("Google token exchange returned invalid or missing account email.".to_string());
     }
 
-    let (email, full_credential) = if looks_like_auth_string(raw) {
-        let params: std::collections::HashMap<String, String> =
-            url::form_urlencoded::parse(raw.as_bytes()).into_owned().collect();
-        let email = params.get("Email").map(|s| s.trim()).unwrap_or("");
-        let token = params.get("Token").map(|s| s.trim()).unwrap_or("");
-        if email.is_empty() || email.eq_ignore_ascii_case("unknown@example.com") {
-            return Err("Invalid credential format. Email and Token are required.".to_string());
-        }
-        if token.is_empty() {
-            return Err("Invalid credential format. Token is required.".to_string());
-        }
-        (email.to_string(), raw.to_string())
-    } else {
-        let clean = normalize_oauth_token(raw).map_err(|e| e.to_string())?;
-        let client = create_http_client(None)?;
-        let android_id = generate_android_id();
-        let exchange = exchange_embedded_setup_token(&client, EMBEDDED_SETUP_AUTH_ENDPOINT, &clean, &android_id)
-            .await
-            .map_err(|e| e.to_string())?;
+    let cred = build_google_photos_credential(&exchange.email, &exchange.master_token, &android_id);
+    Ok((exchange.email, cred))
+}
 
-        if exchange.email.is_empty() || exchange.email.eq_ignore_ascii_case("unknown@example.com") {
-            return Err("Google token exchange returned invalid or missing account email.".to_string());
-        }
-
-        let cred = build_google_photos_credential(&exchange.email, &exchange.master_token, &android_id);
-        (exchange.email, cred)
-    };
+async fn persist_validated_credential(
+    email: String,
+    full_credential: String,
+    proxy: Option<&str>,
+    app: &AppHandle,
+    state: &tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let custom_endpoint = std::env::var("LUMEN_API_ENDPOINT")
+        .ok()
+        .filter(|s| !s.trim().is_empty());
+    lumen_core::api::validate_google_photos_credential(
+        &full_credential,
+        proxy,
+        custom_endpoint.as_deref(),
+    )
+    .await
+    .map_err(|e| format!("Google Photos authorization (Stage 2) failed: {}", e))?;
 
     let save_status = state
         .config_manager
         .save_credential(&email, &full_credential)
         .map_err(|e| e.to_string())?;
+    clear_account_blocked_for_email(state, &email);
 
     if !save_status.keyring_saved {
         let _ = app.emit(
@@ -845,6 +1063,58 @@ pub async fn validate_and_add_credentials(
     }
 
     Ok(email)
+}
+
+async fn validate_and_add_oauth_token(
+    raw_oauth_token: String,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let raw = raw_oauth_token.trim();
+    if raw.is_empty() {
+        return Err("Credential input cannot be empty".to_string());
+    }
+    if looks_like_auth_string(raw) {
+        return Err("Browser sign-in returned an unexpected credential string instead of an OAuth token.".to_string());
+    }
+
+    let prefs = state.config_manager.get_preferences();
+    let proxy = (!prefs.proxy.trim().is_empty()).then_some(prefs.proxy.clone());
+    let (email, full_credential) = exchange_oauth_token_for_credential(raw, proxy.as_deref()).await?;
+    persist_validated_credential(email, full_credential, proxy.as_deref(), &app, &state).await
+}
+
+#[tauri::command]
+pub async fn validate_and_add_credentials(
+    raw_input: String,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let raw = raw_input.trim();
+    if raw.is_empty() {
+        return Err("Credential input cannot be empty".to_string());
+    }
+
+    let prefs = state.config_manager.get_preferences();
+    let proxy = (!prefs.proxy.trim().is_empty()).then_some(prefs.proxy.clone());
+
+    let (email, full_credential) = if looks_like_auth_string(raw) {
+        let params: std::collections::HashMap<String, String> =
+            url::form_urlencoded::parse(raw.as_bytes()).into_owned().collect();
+        let email = params.get("Email").map(|s| s.trim()).unwrap_or("");
+        let token = params.get("Token").map(|s| s.trim()).unwrap_or("");
+        if email.is_empty() || email.eq_ignore_ascii_case("unknown@example.com") {
+            return Err("Invalid credential format. Email and Token are required.".to_string());
+        }
+        if token.is_empty() {
+            return Err("Invalid credential format. Token is required.".to_string());
+        }
+        (email.to_string(), raw.to_string())
+    } else {
+        exchange_oauth_token_for_credential(raw, proxy.as_deref()).await?
+    };
+
+    persist_validated_credential(email, full_credential, proxy.as_deref(), &app, &state).await
 }
 
 #[tauri::command]
@@ -866,15 +1136,34 @@ pub async fn add_google_account(
 }
 
 // -------------------------------------------------------------
-// Automated Chromium CDP Sign-In
+// Automated In-App WebView Sign-In & Chromium CDP Fallback
 // -------------------------------------------------------------
 
 #[tauri::command]
-pub async fn start_browser_sign_in(
+pub async fn start_embedded_sign_in(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
-    let mut session = cdp::CdpSession::launch().await.map_err(|e| e.to_string())?;
+    let prefs = state.config_manager.get_preferences();
+    let proxy = (!prefs.proxy.trim().is_empty()).then_some(prefs.proxy.clone());
+
+    let token = crate::webview_signin::run_webview_sign_in(&app, proxy.as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    validate_and_add_oauth_token(token, app, state).await
+}
+
+#[tauri::command]
+pub async fn start_external_browser_sign_in(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let prefs = state.config_manager.get_config().preferences;
+    let proxy = (!prefs.proxy.trim().is_empty()).then_some(prefs.proxy);
+    let mut session = cdp::CdpSession::launch(proxy.as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
 
     let token = match session.wait_for_google_auth_cookies().await {
         Ok(t) => t,
@@ -889,7 +1178,15 @@ pub async fn start_browser_sign_in(
         let _ = app.emit("browser-signin:close-failed", ());
     }
 
-    validate_and_add_credentials(token, app, state).await
+    validate_and_add_oauth_token(token, app, state).await
+}
+
+#[tauri::command]
+pub async fn start_browser_sign_in(
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    start_embedded_sign_in(app, state).await
 }
 
 #[tauri::command]
@@ -898,11 +1195,12 @@ pub async fn start_browser_sign_in_with_options(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<String, String> {
-    start_browser_sign_in(app, state).await
+    start_embedded_sign_in(app, state).await
 }
 
 #[tauri::command]
-pub fn cancel_browser_sign_in() -> Result<(), String> {
+pub fn cancel_browser_sign_in(app: AppHandle) -> Result<(), String> {
+    crate::webview_signin::cancel_active_sign_in(&app);
     cdp::cancel_active_browser();
     Ok(())
 }
@@ -1000,17 +1298,45 @@ pub fn export_logs(format: String, state: tauri::State<AppState>) -> String {
     }
 }
 
-#[tauri::command]
-pub async fn check_for_updates(manual: bool) -> UpdateInfo {
-    let checker = UpdateChecker::new();
+fn get_live_update_checker(
+    config_manager: &ConfigManager,
+    checker_slot: &std::sync::Mutex<(String, UpdateChecker)>,
+) -> UpdateChecker {
+    let live_proxy = config_manager.get_config().preferences.proxy;
+    let mut guard = checker_slot.lock().unwrap_or_else(|e| e.into_inner());
+    if guard.0 != live_proxy {
+        guard.0 = live_proxy.clone();
+        guard.1 = UpdateChecker::with_proxy(live_proxy);
+    }
+    guard.1.clone()
+}
+
+pub async fn run_update_check(
+    config_manager: &ConfigManager,
+    checker_slot: &std::sync::Mutex<(String, UpdateChecker)>,
+    redirect_url: &str,
+    manual: bool,
+) -> UpdateInfo {
+    let last_check = config_manager.get_config().preferences.last_update_check;
+    let now_sec = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let should_persist_check =
+        manual || last_check == 0 || last_check > now_sec || (now_sec - last_check) >= (12 * 3600);
+
+    let checker = get_live_update_checker(config_manager, checker_slot);
+    let current_ver = get_app_version();
+    let effective_last_check = if last_check > now_sec { 0 } else { last_check };
     let info = checker
-        .check_for_updates(
-            DEFAULT_RELEASES_URL,
-            env!("CARGO_PKG_VERSION"),
-            manual,
-            0,
-        )
+        .check_for_updates(redirect_url, &current_ver, manual, effective_last_check)
         .await;
+
+    if should_persist_check && info.error.is_none() {
+        let _ = config_manager.update(|cfg| {
+            cfg.preferences.last_update_check = now_sec;
+        });
+    }
 
     UpdateInfo {
         current_version: info.current_version,
@@ -1018,29 +1344,36 @@ pub async fn check_for_updates(manual: bool) -> UpdateInfo {
         has_update: info.has_update,
         release_url: info.release_url,
         release_notes: info.release_notes,
-        published_at: chrono_iso(),
+        published_at: String::new(),
         checked_at: chrono_iso(),
         error: info.error,
     }
 }
 
 #[tauri::command]
-pub async fn check_for_updates_with_redirect_url(redirect_url: String, manual: bool) -> UpdateInfo {
-    let checker = UpdateChecker::new();
-    let info = checker
-        .check_for_updates(&redirect_url, env!("CARGO_PKG_VERSION"), manual, 0)
-        .await;
+pub async fn check_for_updates(manual: bool, state: tauri::State<'_, AppState>) -> Result<UpdateInfo, String> {
+    Ok(run_update_check(
+        &state.config_manager,
+        &state.update_checker,
+        DEFAULT_RELEASES_URL,
+        manual,
+    )
+    .await)
+}
 
-    UpdateInfo {
-        current_version: info.current_version,
-        latest_version: info.latest_version,
-        has_update: info.has_update,
-        release_url: info.release_url,
-        release_notes: info.release_notes,
-        published_at: chrono_iso(),
-        checked_at: chrono_iso(),
-        error: info.error,
-    }
+#[tauri::command]
+pub async fn check_for_updates_with_redirect_url(
+    redirect_url: String,
+    manual: bool,
+    state: tauri::State<'_, AppState>,
+) -> Result<UpdateInfo, String> {
+    Ok(run_update_check(
+        &state.config_manager,
+        &state.update_checker,
+        &redirect_url,
+        manual,
+    )
+    .await)
 }
 
 #[tauri::command]
@@ -1052,6 +1385,24 @@ pub fn get_auto_check_updates(state: tauri::State<AppState>) -> bool {
 pub fn set_auto_check_updates(enabled: bool, state: tauri::State<AppState>) -> Result<(), String> {
     state.config_manager.update(|cfg| {
         cfg.preferences.auto_check_updates = enabled;
+    })
+}
+
+#[tauri::command]
+pub fn get_auto_update_interval_hours(state: tauri::State<AppState>) -> u32 {
+    state
+        .config_manager
+        .get_config()
+        .preferences
+        .auto_update_interval_hours
+        .clamp(1, 168)
+}
+
+#[tauri::command]
+pub fn set_auto_update_interval_hours(hours: u32, state: tauri::State<AppState>) -> Result<(), String> {
+    let clamped = hours.clamp(1, 168);
+    state.config_manager.update(|cfg| {
+        cfg.preferences.auto_update_interval_hours = clamped;
     })
 }
 
@@ -1068,8 +1419,15 @@ pub fn set_last_update_check(timestamp: i64, state: tauri::State<AppState>) -> R
 }
 
 #[tauri::command]
-pub fn get_release_notes(_tag: String) -> String {
-    String::new()
+pub async fn get_release_notes(
+    tag: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<String, String> {
+    let checker = get_live_update_checker(&state.config_manager, &state.update_checker);
+    Ok(checker
+        .fetch_release_notes(&tag)
+        .await
+        .unwrap_or_default())
 }
 
 #[tauri::command]
@@ -1090,8 +1448,8 @@ pub fn is_debug_build() -> bool {
 }
 
 #[tauri::command]
-pub fn is_tray_available() -> bool {
-    true
+pub fn is_tray_available(state: tauri::State<AppState>) -> bool {
+    state.tray_available.load(Ordering::Relaxed)
 }
 
 // -------------------------------------------------------------
@@ -1146,27 +1504,61 @@ pub async fn pick_watched_folder(app: AppHandle) -> String {
 // Upload Orchestration & Events
 // -------------------------------------------------------------
 
+pub fn drain_ready_pending_batches(app: &AppHandle, state: &AppState) {
+    loop {
+        if state.is_uploading.load(Ordering::SeqCst) {
+            return;
+        }
+
+        let cfg = state.config_manager.get_config();
+        let watch_allowed = cfg.preferences.watch_folders_enabled
+            && (!cfg.preferences.schedule_enabled
+                || lumen_core::safety::is_within_schedule(
+                    cfg.preferences.schedule_start_hour,
+                    cfg.preferences.schedule_end_hour,
+                ))
+            && (!cfg.preferences.pause_on_battery || !lumen_core::safety::is_running_on_battery());
+
+        let next_batch = {
+            let mut pending = state
+                .pending_watch_files
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if !cfg.preferences.watch_folders_enabled {
+                pending.retain(|b| !b.is_watched);
+            }
+            pending
+                .iter()
+                .position(|b| !b.is_watched || watch_allowed)
+                .map(|idx| pending.remove(idx))
+        };
+
+        let Some(batch) = next_batch else {
+            return;
+        };
+
+        match execute_upload_inner(
+            batch.files,
+            app.clone(),
+            state.clone(),
+            batch.is_watched,
+            batch.notify_watch_detected,
+            batch.dry_run_override,
+            batch.recursive_override,
+        ) {
+            Ok(()) => return,
+            Err(e) => {
+                tracing::warn!("Pending upload batch failed to start: {}", e);
+                let _ = app.emit("upload:error", e);
+            }
+        }
+    }
+}
+
 fn spawn_drain_pending_watch_files(app: AppHandle, state: AppState) {
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(500)).await;
-        let next_batch: Vec<String> = {
-            let mut pending = state.pending_watch_files.lock().unwrap();
-            if pending.is_empty() {
-                Vec::new()
-            } else {
-                pending.drain(..).collect()
-            }
-        };
-        if !next_batch.is_empty() {
-            let _ = app.emit(
-                "folder-watch:detected",
-                serde_json::json!({
-                    "files": &next_batch,
-                    "count": next_batch.len(),
-                }),
-            );
-            let _ = execute_upload(next_batch, app, state, true, None, None);
-        }
+        drain_ready_pending_batches(&app, &state);
     });
 }
 
@@ -1175,6 +1567,26 @@ pub fn execute_upload(
     app: AppHandle,
     state: AppState,
     is_watched: bool,
+    dry_run_override: Option<bool>,
+    recursive_override: Option<bool>,
+) -> Result<(), String> {
+    execute_upload_inner(
+        files,
+        app,
+        state,
+        is_watched,
+        is_watched,
+        dry_run_override,
+        recursive_override,
+    )
+}
+
+pub fn execute_upload_inner(
+    files: Vec<String>,
+    app: AppHandle,
+    state: AppState,
+    is_watched: bool,
+    notify_watch_detected: bool,
     dry_run_override: Option<bool>,
     recursive_override: Option<bool>,
 ) -> Result<(), String> {
@@ -1187,9 +1599,67 @@ pub fn execute_upload(
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_err()
     {
-        let mut pending = state.pending_watch_files.lock().unwrap();
-        pending.extend(files);
+        let mut pending = state
+            .pending_watch_files
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        pending.push(PendingUploadBatch {
+            files,
+            is_watched,
+            notify_watch_detected,
+            dry_run_override,
+            recursive_override,
+        });
         return Ok(());
+    }
+
+    let mut files = files;
+    if is_watched && files.len() > 1 {
+        let mut group_order: Vec<(String, String, String, bool)> = Vec::new();
+        let mut groups: std::collections::HashMap<(String, String, String, bool), Vec<String>> =
+            std::collections::HashMap::new();
+        for f in files {
+            let key = match find_watched_folder_config_for_path(&f, &state) {
+                Some(fc) => (
+                    fc.account_email,
+                    fc.album_mode,
+                    fc.album_name_or_key,
+                    fc.include_subfolders,
+                ),
+                None => (String::new(), String::new(), String::new(), false),
+            };
+            if !groups.contains_key(&key) {
+                group_order.push(key.clone());
+            }
+            groups.entry(key).or_default().push(f);
+        }
+        let mut iter = group_order.into_iter();
+        if let Some(first_key) = iter.next() {
+            files = groups.remove(&first_key).unwrap_or_default();
+            let remaining: Vec<PendingUploadBatch> = iter
+                .filter_map(|k| groups.remove(&k))
+                .filter(|g| !g.is_empty())
+                .map(|g| PendingUploadBatch {
+                    files: g,
+                    is_watched: true,
+                    notify_watch_detected,
+                    dry_run_override,
+                    recursive_override,
+                })
+                .collect();
+            if !remaining.is_empty() {
+                let mut pending = state
+                    .pending_watch_files
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                for (offset, b) in remaining.into_iter().enumerate() {
+                    let insert_at = offset.min(pending.len());
+                    pending.insert(insert_at, b);
+                }
+            }
+        } else {
+            files = Vec::new();
+        }
     }
 
     state.upload_cancel.store(false, Ordering::SeqCst);
@@ -1206,38 +1676,35 @@ pub fn execute_upload(
 
     if is_watched {
         delete_from_host = false; // Watcher NEVER deletes local files
-    }
-
-    if let Some(first_path) = files.first() {
-        if let Some(folder_cfg) = find_watched_folder_config_for_path(first_path, &state) {
-            if !folder_cfg.account_email.is_empty() {
-                account = folder_cfg.account_email;
+        if let Some(first_path) = files.first() {
+            let folder_cfg = find_watched_folder_config_for_path(first_path, &state)
+                .or_else(|| find_watched_folder_config_for_path_inner(first_path, &state, false));
+            if let Some(folder_cfg) = folder_cfg {
+                if !folder_cfg.account_email.is_empty() {
+                    account = folder_cfg.account_email;
+                }
+                if folder_cfg.album_mode == "auto" {
+                    album_auto_mode = true;
+                    album_name = String::new();
+                } else if folder_cfg.album_mode == "custom" && !folder_cfg.album_name_or_key.is_empty() {
+                    album_auto_mode = false;
+                    album_name = folder_cfg.album_name_or_key;
+                } else if folder_cfg.album_mode == "none" {
+                    album_auto_mode = false;
+                    album_name = String::new();
+                }
+                recursive = recursive_override.unwrap_or(folder_cfg.include_subfolders);
             }
-            if folder_cfg.album_mode == "auto" {
-                album_auto_mode = true;
-                album_name = String::new();
-            } else if folder_cfg.album_mode == "custom" && !folder_cfg.album_name_or_key.is_empty() {
-                album_auto_mode = false;
-                album_name = folder_cfg.album_name_or_key;
-            } else if folder_cfg.album_mode == "none" {
-                album_auto_mode = false;
-                album_name = String::new();
-            }
-            if folder_cfg.include_subfolders {
-                recursive = true;
-            }
-        } else if !is_watched {
-            // Auto-enable recursion when a folder is selected — but only when
-            // the caller did not pass an explicit override (review dialog
-            // toggle wins over this heuristic).
-            if recursive_override.is_none() {
-                for path in &files {
-                    if let Ok(m) = std::fs::metadata(path) {
-                        if m.is_dir() {
-                            recursive = true;
-                            break;
-                        }
-                    }
+        }
+    } else if recursive_override.is_none() {
+        // Auto-enable recursion when a folder is selected — but only when
+        // the caller did not pass an explicit override (review dialog
+        // toggle wins over this heuristic).
+        for path in &files {
+            if let Ok(m) = std::fs::metadata(path) {
+                if m.is_dir() {
+                    recursive = true;
+                    break;
                 }
             }
         }
@@ -1248,6 +1715,11 @@ pub fn execute_upload(
         return Err("No Google account selected for upload".to_string());
     }
 
+    if let Err(msg) = check_account_blocked(&state, &account) {
+        state.is_uploading.store(false, Ordering::SeqCst);
+        return Err(msg);
+    }
+
     state
         .config_manager
         .get_credential_for_account(Some(&account))
@@ -1255,6 +1727,16 @@ pub fn execute_upload(
             state.is_uploading.store(false, Ordering::SeqCst);
             format!("Could not retrieve credentials for {}: {}", account, e)
         })?;
+
+    if notify_watch_detected {
+        let _ = app.emit(
+            "folder-watch:detected",
+            serde_json::json!({
+                "files": &files,
+                "count": files.len(),
+            }),
+        );
+    }
 
     let upload_cancel_flag = state.upload_cancel.clone();
     let upload_pause_flag = state.upload_pause.clone();
@@ -1265,6 +1747,8 @@ pub fn execute_upload(
     let album_registry = state.album_registry.clone();
     let config_manager = state.config_manager.clone();
     let logs = state.logs.clone();
+    let log_seq = state.log_seq.clone();
+    let run_id = format!("run-{}", state.run_seq.fetch_add(1, Ordering::Relaxed));
     let app_clone = app.clone();
     let state_for_drain = state.clone();
 
@@ -1291,21 +1775,37 @@ pub fn execute_upload(
         });
 
         let app_for_scan = app_clone.clone();
-        let scanned_files = match scan_directories_incremental(
-            &path_bufs,
-            &scan_opts,
-            scan_cancelled.clone(),
-            move |p| {
-                let _ = app_for_scan.emit("scan:progress", serde_json::json!({
-                    "filesFound": p.files_found,
-                    "currentDirectory": p.current_directory,
-                    "isScanning": p.is_scanning,
-                }));
-            },
-        ) {
-            Ok(f) => {
+        let scan_cancelled_blocking = scan_cancelled.clone();
+        let live_photo_opts = LivePhotoClassificationOptions {
+            enabled: cfg.preferences.pair_live_photos,
+            skip_incomplete: cfg.preferences.skip_incomplete_live_photos,
+            ignore_apple_metadata: false,
+            default_account: account.clone(),
+        };
+
+        let scan_classify_result = tokio::task::spawn_blocking(move || {
+            let scanned_files = scan_directories_incremental(
+                &path_bufs,
+                &scan_opts,
+                scan_cancelled_blocking,
+                move |p| {
+                    let _ = app_for_scan.emit("scan:progress", serde_json::json!({
+                        "filesFound": p.files_found,
+                        "currentDirectory": p.current_directory,
+                        "isScanning": p.is_scanning,
+                    }));
+                },
+            )?;
+            Ok::<_, String>(classify_upload_work(&scanned_files, &live_photo_opts))
+        })
+        .await
+        .map_err(|e| format!("Scan task failed: {}", e))
+        .and_then(|res| res);
+
+        let (mut items, preflight_warnings) = match scan_classify_result {
+            Ok(res) => {
                 cancel_poll.abort();
-                f
+                res
             }
             Err(e) => {
                 cancel_poll.abort();
@@ -1313,46 +1813,57 @@ pub fn execute_upload(
                 if e.contains("cancelled") {
                     let _ = app_clone.emit("scan:cancelled", ());
                 }
-                is_uploading_flag.store(false, Ordering::SeqCst);
                 let _ = app_clone.emit("uploadStop", ());
+                is_uploading_flag.store(false, Ordering::SeqCst);
                 spawn_drain_pending_watch_files(app_clone.clone(), state_for_drain.clone());
                 return;
             }
         };
 
-        let live_photo_opts = LivePhotoClassificationOptions {
-            enabled: cfg.preferences.pair_live_photos,
-            skip_incomplete: cfg.preferences.skip_incomplete_live_photos,
-            ignore_apple_metadata: false,
-            default_account: account.clone(),
-        };
-        let (mut items, preflight_warnings) = classify_upload_work(&scanned_files, &live_photo_opts);
-
-        for w in preflight_warnings {
-            let _ = app_clone.emit(
-                "uploadWarning",
-                crate::models::PreflightWarning {
-                    paths: w.paths.into_iter().map(|p| p.to_string_lossy().to_string()).collect(),
-                    code: w.code,
-                    message: w.message,
-                },
-            );
-        }
-
-        // Ensure each work item is mapped to its folder-configured account to prevent cross-account leaks
-        for item in &mut items {
-            let primary = item.primary_path().to_string_lossy();
-            if let Some(folder_cfg) = find_watched_folder_config_for_path(&primary, &state) {
-                if !folder_cfg.account_email.is_empty() {
-                    match item {
-                        lumen_core::livephoto::UploadWorkItem::Single { account_email, .. } => {
-                            *account_email = folder_cfg.account_email;
-                        }
-                        lumen_core::livephoto::UploadWorkItem::LivePhoto { account_email, .. } => {
-                            *account_email = folder_cfg.account_email;
+        // For watched folder triggers, ensure each work item maps to its watched folder's account
+        if is_watched {
+            for item in &mut items {
+                let primary = item.primary_path().to_string_lossy();
+                let folder_cfg = find_watched_folder_config_for_path(&primary, &state)
+                    .or_else(|| find_watched_folder_config_for_path_inner(&primary, &state, false));
+                if let Some(folder_cfg) = folder_cfg {
+                    if !folder_cfg.account_email.is_empty() {
+                        match item {
+                            lumen_core::livephoto::UploadWorkItem::Single { account_email, .. } => {
+                                *account_email = folder_cfg.account_email;
+                            }
+                            lumen_core::livephoto::UploadWorkItem::LivePhoto { account_email, .. } => {
+                                *account_email = folder_cfg.account_email;
+                            }
                         }
                     }
                 }
+            }
+
+            // Re-check per-account block status after per-item reassignment
+            let mut blocked_accounts_logged = std::collections::HashSet::new();
+            items.retain(|item| {
+                let item_account = item.account_email();
+                match check_account_blocked(&state, item_account) {
+                    Ok(()) => true,
+                    Err(msg) => {
+                        let key = normalize_account_key(item_account);
+                        if blocked_accounts_logged.insert(key) {
+                            tracing::warn!(
+                                "Skipping watched-folder items for blocked account {}: {}",
+                                item_account,
+                                msg
+                            );
+                        }
+                        false
+                    }
+                }
+            });
+            if items.is_empty() {
+                let _ = app_clone.emit("uploadStop", ());
+                is_uploading_flag.store(false, Ordering::SeqCst);
+                spawn_drain_pending_watch_files(app_clone.clone(), state_for_drain.clone());
+                return;
             }
         }
 
@@ -1377,7 +1888,7 @@ pub fn execute_upload(
             album_name,
             album_auto_mode,
             custom_endpoint_base: std::env::var("LUMEN_API_ENDPOINT").ok(),
-            dry_run: dry_run_override.unwrap_or(cfg.preferences.dry_run),
+            dry_run: dry_run_override.unwrap_or(if is_watched { false } else { cfg.preferences.dry_run }),
             schedule_enabled: cfg.preferences.schedule_enabled,
             schedule_start_hour: cfg.preferences.schedule_start_hour,
             schedule_end_hour: cfg.preferences.schedule_end_hour,
@@ -1399,7 +1910,11 @@ pub fn execute_upload(
         let event_handle = tokio::spawn({
             let app_clone = app_clone.clone();
             let logs = logs.clone();
+            let log_seq = log_seq.clone();
+            let run_id = run_id.clone();
             let config_mgr_for_events = config_mgr_for_events.clone();
+            let account_blocked_slot = state_for_drain.account_blocked.clone();
+            let mut pending_warnings = Some(preflight_warnings);
             async move {
                 while let Some(ev) = event_rx.recv().await {
                     match ev {
@@ -1413,6 +1928,18 @@ pub fn execute_upload(
                                 },
                             );
                             let _ = app_clone.emit("uploadTotalBytes", total_bytes);
+                            if let Some(warnings) = pending_warnings.take() {
+                                for w in warnings {
+                                    let _ = app_clone.emit(
+                                        "uploadWarning",
+                                        crate::models::PreflightWarning {
+                                            paths: w.paths.into_iter().map(|p| p.to_string_lossy().to_string()).collect(),
+                                            code: w.code,
+                                            message: w.message,
+                                        },
+                                    );
+                                }
+                            }
                         }
                         UploadEvent::FileCompleted(res) => {
                             let file_name = res.path.file_name()
@@ -1443,11 +1970,13 @@ pub fn execute_upload(
                                 .duration_since(std::time::UNIX_EPOCH)
                                 .unwrap_or_default()
                                 .as_millis();
+                            let seq = log_seq.fetch_add(1, Ordering::Relaxed);
                             let log_entry = LogEntry {
-                                id: format!("log-{}", log_id),
+                                id: format!("log-{}-{}", log_id, seq),
                                 timestamp: chrono_iso(),
                                 level: if is_error { "ERROR".to_string() } else { "INFO".to_string() },
                                 category: "Upload".to_string(),
+                                run_id: Some(run_id.clone()),
                                 file_name: Some(file_name),
                                 file_path: Some(path_str),
                                 size_bytes: Some(res.size_bytes as u64),
@@ -1456,7 +1985,15 @@ pub fn execute_upload(
                                 user_message: error_message.clone().or_else(|| skip_reason.clone()),
                                 ..Default::default()
                             };
-                            logs.write().unwrap().push(log_entry.clone());
+                            {
+                                let mut log_guard = logs.write().unwrap();
+                                log_guard.push(log_entry.clone());
+                                const MAX_LOGS: usize = 5000;
+                                if log_guard.len() > MAX_LOGS {
+                                    let excess = log_guard.len() - MAX_LOGS;
+                                    log_guard.drain(0..excess);
+                                }
+                            }
                             let _ = app_clone.emit("log:entry", log_entry);
                         }
                         UploadEvent::ThreadProgress(status) => {
@@ -1498,16 +2035,24 @@ pub fn execute_upload(
                             };
                             let _ = app_clone.emit("albumError", error_model);
                         }
-                        UploadEvent::AccountBlocked { reason, email, message } => {
-                            let _ = app_clone.emit(
-                                "account:blocked",
-                                AccountBlockedEvent {
-                                    reason,
-                                    email,
-                                    message,
-                                    resume_at: None,
-                                },
-                            );
+                        UploadEvent::AccountBlocked {
+                            reason,
+                            email,
+                            message,
+                            resume_at,
+                        } => {
+                            let blocked_ev = AccountBlockedEvent {
+                                reason,
+                                email,
+                                message,
+                                resume_at,
+                            };
+                            let key = normalize_account_key(&blocked_ev.email);
+                            account_blocked_slot
+                                .write()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .insert(key, blocked_ev.clone());
+                            let _ = app_clone.emit("account:blocked", blocked_ev);
                         }
                         UploadEvent::BatchComplete { uploaded, skipped, failed } => {
                             if notify_on_complete {
@@ -1522,14 +2067,26 @@ pub fn execute_upload(
                         }
                     }
                 }
+                if let Some(warnings) = pending_warnings.take() {
+                    for w in warnings {
+                        let _ = app_clone.emit(
+                            "uploadWarning",
+                            crate::models::PreflightWarning {
+                                paths: w.paths.into_iter().map(|p| p.to_string_lossy().to_string()).collect(),
+                                code: w.code,
+                                message: w.message,
+                            },
+                        );
+                    }
+                }
             }
         });
 
         let _ = engine.run_upload(items, upload_opts, event_tx).await;
         let _ = event_handle.await;
 
-        is_uploading_flag.store(false, Ordering::SeqCst);
         let _ = app_clone.emit("uploadStop", ());
+        is_uploading_flag.store(false, Ordering::SeqCst);
 
         spawn_drain_pending_watch_files(app_clone.clone(), state_for_drain.clone());
     });
@@ -1545,7 +2102,34 @@ pub async fn start_upload(
     app: AppHandle,
     state: tauri::State<'_, AppState>,
 ) -> Result<(), String> {
-    execute_upload(files, app, (*state).clone(), false, dry_run, recursive)
+    execute_upload_inner(files, app, (*state).clone(), false, false, dry_run, recursive)
+}
+
+#[tauri::command]
+pub async fn start_watched_folder_upload(
+    folder_path: String,
+    app: AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let trimmed = folder_path.trim().to_string();
+    if trimmed.is_empty() {
+        return Err("Watched folder path cannot be empty".to_string());
+    }
+    if !Path::new(&trimmed).is_dir() {
+        return Err(format!("'{}' is not an accessible directory", trimmed));
+    }
+    let recursive_override = find_watched_folder_config_for_path(&trimmed, &state)
+        .or_else(|| find_watched_folder_config_for_path_inner(&trimmed, &state, false))
+        .map(|fc| fc.include_subfolders);
+    execute_upload_inner(
+        vec![trimmed],
+        app,
+        (*state).clone(),
+        true,
+        false,
+        None,
+        recursive_override,
+    )
 }
 
 #[tauri::command]
@@ -1558,6 +2142,7 @@ pub fn set_dry_run(v: bool, state: tauri::State<AppState>) -> Result<(), String>
 #[tauri::command]
 pub fn cancel_upload(state: tauri::State<AppState>) {
     state.upload_cancel.store(true, Ordering::SeqCst);
+    state.scan_cancel.store(true, Ordering::SeqCst);
 }
 
 #[tauri::command]
@@ -1577,7 +2162,7 @@ pub fn is_upload_paused(state: tauri::State<AppState>) -> bool {
 
 #[tauri::command]
 pub fn cancel_scan(state: tauri::State<AppState>) {
-    state.scan_cancel.store(true, Ordering::SeqCst);
+    state.review_scan_cancel.store(true, Ordering::SeqCst);
 }
 
 #[tauri::command]
@@ -1587,63 +2172,75 @@ pub async fn scan_for_review(
     state: tauri::State<'_, AppState>,
 ) -> Result<ReviewSummary, String> {
     let cfg = state.config_manager.get_config();
-    let recursive = recursive.unwrap_or(cfg.preferences.recursive);
-    let has_folder = files.iter().any(|f| {
-        std::fs::metadata(f)
-            .map(|m| m.is_dir())
-            .unwrap_or(false)
-    });
-    let path_bufs: Vec<PathBuf> = files.iter().map(PathBuf::from).collect();
-    let scan_opts = ScanOptions {
-        recursive,
-        filter_unsupported_files: !cfg.preferences.disable_unsupported_files_filter,
-        exclude_pattern: cfg.preferences.exclude_pattern.clone(),
-        ..Default::default()
-    };
+    state.review_scan_cancel.store(false, Ordering::SeqCst);
+    let review_scan_cancel = state.review_scan_cancel.clone();
 
-    let cancelled = Arc::new(AtomicBool::new(false));
-    let scanned_files = scan_directories_incremental(
-        &path_bufs,
-        &scan_opts,
-        cancelled,
-        |_| {},
-    ).map_err(|e| e.to_string())?;
-
-    let live_photo_opts = LivePhotoClassificationOptions {
-        enabled: cfg.preferences.pair_live_photos,
-        skip_incomplete: cfg.preferences.skip_incomplete_live_photos,
-        ignore_apple_metadata: false,
-        default_account: cfg.account.selected.clone(),
-    };
-    let (items, _) = classify_upload_work(&scanned_files, &live_photo_opts);
-
-    let mut review_items = Vec::new();
-    let mut total_bytes = 0u64;
-
-    for item in items {
-        let p = item.primary_path();
-        let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-        let path = p.to_string_lossy().to_string();
-        let size_bytes = std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
-        total_bytes += size_bytes;
-        review_items.push(ReviewItem {
-            name,
-            path,
-            size_bytes,
+    tokio::task::spawn_blocking(move || {
+        let has_folder = files.iter().any(|f| {
+            std::fs::metadata(f)
+                .map(|m| m.is_dir())
+                .unwrap_or(false)
         });
-    }
+        let recursive = recursive.unwrap_or(cfg.preferences.recursive || has_folder);
+        let path_bufs: Vec<PathBuf> = files.iter().map(PathBuf::from).collect();
+        let scan_opts = ScanOptions {
+            recursive,
+            filter_unsupported_files: !cfg.preferences.disable_unsupported_files_filter,
+            exclude_pattern: cfg.preferences.exclude_pattern.clone(),
+            ..Default::default()
+        };
 
-    let total_count = review_items.len();
-    Ok(ReviewSummary {
-        items: review_items,
-        total_count,
-        total_bytes,
-        has_folder,
+        let scanned_files = scan_directories_incremental(
+            &path_bufs,
+            &scan_opts,
+            review_scan_cancel,
+            |_| {},
+        )?;
+
+        let live_photo_opts = LivePhotoClassificationOptions {
+            enabled: cfg.preferences.pair_live_photos,
+            skip_incomplete: cfg.preferences.skip_incomplete_live_photos,
+            ignore_apple_metadata: false,
+            default_account: cfg.account.selected.clone(),
+        };
+        let (items, _) = classify_upload_work(&scanned_files, &live_photo_opts);
+
+        let mut review_items = Vec::new();
+        let mut total_bytes = 0u64;
+
+        for item in items {
+            let p = item.primary_path();
+            let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+            let path = p.to_string_lossy().to_string();
+            let size_bytes: u64 = item
+                .all_paths()
+                .iter()
+                .filter_map(|ap| std::fs::metadata(ap).ok())
+                .map(|m| m.len())
+                .sum();
+            total_bytes += size_bytes;
+            review_items.push(ReviewItem {
+                name,
+                path,
+                size_bytes,
+            });
+        }
+
+        let total_count = review_items.len();
+        Ok(ReviewSummary {
+            items: review_items,
+            total_count,
+            total_bytes,
+            has_folder,
+        })
     })
+    .await
+    .map_err(|e| format!("Review scan failed: {}", e))?
 }
 
 #[tauri::command]
-pub fn app_ready(window: Window) {
+pub fn app_ready(window: Window, state: tauri::State<AppState>) {
+    state.initial_show_done.store(true, Ordering::SeqCst);
     let _ = window.show();
     let _ = window.set_focus();
 }
@@ -1693,6 +2290,38 @@ fn format_test_notification(locale: &str) -> (&'static str, &'static str) {
         "es" => ("Lumen", "Lote de copia completado (notificación de prueba)"),
         _ => ("Lumen", "Backup batch complete (test notification)"),
     }
+}
+
+pub fn format_update_available_notification(locale: &str, latest_version: &str) -> (&'static str, String) {
+    let ver = latest_version.trim_start_matches(['v', 'V']);
+    match locale {
+        "id" => (
+            "Pembaruan Tersedia",
+            format!("Lumen v{} tersedia untuk diunduh.", ver),
+        ),
+        "ja" => (
+            "アップデート利用可能",
+            format!("Lumen v{} をダウンロードできます。", ver),
+        ),
+        "es" => (
+            "Actualización disponible",
+            format!("Lumen v{} está listo para descargar.", ver),
+        ),
+        _ => (
+            "Update Available",
+            format!("Lumen v{} is ready to download.", ver),
+        ),
+    }
+}
+
+pub fn notify_update_available(app: &AppHandle, locale: &str, latest_version: &str) {
+    let (title, body) = format_update_available_notification(locale, latest_version);
+    let _ = app
+        .notification()
+        .builder()
+        .title(title)
+        .body(body)
+        .show();
 }
 
 #[tauri::command]
@@ -1780,13 +2409,17 @@ pub fn clipboard_get_text() -> String {
 
 #[tauri::command]
 pub fn open_devtools(app: AppHandle) {
+    #[cfg(debug_assertions)]
     if let Some(w) = app.get_webview_window("main") {
         w.open_devtools();
     }
+    #[cfg(not(debug_assertions))]
+    let _ = app;
 }
 
 #[tauri::command]
 pub fn toggle_devtools(app: AppHandle) {
+    #[cfg(debug_assertions)]
     if let Some(w) = app.get_webview_window("main") {
         if w.is_devtools_open() {
             w.close_devtools();
@@ -1794,6 +2427,8 @@ pub fn toggle_devtools(app: AppHandle) {
             w.open_devtools();
         }
     }
+    #[cfg(not(debug_assertions))]
+    let _ = app;
 }
 
 #[tauri::command]
@@ -1827,34 +2462,43 @@ pub fn credential_needs_token_binding(auth_string: String) -> bool {
 
 #[tauri::command]
 pub fn add_token_binding_alias_from_adb(_email: String) -> Result<(), String> {
-    Ok(())
+    Err("ADB token binding extraction is not supported in this version. Please sign in with Embedded Setup instead.".to_string())
 }
 
 #[tauri::command]
-pub fn get_matugen_status() -> crate::matugen::MatugenStatus {
+pub async fn get_matugen_status() -> crate::matugen::MatugenStatus {
     #[cfg(target_os = "linux")]
     {
-        if let Some((path, colors)) = crate::matugen::linux::find_active_color_source() {
-            crate::matugen::MatugenStatus {
-                supported: true,
-                available: true,
-                active_path: Some(path.to_string_lossy().to_string()),
-                colors: Some(colors),
+        tokio::task::spawn_blocking(|| {
+            if let Some((path, colors)) = crate::matugen::linux::find_active_color_source() {
+                crate::matugen::MatugenStatus {
+                    supported: true,
+                    available: true,
+                    active_path: Some(path.to_string_lossy().to_string()),
+                    colors: Some(colors),
+                }
+            } else {
+                let has_cli = std::path::Path::new("/usr/bin/matugen").exists()
+                    || std::process::Command::new("which")
+                        .arg("matugen")
+                        .output()
+                        .map(|o| o.status.success())
+                        .unwrap_or(false);
+                crate::matugen::MatugenStatus {
+                    supported: true,
+                    available: has_cli,
+                    active_path: None,
+                    colors: None,
+                }
             }
-        } else {
-            let has_cli = std::path::Path::new("/usr/bin/matugen").exists()
-                || std::process::Command::new("which")
-                    .arg("matugen")
-                    .output()
-                    .map(|o| o.status.success())
-                    .unwrap_or(false);
-            crate::matugen::MatugenStatus {
-                supported: true,
-                available: has_cli,
-                active_path: None,
-                colors: None,
-            }
-        }
+        })
+        .await
+        .unwrap_or(crate::matugen::MatugenStatus {
+            supported: true,
+            available: false,
+            active_path: None,
+            colors: None,
+        })
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -1863,10 +2507,15 @@ pub fn get_matugen_status() -> crate::matugen::MatugenStatus {
 }
 
 #[tauri::command]
-pub fn get_matugen_colors() -> Option<std::collections::HashMap<String, String>> {
+pub async fn get_matugen_colors() -> Option<std::collections::HashMap<String, String>> {
     #[cfg(target_os = "linux")]
     {
-        crate::matugen::linux::find_active_color_source().map(|(_, colors)| colors)
+        tokio::task::spawn_blocking(|| {
+            crate::matugen::linux::find_active_color_source().map(|(_, colors)| colors)
+        })
+        .await
+        .ok()
+        .flatten()
     }
     #[cfg(not(target_os = "linux"))]
     {
@@ -1875,8 +2524,8 @@ pub fn get_matugen_colors() -> Option<std::collections::HashMap<String, String>>
 }
 
 #[tauri::command]
-pub fn reload_matugen_colors() -> Option<std::collections::HashMap<String, String>> {
-    get_matugen_colors()
+pub async fn reload_matugen_colors() -> Option<std::collections::HashMap<String, String>> {
+    get_matugen_colors().await
 }
 
 fn chrono_iso() -> String {

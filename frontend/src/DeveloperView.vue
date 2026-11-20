@@ -22,13 +22,21 @@ import {
 } from './utils/flickerDebug'
 import { ConfigManager } from '../bindings/app/core'
 import type { LogEntry } from '../bindings/app/core/models'
-import { Events } from '@wailsio/runtime'
+import { Clipboard, Events } from '@wailsio/runtime'
 import { toast } from 'vue-sonner'
 import { preferencesState, refreshPreferences, setNotifyOnComplete } from './utils/configStore'
 import M3Button from './components/ui/M3Button.vue'
 import M3Icon from './components/ui/M3Icon.vue'
 import M3Switch from './components/ui/M3Switch.vue'
 import M3TextField from './components/ui/M3TextField.vue'
+
+async function handleNotifyToggle(enabled: boolean) {
+  try {
+    await setNotifyOnComplete(enabled)
+  } catch {
+    toast.error(t('settings.saveFailed'))
+  }
+}
 
 interface Props {
   liveLogs?: LogEntry[]
@@ -37,6 +45,10 @@ interface Props {
 const props = withDefaults(defineProps<Props>(), {
   liveLogs: () => [],
 })
+
+const emit = defineEmits<{
+  (e: 'clear-logs'): void
+}>()
 
 const activeSection = ref<'previews' | 'circuit' | 'logs' | 'flicker'>(isDevMode() ? 'previews' : 'logs')
 
@@ -77,28 +89,47 @@ const isFetchingLogs = ref(false)
 const copied = ref(false)
 const maskFilenames = ref(false)
 
-function anonymizeFileName(fileName?: string): string {
-  if (!fileName) return ''
-  const dotIndex = fileName.lastIndexOf('.')
-  const ext = dotIndex !== -1 ? fileName.substring(dotIndex) : ''
+function anonymizeIdentifier(prefix: string, raw?: string, preserveExt = false): string {
+  if (!raw) return ''
+  let ext = ''
+  if (preserveExt) {
+    const dotIndex = raw.lastIndexOf('.')
+    ext = dotIndex !== -1 ? raw.substring(dotIndex) : ''
+  }
   let hash = 0
-  for (let i = 0; i < fileName.length; i++) {
-    hash = (hash * 31 + fileName.charCodeAt(i)) >>> 0
+  for (let i = 0; i < raw.length; i++) {
+    hash = (hash * 31 + raw.charCodeAt(i)) >>> 0
   }
   const hex = hash.toString(16).padStart(4, '0').slice(-4)
-  return `media_${hex}${ext}`
+  return `${prefix}_${hex}${ext}`
+}
+
+function anonymizeFileName(fileName?: string): string {
+  return anonymizeIdentifier('media', fileName, true)
 }
 
 function sanitizeUserMessage(msg?: string, fileName?: string): string {
   if (!msg) return ''
   let sanitized = msg
+  // Replace full filesystem paths first (including paths with spaces and single-slash Unix root files)
+  sanitized = sanitized.replace(
+    /(?:[a-zA-Z]:[/\\]|\/)(?:[^\r\n/\\:"*?<>|]+[/\\])*([^\r\n/:\\"*?<>|\s]+(?:\.[^\r\n/:\\"*?<>|\s]+)?)/g,
+    (match, base) => {
+      if (match.startsWith('//')) return match
+      return anonymizeFileName(base)
+    },
+  )
+  // Mask standalone fileName occurrences if not already replaced inside a path
   if (fileName) {
     const masked = anonymizeFileName(fileName)
-    sanitized = sanitized.replaceAll(fileName, masked)
+    if (!sanitized.includes(masked)) {
+      sanitized = sanitized.replaceAll(fileName, masked)
+    }
   }
-  sanitized = sanitized.replace(/(?:[a-zA-Z]:[/\\]|\/)[^\s:]+[/\\]([^/\s:]+)/g, (_match, base) => {
-    return anonymizeFileName(base)
-  })
+  // Redact account email addresses in diagnostic/auth error messages
+  sanitized = sanitized.replace(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g, (email) =>
+    anonymizeIdentifier('account', email.toLowerCase(), false),
+  )
   return sanitized
 }
 
@@ -117,10 +148,24 @@ async function loadBackendLogs() {
 }
 
 const allLogs = computed(() => {
-  if (fetchedLogs.value.length > 0) {
-    return fetchedLogs.value
+  if (props.liveLogs.length === 0) return fetchedLogs.value
+  if (fetchedLogs.value.length === 0) return props.liveLogs
+
+  const seen = new Set<string>()
+  const merged: LogEntry[] = []
+  for (const entry of props.liveLogs) {
+    if (!seen.has(entry.id)) {
+      seen.add(entry.id)
+      merged.push(entry)
+    }
   }
-  return props.liveLogs
+  for (const entry of fetchedLogs.value) {
+    if (!seen.has(entry.id)) {
+      seen.add(entry.id)
+      merged.push(entry)
+    }
+  }
+  return merged
 })
 
 const filteredLogs = computed(() => {
@@ -139,24 +184,31 @@ const filteredLogs = computed(() => {
   })
 })
 
-function copyLogs() {
-  const text = filteredLogs.value
-    .map((e) => {
-      const fileName = maskFilenames.value && e.fileName ? anonymizeFileName(e.fileName) : e.fileName
-      const rawMsg = e.userMessage || e.rawError || ''
-      const msg = maskFilenames.value ? sanitizeUserMessage(rawMsg, e.fileName) : rawMsg
-      return `[${new Date(e.timestamp).toISOString()}] [${e.level}] [${e.category}] ${fileName ? fileName + ': ' : ''}${msg}`
-    })
-    .join('\n')
-  navigator.clipboard.writeText(text)
-  copied.value = true
-  setTimeout(() => {
-    copied.value = false
-  }, 1500)
+async function copyLogs() {
+  try {
+    const text = filteredLogs.value
+      .map((e) => {
+        const fileName = maskFilenames.value && e.fileName ? anonymizeFileName(e.fileName) : e.fileName
+        const rawMsg = e.userMessage || e.rawError || ''
+        const msg = maskFilenames.value ? sanitizeUserMessage(rawMsg, e.fileName) : rawMsg
+        const parsed = new Date(e.timestamp)
+        const tsLabel = !Number.isNaN(parsed.getTime()) ? parsed.toISOString() : String(e.timestamp || '')
+        return `[${tsLabel}] [${e.level}] [${e.category}] ${fileName ? fileName + ': ' : ''}${msg}`
+      })
+      .join('\n')
+    await Clipboard.SetText(text)
+    copied.value = true
+    setTimeout(() => {
+      copied.value = false
+    }, 1500)
+  } catch {
+    toast.error(t('developer.toastFailed'))
+  }
 }
 
 function clearLogsView() {
   fetchedLogs.value = []
+  emit('clear-logs')
 }
 
 const isTestingNotification = ref(false)
@@ -164,7 +216,7 @@ const isTestingNotification = ref(false)
 async function testNotification() {
   isTestingNotification.value = true
   try {
-    Events.Emit('dev:test-notification', {
+    await Events.Emit('dev:test-notification', {
       title: 'Lumen',
       body: t('notification.testNotificationBody'),
     })
@@ -406,7 +458,7 @@ onMounted(async () => {
                 id="dev-notifications-switch"
                 :model-value="preferencesState.notifyOnComplete"
                 :aria-label="t('developer.notificationsToggleAria')"
-                @update:model-value="setNotifyOnComplete"
+                @update:model-value="handleNotifyToggle"
               />
             </div>
 
@@ -676,7 +728,7 @@ onMounted(async () => {
             <M3Switch
               :id="`flag-${flag}`"
               :model-value="flagsState[flag]"
-              :aria-label="`Toggle ${flag} flicker flag`"
+              :aria-label="t('developer.toggleFlagAria', { flag })"
               @update:model-value="toggleFlag(flag)"
             />
           </div>

@@ -33,9 +33,15 @@ const displaySuccess = ref(props.results.success.length)
 const displayFail = ref(props.results.fail.length)
 const displaySkipped = ref(props.results.skipped.length)
 
-let animFrames: number[] = []
+const activeAnimFrames = new Map<Ref<number>, number>()
+let copyResetTimer: ReturnType<typeof setTimeout> | null = null
 
 function animateNumber(target: number, currentRef: Ref<number>, duration = 400) {
+  const prevId = activeAnimFrames.get(currentRef)
+  if (prevId !== undefined) {
+    cancelAnimationFrame(prevId)
+    activeAnimFrames.delete(currentRef)
+  }
   if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) {
     currentRef.value = target
     return
@@ -55,13 +61,14 @@ function animateNumber(target: number, currentRef: Ref<number>, duration = 400) 
     currentRef.value = Math.round(start + diff * ease)
     if (progress < 1) {
       const id = requestAnimationFrame(step)
-      animFrames.push(id)
+      activeAnimFrames.set(currentRef, id)
     } else {
       currentRef.value = target
+      activeAnimFrames.delete(currentRef)
     }
   }
   const id = requestAnimationFrame(step)
-  animFrames.push(id)
+  activeAnimFrames.set(currentRef, id)
 }
 
 onMounted(() => {
@@ -74,8 +81,12 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  animFrames.forEach(id => cancelAnimationFrame(id))
-  animFrames = []
+  activeAnimFrames.forEach(id => cancelAnimationFrame(id))
+  activeAnimFrames.clear()
+  if (copyResetTimer) {
+    clearTimeout(copyResetTimer)
+    copyResetTimer = null
+  }
 })
 
 watch(() => props.results.success.length, (newVal) => {
@@ -93,8 +104,10 @@ watch(() => props.results.skipped.length, (newVal) => {
 function onCopyClick() {
   emit('copy')
   copied.value = true
-  setTimeout(() => {
+  if (copyResetTimer) clearTimeout(copyResetTimer)
+  copyResetTimer = setTimeout(() => {
     copied.value = false
+    copyResetTimer = null
   }, 1500)
 }
 </script>
@@ -142,7 +155,7 @@ function onCopyClick() {
           variant="outlined"
           size="s"
           :icon="isDryRun ? 'close' : 'replay'"
-          :aria-label="isDryRun ? 'Dismiss dry run preview' : 'Dismiss results and back up more photos'"
+          :aria-label="isDryRun ? t('results.dismissDryRunAria') : t('results.dismissResultsAria')"
           @click="emit('clear')"
         >
           <span>{{ isDryRun ? t('results.cancel') : t('results.backUpMore') }}</span>

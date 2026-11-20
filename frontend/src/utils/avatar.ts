@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 
 export const nameUpdateCounter = ref(0)
+export const avatarUpdateCounter = ref(0)
 
 export function getEmailInitial(email: string): string {
   if (!email) return '?'
@@ -75,6 +76,7 @@ export function getAvatarColor(email: string): { bg: string; text: string } {
 }
 
 export function getCustomAvatar(email: string): string | null {
+  void avatarUpdateCounter.value
   if (!email) return null
   try {
     return localStorage.getItem(`lumen_avatar_${email.toLowerCase()}`)
@@ -87,6 +89,7 @@ export function saveCustomAvatar(email: string, dataUrl: string): boolean {
   if (!email) return false
   try {
     localStorage.setItem(`lumen_avatar_${email.toLowerCase()}`, dataUrl)
+    avatarUpdateCounter.value++
     return true
   } catch {
     return false

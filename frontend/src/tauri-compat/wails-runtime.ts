@@ -17,16 +17,22 @@ export async function tauriInvoke<T = any>(cmd: string, args?: Record<string, an
 
 if (typeof window !== 'undefined') {
   (window as any).__setTab = (tab: string) => {
+    const byTab = document.querySelector(`button[data-nav-tab="${tab}"]`) as HTMLElement | null;
+    if (byTab) {
+      byTab.click();
+      return;
+    }
     const map: Record<string, string> = {
-      'upload': 'Upload view',
-      'folders': 'Backup folders view',
-      'activity': 'Activity logs view',
-      'accounts': 'Accounts view',
-      'settings': 'Settings view',
-      'about': 'About view',
+      'upload': 'Backup',
+      'folders': 'Folders',
+      'activity': 'Activity',
+      'accounts': 'Accounts',
+      'settings': 'Settings',
+      'about': 'About',
+      'developer': 'Developer',
     };
     const aria = map[tab] || tab;
-    const btn = document.querySelector(`button[aria-label="${aria}"]`) as HTMLElement;
+    const btn = document.querySelector(`button[aria-label="${aria}"]`) as HTMLElement | null;
     if (btn) btn.click();
   };
 
@@ -47,10 +53,13 @@ if (typeof window !== 'undefined') {
   };
 
   (window as any).__openSignIn = () => {
-    const accBtn = document.querySelector('button[aria-label="Accounts view"]') as HTMLElement;
+    const accBtn = (document.querySelector('button[data-nav-tab="accounts"]') ||
+      document.querySelector('button[aria-label="Accounts"]')) as HTMLElement | null;
     if (accBtn) accBtn.click();
     setTimeout(() => {
-      const addBtn = Array.from(document.querySelectorAll('button')).find(b => b.textContent?.includes('Add account')) as HTMLElement;
+      const addBtn = Array.from(document.querySelectorAll('button')).find(
+        b => b.textContent?.includes('Add account') || b.textContent?.includes('Add your first account')
+      ) as HTMLElement | undefined;
       if (addBtn) addBtn.click();
     }, 200);
   };
@@ -78,7 +87,9 @@ export const Events = {
       if (tauriListen) {
         tauriListen(eventName, (tauriEvent: any) => {
           const payload = tauriEvent.payload;
-          console.log(`[EVENT RECEIVED] ${eventName}:`, JSON.stringify(payload));
+          if (import.meta.env.DEV) {
+            console.log(`[EVENT RECEIVED] ${eventName}:`, JSON.stringify(payload));
+          }
           const set = eventListeners[eventName];
           if (set) {
             set.forEach((cb) => {
@@ -183,22 +194,20 @@ export const Browser = {
 
 export const Clipboard = {
   async SetText(text: string): Promise<void> {
+    let lastError: unknown = null;
     if (hasTauri()) {
       try {
         await tauriInvoke('clipboard_set_text', { text });
         return;
-      } catch {
-        // Fallback to navigator
+      } catch (err) {
+        lastError = err;
       }
     }
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      try {
-        await navigator.clipboard.writeText(text);
-        return;
-      } catch {
-        // Fallback
-      }
+    if (typeof navigator !== 'undefined' && navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
     }
+    throw (lastError instanceof Error ? lastError : new Error('Clipboard write unavailable'));
   },
 
   async Text(): Promise<string> {

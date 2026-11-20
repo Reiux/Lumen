@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Browser } from '@wailsio/runtime'
 
@@ -13,7 +13,7 @@ import LumenLogo from './components/LumenLogo.vue'
 import UpdateAvailableModal from './components/UpdateAvailableModal.vue'
 import LicensesModal from './components/LicensesModal.vue'
 import { toast } from 'vue-sonner'
-import { preferencesState, setAutoCheckUpdates } from './utils/configStore'
+import { preferencesState, refreshLastUpdateCheck, setAutoCheckUpdates } from './utils/configStore'
 import { devOptionsState, isDevMode, mockState, setDevOptionsUnlocked, toggleMockMode } from './utils/mockMode'
 import reiuxAvatar from './assets/credits/reiux.png'
 import xob0tAvatar from './assets/credits/xob0t.png'
@@ -22,7 +22,7 @@ const reiuxAvatarError = ref(false)
 const xob0tAvatarError = ref(false)
 
 const repoUrl = 'https://github.com/Reiux/Lumen'
-const appVersion = ref('2.1.0')
+const appVersion = ref('2.1.1')
 const isCheckingUpdates = ref(false)
 const updateResult = ref<UpdateInfo | null>(null)
 const showUpdateModal = ref(false)
@@ -68,8 +68,15 @@ function triggerWordmarkPunch() {
 
 let holdInterval: ReturnType<typeof setInterval> | null = null
 let holdStartTime = 0
+const isHoldingLogo = ref(false)
+let isUnmounted = false
 
 function onLogoMouseDown() {
+  if (holdInterval) {
+    clearInterval(holdInterval)
+    holdInterval = null
+  }
+  isHoldingLogo.value = true
   holdStartTime = Date.now()
   holdInterval = setInterval(() => {
     const elapsed = Date.now() - holdStartTime
@@ -79,6 +86,7 @@ function onLogoMouseDown() {
 }
 
 function onLogoMouseUp() {
+  isHoldingLogo.value = false
   if (holdInterval) {
     clearInterval(holdInterval)
     holdInterval = null
@@ -89,30 +97,69 @@ const lastChecked = ref<Date | null>(null)
 if (typeof localStorage !== 'undefined') {
   const stored = localStorage.getItem('lumen_last_check')
   if (stored) {
-    try {
-      lastChecked.value = new Date(stored)
-    } catch {
-      // ignore
+    const parsed = new Date(stored)
+    if (!Number.isNaN(parsed.getTime())) {
+      lastChecked.value = parsed
     }
   }
 }
 
-const lastCheckedFormatted = computed(() => {
-  if (!lastChecked.value) {
-    return t('about.neverChecked')
+async function handleAutoCheckUpdates(enabled: boolean) {
+  try {
+    await setAutoCheckUpdates(enabled)
+  } catch {
+    toast.error(t('settings.saveFailed'))
   }
-  return lastChecked.value.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + ' · ' + lastChecked.value.toLocaleDateString()
+}
+
+const effectiveLastChecked = computed<Date | null>(() => {
+  const backendTs = preferencesState.lastUpdateCheck
+  if (backendTs && backendTs > 0) {
+    return new Date(backendTs * 1000)
+  }
+  return lastChecked.value
 })
 
+const lastCheckedFormatted = computed(() => {
+  if (!effectiveLastChecked.value) {
+    return t('about.neverChecked')
+  }
+  return effectiveLastChecked.value.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) + ' · ' + effectiveLastChecked.value.toLocaleDateString()
+})
+
+let startupPunchTimer: ReturnType<typeof setTimeout> | null = null
+
 onMounted(async () => {
-  setTimeout(() => {
+  startupPunchTimer = setTimeout(() => {
     triggerWordmarkPunch()
   }, 220)
+  void refreshLastUpdateCheck()
   try {
     const v = await ConfigManager.GetAppVersion()
-    if (v) appVersion.value = v
+    if (!isUnmounted && v) appVersion.value = v
   } catch (err) {
     console.warn('Failed to get app version:', err)
+  }
+})
+
+onUnmounted(() => {
+  isUnmounted = true
+  isHoldingLogo.value = false
+  if (startupPunchTimer) {
+    clearTimeout(startupPunchTimer)
+    startupPunchTimer = null
+  }
+  if (holdInterval) {
+    clearInterval(holdInterval)
+    holdInterval = null
+  }
+  if (tapTimer) {
+    clearTimeout(tapTimer)
+    tapTimer = null
+  }
+  if (punchAnimId) {
+    cancelAnimationFrame(punchAnimId)
+    punchAnimId = null
   }
 })
 
@@ -121,7 +168,7 @@ async function openRepo() {
     await Browser.OpenURL(repoUrl)
   } catch (err) {
     console.error('Failed to open repository URL:', err)
-    window.open(repoUrl, '_blank')
+    window.open(repoUrl, '_blank', 'noopener,noreferrer')
   }
 }
 
@@ -131,7 +178,7 @@ async function openDevProfile() {
     await Browser.OpenURL(url)
   } catch (err) {
     console.error('Failed to open developer profile:', err)
-    window.open(url, '_blank')
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 }
 
@@ -141,34 +188,41 @@ async function openGotohpRepo() {
     await Browser.OpenURL(url)
   } catch (err) {
     console.error('Failed to open gotohp repository:', err)
-    window.open(url, '_blank')
+    window.open(url, '_blank', 'noopener,noreferrer')
   }
 }
 
 async function checkForUpdates() {
   if (isCheckingUpdates.value) return
   isCheckingUpdates.value = true
-  lastChecked.value = new Date()
-  if (typeof localStorage !== 'undefined') {
-    localStorage.setItem('lumen_last_check', lastChecked.value.toISOString())
-  }
 
   try {
     const info = await ConfigManager.CheckForUpdates(true)
+    if (isUnmounted) return
     updateResult.value = info
     if (info.error) {
       toast.error(t('about.toastUpdateCheckError', { error: info.error }))
-    } else if (info.hasUpdate) {
-      showUpdateModal.value = true
-      toast.info(t('about.toastUpdateAvailable', { version: info.latestVersion }))
     } else {
-      toast.success(t('about.toastLatestVersion', { version: info.currentVersion || appVersion.value }))
+      lastChecked.value = new Date()
+      preferencesState.lastUpdateCheck = Math.floor(lastChecked.value.getTime() / 1000)
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('lumen_last_check', lastChecked.value.toISOString())
+      }
+      if (info.hasUpdate) {
+        showUpdateModal.value = true
+        toast.info(t('about.toastUpdateAvailable', { version: info.latestVersion.replace(/^v/i, '') }))
+      } else {
+        toast.success(t('about.toastLatestVersion', { version: info.currentVersion || appVersion.value }))
+      }
     }
   } catch (err: unknown) {
+    if (isUnmounted) return
     const msg = err instanceof Error ? err.message : String(err)
     toast.error(t('about.toastUpdateCheckError', { error: msg || t('about.toastCouldNotCheck') }))
   } finally {
-    isCheckingUpdates.value = false
+    if (!isUnmounted) {
+      isCheckingUpdates.value = false
+    }
   }
 }
 
@@ -214,7 +268,7 @@ function disableDevOptions() {
         class="inline-flex items-center justify-center size-24 cursor-pointer select-none rounded-full origin-center active:scale-95 transition-transform"
         :style="{
           transform: `rotate(${logoRotation}deg)`,
-          transition: holdInterval ? 'none' : 'transform 600ms cubic-bezier(0.38, 1.21, 0.22, 1.00)',
+          transition: isHoldingLogo ? 'none' : 'transform 600ms cubic-bezier(0.38, 1.21, 0.22, 1.00)',
         }"
         :title="t('about.tapForDevOptions')"
         @mousedown="onLogoMouseDown"
@@ -314,7 +368,7 @@ function disableDevOptions() {
             id="auto-updates-toggle"
             :model-value="preferencesState.autoCheckUpdates"
             :aria-label="t('about.autoUpdatesAria')"
-            @update:model-value="setAutoCheckUpdates"
+            @update:model-value="handleAutoCheckUpdates"
           />
         </div>
 
