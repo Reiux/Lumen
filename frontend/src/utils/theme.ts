@@ -141,10 +141,20 @@ export const currentThemeSeed = ref<string>(getInitialSeed())
 export const currentPaletteVariant = ref<M3PaletteVariant>(getInitialVariant())
 export const themePulseCounter = ref(0)
 
+const HEX_COLOR_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/
+
+function safeHexColor(val: unknown): string | undefined {
+  if (typeof val !== 'string') return undefined
+  const trimmed = val.trim()
+  return HEX_COLOR_RE.test(trimmed) ? trimmed : undefined
+}
+
 export function updateAppFavicon(primaryColor: string) {
   if (typeof document === 'undefined') return
+  const safeColor = safeHexColor(primaryColor)
+  if (!safeColor) return
   try {
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108"><rect width="108" height="108" rx="24" fill="${primaryColor}"/><g transform="rotate(0 54 54)"><path fill="#38BDF8" d="M 54,26 C 65,26 76,36 76,47 C 76,52 70,54 63,54 C 59,44 54,35 54,26 Z"/></g><g transform="rotate(90 54 54)"><path fill="#60A5FA" d="M 54,26 C 65,26 76,36 76,47 C 76,52 70,54 63,54 C 59,44 54,35 54,26 Z"/></g><g transform="rotate(180 54 54)"><path fill="#818CF8" d="M 54,26 C 65,26 76,36 76,47 C 76,52 70,54 63,54 C 59,44 54,35 54,26 Z"/></g><g transform="rotate(270 54 54)"><path fill="#A78BFA" d="M 54,26 C 65,26 76,36 76,47 C 76,52 70,54 63,54 C 59,44 54,35 54,26 Z"/></g><circle cx="54" cy="54" r="7" fill="#FFFFFF"/></svg>`
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108"><rect width="108" height="108" rx="24" fill="${safeColor}"/><g transform="rotate(0 54 54)"><path fill="#38BDF8" d="M 54,26 C 65,26 76,36 76,47 C 76,52 70,54 63,54 C 59,44 54,35 54,26 Z"/></g><g transform="rotate(90 54 54)"><path fill="#60A5FA" d="M 54,26 C 65,26 76,36 76,47 C 76,52 70,54 63,54 C 59,44 54,35 54,26 Z"/></g><g transform="rotate(180 54 54)"><path fill="#818CF8" d="M 54,26 C 65,26 76,36 76,47 C 76,52 70,54 63,54 C 59,44 54,35 54,26 Z"/></g><g transform="rotate(270 54 54)"><path fill="#A78BFA" d="M 54,26 C 65,26 76,36 76,47 C 76,52 70,54 63,54 C 59,44 54,35 54,26 Z"/></g><circle cx="54" cy="54" r="7" fill="#FFFFFF"/></svg>`
     const blob = new Blob([svg], { type: 'image/svg+xml' })
     const url = URL.createObjectURL(blob)
     let link = document.querySelector<HTMLLinkElement>("link[rel*='icon']")
@@ -168,24 +178,25 @@ export function applyMatugenPalette(colors: Record<string, string>) {
   const root = document.documentElement
 
   for (const [key, val] of Object.entries(colors)) {
-    if (typeof val === 'string' && val.startsWith('#')) {
+    const safeVal = safeHexColor(val)
+    if (safeVal) {
       const token = key.startsWith('--') ? key : `--md-sys-color-${key.replace(/_/g, '-')}`
-      root.style.setProperty(token, val)
+      root.style.setProperty(token, safeVal)
     }
   }
 
   // Synchronize CSS custom property semantic mappings
-  const surface = colors.surface || colors['--md-sys-color-surface']
-  const onSurface = colors.on_surface || colors['--md-sys-color-on-surface']
-  const surfaceContainer = colors.surface_container || colors['--md-sys-color-surface-container']
-  const surfaceContainerHigh = colors.surface_container_high || colors['--md-sys-color-surface-container-high']
-  const primary = colors.primary || colors['--md-sys-color-primary']
-  const onPrimary = colors.on_primary || colors['--md-sys-color-on-primary']
-  const secondary = colors.secondary_container || colors.secondary || colors['--md-sys-color-secondary-container']
-  const onSecondary = colors.on_secondary_container || colors.on_secondary || colors['--md-sys-color-on-secondary-container']
-  const outlineVariant = colors.outline_variant || colors['--md-sys-color-outline-variant']
-  const error = colors.error || colors['--md-sys-color-error']
-  const onError = colors.on_error || colors['--md-sys-color-on-error']
+  const surface = safeHexColor(colors.surface) || safeHexColor(colors['--md-sys-color-surface'])
+  const onSurface = safeHexColor(colors.on_surface) || safeHexColor(colors['--md-sys-color-on-surface'])
+  const surfaceContainer = safeHexColor(colors.surface_container) || safeHexColor(colors['--md-sys-color-surface-container'])
+  const surfaceContainerHigh = safeHexColor(colors.surface_container_high) || safeHexColor(colors['--md-sys-color-surface-container-high'])
+  const primary = safeHexColor(colors.primary) || safeHexColor(colors['--md-sys-color-primary'])
+  const onPrimary = safeHexColor(colors.on_primary) || safeHexColor(colors['--md-sys-color-on-primary'])
+  const secondary = safeHexColor(colors.secondary_container) || safeHexColor(colors.secondary) || safeHexColor(colors['--md-sys-color-secondary-container'])
+  const onSecondary = safeHexColor(colors.on_secondary_container) || safeHexColor(colors.on_secondary) || safeHexColor(colors['--md-sys-color-on-secondary-container'])
+  const outlineVariant = safeHexColor(colors.outline_variant) || safeHexColor(colors['--md-sys-color-outline-variant'])
+  const error = safeHexColor(colors.error) || safeHexColor(colors['--md-sys-color-error'])
+  const onError = safeHexColor(colors.on_error) || safeHexColor(colors['--md-sys-color-on-error'])
 
   if (surface) root.style.setProperty('--background', surface)
   if (onSurface) root.style.setProperty('--foreground', onSurface)
@@ -363,13 +374,14 @@ export function cycleNextTheme() {
 
 function applyMatugenColorsOrSeed(colors: Record<string, string>) {
   const hasFullPalette = Boolean(
-    colors.surface ||
-      colors['--md-sys-color-surface'] ||
-      colors.on_surface ||
-      colors['--md-sys-color-on-surface'],
+    safeHexColor(colors.surface) ||
+      safeHexColor(colors['--md-sys-color-surface']) ||
+      safeHexColor(colors.on_surface) ||
+      safeHexColor(colors['--md-sys-color-on-surface']),
   )
-  if (!hasFullPalette && (colors.seed || colors.primary)) {
-    applyTheme(colors.seed || colors.primary, currentPaletteVariant.value)
+  const seedCandidate = safeHexColor(colors.seed) || safeHexColor(colors.primary)
+  if (!hasFullPalette && seedCandidate) {
+    applyTheme(seedCandidate, currentPaletteVariant.value)
     return
   }
   applyMatugenPalette(colors)

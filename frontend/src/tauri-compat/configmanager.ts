@@ -118,6 +118,14 @@ export const ConfigManager = {
     return '';
   },
 
+  async GetAccountBlockedState(email: string): Promise<$models.AccountBlockedEvent | null> {
+    if (hasTauri()) {
+      const res = await tauriInvoke('get_account_blocked_state', { email });
+      return res ? $models.AccountBlockedEvent.createFrom(res) : null;
+    }
+    return null;
+  },
+
   async GetAccountForPath(filePath: string): Promise<string> {
     if (hasTauri()) {
       return (await tauriInvoke<string>('get_account_for_path', { filePath })) || '';
@@ -174,6 +182,13 @@ export const ConfigManager = {
       return (await tauriInvoke<boolean>('get_auto_check_updates')) || false;
     }
     return false;
+  },
+
+  async GetAutoUpdateIntervalHours(): Promise<number> {
+    if (hasTauri()) {
+      return (await tauriInvoke<number>('get_auto_update_interval_hours')) || 6;
+    }
+    return 6;
   },
 
   async GetExcludePattern(): Promise<string> {
@@ -270,6 +285,13 @@ export const ConfigManager = {
       return (await tauriInvoke<string[]>('get_watched_folders')) || [];
     }
     return [];
+  },
+
+  async HasBattery(): Promise<boolean> {
+    if (hasTauri()) {
+      return (await tauriInvoke<boolean>('has_battery')) || false;
+    }
+    return false;
   },
 
   async HasSupportedBrowser(): Promise<boolean> {
@@ -378,6 +400,12 @@ export const ConfigManager = {
   async SetAutoCheckUpdates(enabled: boolean): Promise<void> {
     if (hasTauri()) {
       return tauriInvoke('set_auto_check_updates', { enabled });
+    }
+  },
+
+  async SetAutoUpdateIntervalHours(hours: number): Promise<void> {
+    if (hasTauri()) {
+      return tauriInvoke('set_auto_update_interval_hours', { hours });
     }
   },
 
@@ -544,6 +572,20 @@ export const ConfigManager = {
     }
   },
 
+  async StartEmbeddedSignIn(): Promise<string> {
+    if (hasTauri()) {
+      return (await tauriInvoke<string>('start_embedded_sign_in')) || '';
+    }
+    return 'mock@example.com';
+  },
+
+  async StartExternalBrowserSignIn(): Promise<string> {
+    if (hasTauri()) {
+      return (await tauriInvoke<string>('start_external_browser_sign_in')) || '';
+    }
+    return 'mock@example.com';
+  },
+
   async StartBrowserSignIn(): Promise<string> {
     if (hasTauri()) {
       return (await tauriInvoke<string>('start_browser_sign_in')) || '';
@@ -556,6 +598,12 @@ export const ConfigManager = {
       return (await tauriInvoke<string>('start_browser_sign_in_with_options', { opts })) || '';
     }
     return 'mock@example.com';
+  },
+
+  async StartWatchedFolderUpload(folderPath: string): Promise<void> {
+    if (hasTauri()) {
+      return tauriInvoke('start_watched_folder_upload', { folderPath });
+    }
   },
 
   async UpdateWatchedFolderConfig(cfg: $models.WatchedFolderConfig): Promise<void> {

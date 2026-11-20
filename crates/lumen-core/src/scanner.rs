@@ -63,6 +63,8 @@ pub fn is_ignored_temp_file(path: &Path) -> bool {
     )
 }
 
+pub const MAX_EXCLUDE_REGEX_SIZE_BYTES: usize = 1024 * 1024;
+
 pub fn validate_exclude_pattern(pattern: &str) -> Result<(), String> {
     let trimmed = pattern.trim();
     if trimmed.is_empty() {
@@ -71,16 +73,22 @@ pub fn validate_exclude_pattern(pattern: &str) -> Result<(), String> {
     if trimmed.len() > 1024 {
         return Err("Exclude pattern must not exceed 1024 characters".to_string());
     }
-    regex::Regex::new(trimmed).map_err(|e| format!("Invalid regular expression: {}", e))?;
+    regex::RegexBuilder::new(trimmed)
+        .size_limit(MAX_EXCLUDE_REGEX_SIZE_BYTES)
+        .build()
+        .map_err(|e| format!("Invalid regular expression: {}", e))?;
     Ok(())
 }
 
 pub fn compile_exclude_regex(pattern: &str) -> Option<regex::Regex> {
     let trimmed = pattern.trim();
-    if trimmed.is_empty() {
+    if trimmed.is_empty() || trimmed.len() > 1024 {
         return None;
     }
-    regex::Regex::new(trimmed).ok()
+    regex::RegexBuilder::new(trimmed)
+        .size_limit(MAX_EXCLUDE_REGEX_SIZE_BYTES)
+        .build()
+        .ok()
 }
 
 pub fn is_path_excluded_with_regex(

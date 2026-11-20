@@ -8,6 +8,59 @@ use crate::keyring::{KeyringStorage, MockKeyringProvider};
 
 static CONFIG_TEMP_SEQ: AtomicU64 = AtomicU64::new(1);
 
+#[cfg(windows)]
+pub(crate) fn restrict_file_permissions_windows(path: &Path) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    let user = std::env::var("USERNAME").unwrap_or_default();
+    let user = user.trim();
+    if user.is_empty() {
+        return;
+    }
+    let principal = match std::env::var("USERDOMAIN") {
+        Ok(domain) if !domain.trim().is_empty() => format!("{}\\{}", domain.trim(), user),
+        _ => user.to_string(),
+    };
+    let grant = format!("{}:(F)", principal);
+    let icacls = std::env::var_os("SystemRoot")
+        .map(|root| PathBuf::from(root).join("System32").join("icacls.exe"))
+        .filter(|p| p.is_file())
+        .unwrap_or_else(|| PathBuf::from("icacls.exe"));
+    let _ = std::process::Command::new(icacls)
+        .arg(path)
+        .args(["/inheritance:r", "/grant:r", &grant])
+        .creation_flags(CREATE_NO_WINDOW)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+}
+
+pub(crate) fn ensure_private_parent_dir(parent: &Path) -> std::io::Result<()> {
+    if parent.as_os_str().is_empty() {
+        return Ok(());
+    }
+    let existed = parent.exists();
+    fs::create_dir_all(parent)?;
+    #[cfg(unix)]
+    {
+        let is_app_dir = parent
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| n == CONFIG_DIR_NAME)
+            .unwrap_or(false);
+        if !existed || is_app_dir {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = fs::set_permissions(parent, fs::Permissions::from_mode(0o700));
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = existed;
+    }
+    Ok(())
+}
+
 fn secure_copy_file(src: &Path, dst: &Path) -> std::io::Result<()> {
     let meta = fs::symlink_metadata(src)?;
     if !meta.is_file() || meta.file_type().is_symlink() {
@@ -37,6 +90,9 @@ fn secure_copy_file(src: &Path, dst: &Path) -> std::io::Result<()> {
         let mut f = opts.open(dst)?;
         f.write_all(&bytes)?;
         f.sync_all()?;
+        drop(f);
+        #[cfg(windows)]
+        restrict_file_permissions_windows(dst);
         Ok(())
     }
 }
@@ -105,6 +161,8 @@ pub struct Preferences {
     pub recent_albums: Vec<String>,
     #[serde(default = "default_true", rename = "auto_check_updates")]
     pub auto_check_updates: bool,
+    #[serde(default = "default_auto_update_interval_hours", rename = "auto_update_interval_hours")]
+    pub auto_update_interval_hours: u32,
     #[serde(default, rename = "last_update_check", deserialize_with = "deserialize_last_update_check")]
     pub last_update_check: i64,
     #[serde(default, rename = "schedule_enabled")]
@@ -127,6 +185,10 @@ pub struct Preferences {
 
 fn default_locale() -> String {
     "en".to_string()
+}
+
+fn default_auto_update_interval_hours() -> u32 {
+    6
 }
 
 fn deserialize_last_update_check<'de, D>(deserializer: D) -> Result<i64, D::Error>
@@ -168,6 +230,20 @@ where
             E: serde::de::Error,
         {
             Ok(v.parse::<i64>().unwrap_or(0))
+        }
+
+        fn visit_unit<E>(self) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(0)
+        }
+
+        fn visit_none<E>(self) -> Result<Self::Value, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(0)
         }
     }
 
@@ -216,6 +292,7 @@ impl Default for Preferences {
             watched_folder_configs: Vec::new(),
             recent_albums: Vec::new(),
             auto_check_updates: true,
+            auto_update_interval_hours: default_auto_update_interval_hours(),
             last_update_check: 0,
             schedule_enabled: false,
             schedule_start_hour: 1,
@@ -398,35 +475,80 @@ impl ConfigManager {
             return Ok(Config::default());
         }
 
-        // Parse into generic YAML value to detect legacy flat format vs nested format
-        if let Ok(val) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
-            if let serde_yaml::Value::Mapping(ref map) = val {
-                let account_key = serde_yaml::Value::String("account".to_string());
-                let preferences_key = serde_yaml::Value::String("preferences".to_string());
-                let has_account = map.contains_key(&account_key);
-                let has_preferences = map.contains_key(&preferences_key);
+        const LEGACY_FLAT_KEYS: &[&str] = &[
+            "credentials",
+            "selected",
+            "proxy",
+            "use_quota",
+            "saver",
+            "recursive",
+            "force_upload",
+            "pair_live_photos",
+            "skip_incomplete_live_photos",
+            "update_existing_photos_to_live",
+            "upload_threads",
+            "delete_from_host",
+            "disable_unsupported_files_filter",
+            "set_date_from_filename",
+            "exclude_pattern",
+        ];
 
-                if has_account || has_preferences {
-                    if let Ok(config) = serde_yaml::from_value::<Config>(val) {
-                        return Ok(config);
+        // Parse into generic YAML value (also covers JSON) to detect legacy flat format vs nested format
+        if let Ok(val) = serde_yaml::from_str::<serde_yaml::Value>(&content) {
+            match val {
+                serde_yaml::Value::Null => return Ok(Config::default()),
+                serde_yaml::Value::Mapping(ref map) => {
+                    if map.is_empty() {
+                        return Ok(Config::default());
                     }
-                } else {
-                    // Legacy flat format
-                    if let Ok(flat) = serde_yaml::from_value::<LegacyFlatConfig>(val.clone()) {
+                    let account_key = serde_yaml::Value::String("account".to_string());
+                    let preferences_key = serde_yaml::Value::String("preferences".to_string());
+                    let has_account = map.contains_key(&account_key);
+                    let has_preferences = map.contains_key(&preferences_key);
+
+                    if has_account || has_preferences {
+                        return serde_yaml::from_value::<Config>(val).map_err(|e| {
+                            format!("Configuration file is corrupted: {}", e)
+                        });
+                    }
+
+                    let has_legacy_key = LEGACY_FLAT_KEYS.iter().any(|k| {
+                        map.contains_key(serde_yaml::Value::String((*k).to_string()))
+                    });
+                    if has_legacy_key {
+                        let flat = serde_yaml::from_value::<LegacyFlatConfig>(val).map_err(|e| {
+                            format!("Legacy configuration file is corrupted: {}", e)
+                        })?;
                         return Ok(flat.to_config());
                     }
+
+                    return Err("Configuration file contains unrecognized top-level keys".to_string());
+                }
+                _ => {
+                    return Err("Configuration file is corrupted or unrecognized YAML/JSON".to_string());
                 }
             }
         }
 
-        // Try standard nested Config
-        if let Ok(config) = serde_yaml::from_str::<Config>(&content) {
-            return Ok(config);
-        }
-
-        // Try JSON format as well
-        if let Ok(config) = serde_json::from_str::<Config>(&content) {
-            return Ok(config);
+        // Try JSON format fallback if YAML parser rejected syntax (e.g. tabs)
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(obj) = val.as_object() {
+                if obj.is_empty() {
+                    return Ok(Config::default());
+                }
+                if obj.contains_key("account") || obj.contains_key("preferences") {
+                    return serde_json::from_value::<Config>(val).map_err(|e| {
+                        format!("Configuration JSON is corrupted: {}", e)
+                    });
+                }
+                let has_legacy_key = LEGACY_FLAT_KEYS.iter().any(|k| obj.contains_key(*k));
+                if has_legacy_key {
+                    let flat = serde_json::from_value::<LegacyFlatConfig>(val).map_err(|e| {
+                        format!("Legacy configuration JSON is corrupted: {}", e)
+                    })?;
+                    return Ok(flat.to_config());
+                }
+            }
         }
 
         Err("Configuration file is corrupted or unrecognized YAML/JSON".to_string())
@@ -434,12 +556,7 @@ impl ConfigManager {
 
     pub fn save_to_path(config: &Config, path: &Path) -> Result<(), String> {
         if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
-            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = fs::set_permissions(parent, fs::Permissions::from_mode(0o700));
-            }
+            ensure_private_parent_dir(parent).map_err(|e| e.to_string())?;
         }
 
         let yaml = serde_yaml::to_string(config).map_err(|e| e.to_string())?;
@@ -470,6 +587,9 @@ impl ConfigManager {
             f.sync_all().map_err(|e| e.to_string())?;
         }
 
+        #[cfg(windows)]
+        restrict_file_permissions_windows(&temp_path);
+
         if let Err(e) = fs::rename(&temp_path, path) {
             let _ = fs::remove_file(&temp_path);
             return Err(e.to_string());
@@ -480,6 +600,9 @@ impl ConfigManager {
             use std::os::unix::fs::PermissionsExt;
             let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
         }
+
+        #[cfg(windows)]
+        restrict_file_permissions_windows(path);
 
         Ok(())
     }
@@ -598,7 +721,10 @@ impl ConfigManager {
                         .unwrap_or(false)
                 })
         };
-        let keyring_existed = self.keyring.get_credential(email).is_ok();
+        let keyring_existed = matches!(self.keyring.get_credential(email), Ok(Some(_)));
+        if !had_selected && !keyring_existed {
+            return Ok(false);
+        }
         let _ = self.keyring.delete_credential(email);
 
         self.update(|cfg| {
@@ -616,11 +742,28 @@ impl ConfigManager {
                         .map(|(_, v)| v.into_owned())
                 }).unwrap_or_default();
             }
+            for wf in &mut cfg.preferences.watched_folder_configs {
+                if wf.account_email.eq_ignore_ascii_case(email) {
+                    wf.account_email.clear();
+                    if cfg.account.selected.is_empty() {
+                        wf.enabled = false;
+                    }
+                }
+            }
+            if cfg.account.selected.is_empty() {
+                cfg.preferences.watch_folders_enabled = false;
+            }
         })?;
 
-        Ok(had_selected || keyring_existed)
+        Ok(true)
     }
 }
+
+pub const CONFIG_DIR_NAME: &str = if cfg!(debug_assertions) {
+    "lumen-dev"
+} else {
+    "lumen"
+};
 
 pub fn get_user_config_dir() -> PathBuf {
     if let Some(proj_dirs) = directories::BaseDirs::new() {
@@ -644,47 +787,44 @@ pub fn determine_config_path(override_path: Option<&Path>) -> PathBuf {
         }
     }
 
-    // 2. User config directory: prefer ~/.config/lumen/lumen.config
+    // 2. User config directory: separate dev (`lumen-dev`) and release (`lumen`) directories
     let user_config = get_user_config_dir();
-    let lumen_dir = user_config.join("lumen");
+    let lumen_dir = user_config.join(CONFIG_DIR_NAME);
     let lumen_config = lumen_dir.join("lumen.config");
 
     if lumen_config.exists() {
         return lumen_config;
     }
 
-    // 4. Migration check: legacy gotohp directory
-    let legacy_dir = user_config.join("gotohp");
-    let legacy_config = legacy_dir.join("gotohp.config");
+    // 3. Migration check: legacy gotohp directory (release channel only; never touch release/gotohp from dev builds)
+    if !cfg!(debug_assertions) {
+        let legacy_dir = user_config.join("gotohp");
+        let legacy_config = legacy_dir.join("gotohp.config");
 
-    if legacy_config.exists() {
-        let legacy_meta = fs::symlink_metadata(&legacy_config).ok();
-        if let Some(m) = legacy_meta {
-            if m.is_file() && !m.file_type().is_symlink() {
-                let _ = fs::create_dir_all(&lumen_dir);
-                #[cfg(unix)]
-                {
-                    use std::os::unix::fs::PermissionsExt;
-                    let _ = fs::set_permissions(&lumen_dir, fs::Permissions::from_mode(0o700));
-                }
-                if secure_copy_file(&legacy_config, &lumen_config).is_ok() {
-                    for (legacy_name, target_name) in [
-                        ("hash_cache.db", "hash_cache.db"),
-                        ("hashes.db", "hashes.db"),
-                        ("album_registry.json", "album_registry.json"),
-                        ("albums.json", "albums.json"),
-                    ] {
-                        let legacy_file = legacy_dir.join(legacy_name);
-                        let target_file = lumen_dir.join(target_name);
-                        if !target_file.exists() {
-                            let _ = secure_copy_file(&legacy_file, &target_file);
+        if legacy_config.exists() {
+            let legacy_meta = fs::symlink_metadata(&legacy_config).ok();
+            if let Some(m) = legacy_meta {
+                if m.is_file() && !m.file_type().is_symlink() {
+                    let _ = ensure_private_parent_dir(&lumen_dir);
+                    if secure_copy_file(&legacy_config, &lumen_config).is_ok() {
+                        for (legacy_name, target_name) in [
+                            ("hash_cache.db", "hash_cache.db"),
+                            ("hashes.db", "hashes.db"),
+                            ("album_registry.json", "album_registry.json"),
+                            ("albums.json", "albums.json"),
+                        ] {
+                            let legacy_file = legacy_dir.join(legacy_name);
+                            let target_file = lumen_dir.join(target_name);
+                            if !target_file.exists() {
+                                let _ = secure_copy_file(&legacy_file, &target_file);
+                            }
                         }
+                        return lumen_config;
                     }
-                    return lumen_config;
                 }
             }
+            return legacy_config;
         }
-        return legacy_config;
     }
 
     lumen_config

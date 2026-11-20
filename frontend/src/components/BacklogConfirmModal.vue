@@ -9,6 +9,7 @@ const { t } = useI18n()
 
 const props = defineProps<{
   pendingBacklog: { folder: string; count: number; account: string } | null
+  loading?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -18,7 +19,9 @@ const emit = defineEmits<{
 
 const dialogCardRef = ref<HTMLElement | null>(null)
 useDialogFocusTrap(() => Boolean(props.pendingBacklog), dialogCardRef, {
-  onEscape: () => emit('cancel'),
+  onEscape: () => {
+    if (!props.loading) emit('cancel')
+  },
 })
 </script>
 
@@ -27,46 +30,68 @@ useDialogFocusTrap(() => Boolean(props.pendingBacklog), dialogCardRef, {
     <Transition name="m3-dialog-modal">
       <div
         v-if="pendingBacklog"
-        class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 select-none overflow-y-auto"
-        @click.self="emit('cancel')"
+        class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center p-4 select-none overflow-y-auto"
+        @click.self="!loading && emit('cancel')"
       >
         <div
           ref="dialogCardRef"
           tabindex="-1"
-          class="m3-dialog-card relative flex flex-col gap-4 w-full max-w-md rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl border border-[var(--md-sys-color-outline-variant)]/40 outline-none"
+          class="m3-dialog-card relative flex flex-col gap-5 w-full max-w-[460px] rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl outline-none focus-visible:outline-[3px] focus-visible:outline-[var(--md-sys-color-primary)]"
           role="dialog"
           aria-modal="true"
           aria-labelledby="backlog-confirm-title"
+          aria-describedby="backlog-confirm-desc"
         >
-          <div class="flex items-center gap-3 text-[var(--md-sys-color-primary)]">
-            <div class="flex size-10 items-center justify-center rounded-[16px] bg-[var(--md-sys-color-primary-container)]">
+          <!-- M3E Centered Hero Icon + Headline -->
+          <div class="flex flex-col items-center text-center gap-3">
+            <div class="flex size-14 items-center justify-center rounded-[20px] bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
               <M3Icon
-                name="folder"
+                name="folder_copy"
                 :filled="true"
-                :size="22"
+                :size="28"
               />
             </div>
-            <h3
-              id="backlog-confirm-title"
-              class="m3-headline-small text-[var(--md-sys-color-on-surface)]"
-            >
-              {{ t('dialogs.backlog.title') }}
-            </h3>
+            <div class="flex flex-col gap-1.5">
+              <h3
+                id="backlog-confirm-title"
+                class="m3-headline-small text-[var(--md-sys-color-on-surface)]"
+              >
+                {{ t('dialogs.backlog.title') }}
+              </h3>
+              <p
+                id="backlog-confirm-desc"
+                class="m3-body-medium leading-relaxed text-[var(--md-sys-color-on-surface-variant)]"
+              >
+                {{ t('dialogs.backlog.found', { count: pendingBacklog.count }) }}
+              </p>
+            </div>
           </div>
-          <p class="m3-body-medium leading-relaxed">
-            {{ t('dialogs.backlog.found', { count: pendingBacklog.count }) }}
-          </p>
-          <div class="rounded-xl bg-[var(--md-sys-color-surface-container)] p-3 m3-mono m3-body-medium break-all border border-[var(--md-sys-color-outline-variant)]/30 text-[var(--md-sys-color-on-surface)]">
-            {{ pendingBacklog.folder }}
+
+          <!-- Tonal Folder Path Surface -->
+          <div class="flex items-start gap-3 rounded-[16px] bg-[var(--md-sys-color-surface-container)] px-4 py-3.5 text-[var(--md-sys-color-on-surface)]">
+            <div class="flex size-9 shrink-0 items-center justify-center rounded-[12px] bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]">
+              <M3Icon
+                name="folder_open"
+                :filled="true"
+                :size="18"
+              />
+            </div>
+            <span class="m3-mono m3-body-medium break-all leading-snug pt-1 text-[var(--md-sys-color-on-surface)]">
+              {{ pendingBacklog.folder }}
+            </span>
           </div>
-          <p class="m3-body-medium leading-relaxed">
+
+          <p class="m3-body-medium leading-relaxed text-[var(--md-sys-color-on-surface-variant)] text-center">
             {{ t('dialogs.backlog.prompt') }}
           </p>
-          <div class="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2">
+
+          <!-- M3E Action Row -->
+          <div class="flex flex-col sm:flex-row items-center justify-end gap-2 pt-1">
             <M3Button
               variant="text"
               size="s"
               class="w-full sm:w-auto"
+              :disabled="loading"
               @click="emit('cancel')"
             >
               {{ t('dialogs.backlog.cancel') }}
@@ -75,14 +100,17 @@ useDialogFocusTrap(() => Boolean(props.pendingBacklog), dialogCardRef, {
               variant="tonal"
               size="s"
               class="w-full sm:w-auto"
+              :disabled="loading"
               @click="emit('confirm', false)"
             >
               {{ t('dialogs.backlog.watchOnly') }}
             </M3Button>
             <M3Button
               variant="filled"
-              size="s"
+              size="m"
               class="w-full sm:w-auto"
+              :disabled="loading"
+              :loading="loading"
               @click="emit('confirm', true)"
             >
               {{ t('dialogs.backlog.backupAndWatch') }}

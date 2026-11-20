@@ -397,7 +397,7 @@ export function triggerMockCircuitBreaker(reason: 'SIGN_IN_REQUIRED' | 'ACCOUNT_
       reason: 'RATE_LIMITED',
       email: mockState.account,
       message: 'Google asked Lumen to slow down (HTTP 429)',
-      resumeAt: Date.now() + 15 * 60 * 1000,
+      resumeAt: Date.now() + 30 * 1000,
     }
   } else if (reason === 'ACCOUNT_RESTRICTED') {
     uploadManager.state.accountBlocked = {

@@ -173,13 +173,8 @@ impl AlbumRegistry {
             return Ok(());
         }
         let _save_guard = self.save_lock.lock().unwrap();
-        if let Some(parent) = self.file_path.parent() {
-            let _ = fs::create_dir_all(parent);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = fs::set_permissions(parent, fs::Permissions::from_mode(0o700));
-            }
+        if let Some(parent) = self.file_path.parent().filter(|p| !p.as_os_str().is_empty()) {
+            let _ = crate::config::ensure_private_parent_dir(parent);
         }
         let entries = self.entries.read().unwrap();
         let json = serde_json::to_string_pretty(&*entries)

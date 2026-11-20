@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import licensesData from '../assets/third-party-licenses.json'
 import M3Button from './ui/M3Button.vue'
+import M3ButtonGroup from './ui/M3ButtonGroup.vue'
 import M3Icon from './ui/M3Icon.vue'
 import M3TextField from './ui/M3TextField.vue'
 import { useDialogFocusTrap } from '../utils/useDialogFocusTrap'
@@ -60,16 +61,20 @@ const filteredNpmDeps = computed(() => {
         <div
           ref="dialogCardRef"
           tabindex="-1"
-          class="m3-dialog-card relative flex flex-col w-full max-w-4xl max-h-[85vh] rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] border border-[var(--md-sys-color-outline-variant)]/40 shadow-2xl overflow-hidden outline-none"
+          class="m3-dialog-card relative flex flex-col w-full max-w-4xl max-h-[85vh] rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] shadow-2xl overflow-hidden outline-none focus-visible:outline-[3px] focus-visible:outline-[var(--md-sys-color-primary)]"
           role="dialog"
           aria-modal="true"
           aria-labelledby="licenses-modal-title"
         >
-          <!-- Modal Header -->
-          <div class="flex items-center justify-between border-b border-[var(--md-sys-color-outline-variant)]/30 px-6 py-4">
-            <div class="flex items-center gap-3">
-              <div class="flex size-10 items-center justify-center rounded-[16px] bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
-                <M3Icon name="policy" :size="20" />
+          <!-- M3E Modal Header -->
+          <div class="flex items-center justify-between px-6 pt-5 pb-4">
+            <div class="flex items-center gap-3.5">
+              <div class="flex size-12 shrink-0 items-center justify-center rounded-[16px] bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
+                <M3Icon
+                  name="policy"
+                  :filled="true"
+                  :size="24"
+                />
               </div>
               <div>
                 <h2
@@ -78,7 +83,7 @@ const filteredNpmDeps = computed(() => {
                 >
                   {{ t('licenses.title') }}
                 </h2>
-                <p class="m3-body-medium">
+                <p class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)]">
                   {{ t('licenses.subtitle') }}
                 </p>
               </div>
@@ -86,22 +91,22 @@ const filteredNpmDeps = computed(() => {
 
             <M3Button
               variant="text"
-              size="xs"
+              size="s"
               icon="close"
               :aria-label="t('licenses.closeAria')"
-              class="!size-9 !min-w-0 !p-0"
+              class="!size-10 !min-w-0 !p-0 shrink-0"
               @click="close"
             />
           </div>
 
-          <!-- Navigation Tabs Bar -->
-          <div class="flex items-center justify-between border-b border-[var(--md-sys-color-outline-variant)]/30 px-6 py-2.5 bg-[var(--md-sys-color-surface-container)] gap-4">
-            <div class="flex items-center gap-1.5 p-1 rounded-full bg-[var(--md-sys-color-surface-container-high)] border border-[var(--md-sys-color-outline-variant)]/30">
+          <!-- M3E Connected Button Group Navigation Bar -->
+          <div class="flex flex-wrap items-center justify-between px-6 py-3 bg-[var(--md-sys-color-surface-container)] gap-4">
+            <M3ButtonGroup :connected="true">
               <M3Button
-                size="xs"
+                size="s"
                 :toggle="true"
                 :selected="activeTab === 'project'"
-                :variant="activeTab === 'project' ? 'filled' : 'text'"
+                :variant="activeTab === 'project' ? 'tonal' : 'outlined'"
                 icon="copyright"
                 @click="activeTab = 'project'"
               >
@@ -109,10 +114,10 @@ const filteredNpmDeps = computed(() => {
               </M3Button>
 
               <M3Button
-                size="xs"
+                size="s"
                 :toggle="true"
                 :selected="activeTab === 'rust'"
-                :variant="activeTab === 'rust' ? 'filled' : 'text'"
+                :variant="activeTab === 'rust' ? 'tonal' : 'outlined'"
                 icon="build"
                 @click="activeTab = 'rust'"
               >
@@ -120,18 +125,21 @@ const filteredNpmDeps = computed(() => {
               </M3Button>
 
               <M3Button
-                size="xs"
+                size="s"
                 :toggle="true"
                 :selected="activeTab === 'npm'"
-                :variant="activeTab === 'npm' ? 'filled' : 'text'"
+                :variant="activeTab === 'npm' ? 'tonal' : 'outlined'"
                 icon="javascript"
                 @click="activeTab = 'npm'"
               >
                 {{ t('licenses.npmTab', { count: licensesData.npmDependencies.length }) }}
               </M3Button>
-            </div>
+            </M3ButtonGroup>
 
-            <div v-if="activeTab !== 'project'" class="w-64">
+            <div
+              v-if="activeTab !== 'project'"
+              class="w-full sm:w-64"
+            >
               <M3TextField
                 id="license-search"
                 v-model="searchQuery"
@@ -145,58 +153,70 @@ const filteredNpmDeps = computed(() => {
           <!-- Tab 1: Project & Upstream Licenses -->
           <div
             v-if="activeTab === 'project'"
-            class="flex flex-col gap-6 p-6 overflow-y-auto flex-1 min-h-0 m3-body-medium"
+            class="flex flex-col gap-4 p-6 overflow-y-auto flex-1 min-h-0 m3-body-medium"
           >
             <!-- Lumen License -->
-            <div class="flex flex-col gap-2 rounded-2xl bg-[var(--md-sys-color-surface-container-low)] p-5 border border-[var(--md-sys-color-outline-variant)]/30">
-              <div class="flex items-center justify-between border-b border-[var(--md-sys-color-outline-variant)]/20 pb-2">
+            <div class="flex flex-col gap-3 rounded-[20px] bg-[var(--md-sys-color-surface-container)] p-5">
+              <div class="flex items-center justify-between gap-2">
                 <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">{{ licensesData.project.name }}</span>
-                <span class="rounded-full bg-[var(--md-sys-color-primary-container)] px-2.5 py-0.5 m3-label-small text-[var(--md-sys-color-on-primary-container)]">
+                <span class="rounded-full bg-[var(--md-sys-color-primary-container)] px-3 py-1 m3-label-large text-xs text-[var(--md-sys-color-on-primary-container)]">
                   {{ licensesData.project.license }}
                 </span>
               </div>
-              <pre class="m3-mono m3-body-medium leading-relaxed whitespace-pre-wrap mt-1">{{ licensesData.project.text }}</pre>
+              <pre class="m3-mono m3-body-medium leading-relaxed whitespace-pre-wrap text-[var(--md-sys-color-on-surface-variant)]">{{ licensesData.project.text }}</pre>
             </div>
 
             <!-- Upstream gotohp License -->
-            <div class="flex flex-col gap-2 rounded-2xl bg-[var(--md-sys-color-surface-container-low)] p-5 border border-[var(--md-sys-color-outline-variant)]/30">
-              <div class="flex items-center justify-between border-b border-[var(--md-sys-color-outline-variant)]/20 pb-2">
+            <div class="flex flex-col gap-3 rounded-[20px] bg-[var(--md-sys-color-surface-container)] p-5">
+              <div class="flex items-center justify-between gap-2">
                 <div>
                   <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">{{ t('licenses.upstreamProject', { name: licensesData.upstream.name }) }}</span>
-                  <span class="block m3-body-medium mt-0.5">{{ licensesData.upstream.copyright }}</span>
+                  <span class="block m3-body-medium text-[var(--md-sys-color-on-surface-variant)] mt-0.5">{{ licensesData.upstream.copyright }}</span>
                 </div>
-                <span class="rounded-full bg-[var(--md-sys-color-secondary-container)] px-2.5 py-0.5 m3-label-small text-[var(--md-sys-color-on-secondary-container)]">
+                <span class="rounded-full bg-[var(--md-sys-color-secondary-container)] px-3 py-1 m3-label-large text-xs text-[var(--md-sys-color-on-secondary-container)]">
                   {{ licensesData.upstream.license }}
                 </span>
               </div>
-              <pre class="m3-mono m3-body-medium leading-relaxed whitespace-pre-wrap mt-1">{{ licensesData.upstream.text }}</pre>
+              <pre class="m3-mono m3-body-medium leading-relaxed whitespace-pre-wrap text-[var(--md-sys-color-on-surface-variant)]">{{ licensesData.upstream.text }}</pre>
             </div>
           </div>
 
-          <!-- Tab 2: Rust Dependencies -->
+          <!-- Tab 2: Rust Dependencies (M3E grouped segmented list) -->
           <div
             v-if="activeTab === 'rust'"
-            class="flex flex-col overflow-y-auto flex-1 min-h-0 divide-y divide-[var(--md-sys-color-outline-variant)]/20"
+            class="flex flex-col gap-1 p-6 overflow-y-auto flex-1 min-h-0"
           >
             <div
-              v-for="dep in filteredRustDeps"
+              v-for="(dep, idx) in filteredRustDeps"
               :key="`${dep.name}@${dep.version}`"
-              class="px-6 py-3 flex items-center justify-between gap-4 hover:bg-[var(--md-sys-color-surface-container-high)]/60 transition-colors"
+              class="px-4 py-3 flex items-center justify-between gap-4 bg-[var(--md-sys-color-surface-container)] hover:bg-[var(--md-sys-color-surface-container-highest)] transition-colors"
+              :class="[
+                filteredRustDeps.length === 1
+                  ? 'rounded-[20px]'
+                  : idx === 0
+                    ? 'rounded-t-[20px] rounded-b-[4px]'
+                    : idx === filteredRustDeps.length - 1
+                      ? 'rounded-t-[4px] rounded-b-[20px]'
+                      : 'rounded-[4px]',
+              ]"
             >
               <div class="flex flex-col min-w-0">
-                <span class="m3-mono m3-body-medium text-[var(--md-sys-color-on-surface)] truncate" :title="dep.name">
+                <span
+                  class="m3-mono m3-body-medium text-[var(--md-sys-color-on-surface)] truncate"
+                  :title="dep.name"
+                >
                   {{ dep.name }}
                 </span>
-                <span class="m3-body-medium">
+                <span class="m3-body-small text-[var(--md-sys-color-on-surface-variant)]">
                   {{ t('licenses.version', { version: dep.version }) }}
                 </span>
               </div>
 
               <span
-                class="rounded-full px-2.5 py-0.5 m3-label-small shrink-0"
+                class="rounded-full px-3 py-1 m3-label-large text-xs shrink-0"
                 :class="dep.license === 'unknown'
-                  ? 'bg-amber-500/20 text-amber-300'
-                  : 'bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-on-surface)]'"
+                  ? 'bg-[var(--md-sys-color-tertiary-container)] text-[var(--md-sys-color-on-tertiary-container)]'
+                  : 'bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]'"
               >
                 {{ dep.license }}
               </span>
@@ -204,36 +224,48 @@ const filteredNpmDeps = computed(() => {
 
             <div
               v-if="filteredRustDeps.length === 0"
-              class="p-8 text-center m3-body-medium"
+              class="p-8 text-center m3-body-medium text-[var(--md-sys-color-on-surface-variant)]"
             >
               {{ t('licenses.noDependencies') }}
             </div>
           </div>
 
-          <!-- Tab 3: NPM Dependencies -->
+          <!-- Tab 3: NPM Dependencies (M3E grouped segmented list) -->
           <div
             v-if="activeTab === 'npm'"
-            class="flex flex-col overflow-y-auto flex-1 min-h-0 divide-y divide-[var(--md-sys-color-outline-variant)]/20"
+            class="flex flex-col gap-1 p-6 overflow-y-auto flex-1 min-h-0"
           >
             <div
-              v-for="dep in filteredNpmDeps"
+              v-for="(dep, idx) in filteredNpmDeps"
               :key="`${dep.name}@${dep.version}`"
-              class="px-6 py-3 flex items-center justify-between gap-4 hover:bg-[var(--md-sys-color-surface-container-high)]/60 transition-colors"
+              class="px-4 py-3 flex items-center justify-between gap-4 bg-[var(--md-sys-color-surface-container)] hover:bg-[var(--md-sys-color-surface-container-highest)] transition-colors"
+              :class="[
+                filteredNpmDeps.length === 1
+                  ? 'rounded-[20px]'
+                  : idx === 0
+                    ? 'rounded-t-[20px] rounded-b-[4px]'
+                    : idx === filteredNpmDeps.length - 1
+                      ? 'rounded-t-[4px] rounded-b-[20px]'
+                      : 'rounded-[4px]',
+              ]"
             >
               <div class="flex flex-col min-w-0">
-                <span class="m3-mono m3-body-medium text-[var(--md-sys-color-on-surface)] truncate" :title="dep.name">
+                <span
+                  class="m3-mono m3-body-medium text-[var(--md-sys-color-on-surface)] truncate"
+                  :title="dep.name"
+                >
                   {{ dep.name }}
                 </span>
-                <span class="m3-body-medium">
+                <span class="m3-body-small text-[var(--md-sys-color-on-surface-variant)]">
                   {{ t('licenses.version', { version: dep.version }) }}
                 </span>
               </div>
 
               <span
-                class="rounded-full px-2.5 py-0.5 m3-label-small shrink-0"
+                class="rounded-full px-3 py-1 m3-label-large text-xs shrink-0"
                 :class="dep.license === 'unknown'
-                  ? 'bg-amber-500/20 text-amber-300'
-                  : 'bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-on-surface)]'"
+                  ? 'bg-[var(--md-sys-color-tertiary-container)] text-[var(--md-sys-color-on-tertiary-container)]'
+                  : 'bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]'"
               >
                 {{ dep.license }}
               </span>
@@ -241,20 +273,20 @@ const filteredNpmDeps = computed(() => {
 
             <div
               v-if="filteredNpmDeps.length === 0"
-              class="p-8 text-center m3-body-medium"
+              class="p-8 text-center m3-body-medium text-[var(--md-sys-color-on-surface-variant)]"
             >
               {{ t('licenses.noDependencies') }}
             </div>
           </div>
 
-          <!-- Modal Footer -->
-          <div class="flex items-center justify-between border-t border-[var(--md-sys-color-outline-variant)]/30 px-6 py-3.5 bg-[var(--md-sys-color-surface-container)]">
-            <span class="m3-body-medium">
+          <!-- M3E Modal Footer (tonal container, no border hack) -->
+          <div class="flex items-center justify-between gap-4 px-6 py-4 bg-[var(--md-sys-color-surface-container)]">
+            <span class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)]">
               {{ t('licenses.notice') }}
             </span>
             <M3Button
               variant="filled"
-              size="s"
+              size="m"
               @click="close"
             >
               {{ t('licenses.done') }}

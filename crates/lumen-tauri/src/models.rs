@@ -31,6 +31,8 @@ pub struct Preferences {
     pub watched_folder_configs: Vec<WatchedFolderConfig>,
     pub recent_albums: Vec<String>,
     pub auto_check_updates: bool,
+    #[serde(default = "default_auto_update_interval_hours")]
+    pub auto_update_interval_hours: u32,
     pub last_update_check: i64,
     #[serde(default)]
     pub schedule_enabled: bool,
@@ -51,6 +53,7 @@ pub struct Preferences {
 fn default_locale() -> String { "en".to_string() }
 fn default_sched_start() -> u8 { 1 }
 fn default_sched_end() -> u8 { 7 }
+fn default_auto_update_interval_hours() -> u32 { 6 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]

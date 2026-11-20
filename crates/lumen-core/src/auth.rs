@@ -169,7 +169,7 @@ pub async fn exchange_embedded_setup_token(
         .form(&params)
         .send()
         .await
-        .map_err(|e| AuthError::Network(e.to_string()))?;
+        .map_err(|e| AuthError::Network(crate::net::format_reqwest_error(&e)))?;
 
     let status = resp.status();
     let body_bytes = crate::net::read_response_bytes_bounded(resp, crate::net::MAX_RESPONSE_BODY_BYTES)
@@ -177,11 +177,17 @@ pub async fn exchange_embedded_setup_token(
         .map_err(AuthError::Network)?;
     let body = String::from_utf8_lossy(&body_bytes).to_string();
 
+    let parsed = parse_key_value_response(&body);
     if !status.is_success() {
-        return Err(classify_auth_error_message(&format!("HTTP {}: {}", status.as_u16(), body)));
+        let sanitized = match parsed.get("Error") {
+            Some(err_code) if !err_code.trim().is_empty() => {
+                format!("HTTP {}: {}", status.as_u16(), err_code.trim())
+            }
+            _ => format!("HTTP {}", status.as_u16()),
+        };
+        return Err(classify_auth_error_message(&sanitized));
     }
 
-    let parsed = parse_key_value_response(&body);
     if let Some(err_code) = parsed.get("Error") {
         return Err(classify_auth_error_message(err_code));
     }

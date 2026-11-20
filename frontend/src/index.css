@@ -1130,7 +1130,24 @@ button:not(.no-state-layer):active:not(:disabled)::before,
   }
 }
 
-/* Modal transition for Vue transitions (Google Auth & Album Prompt) */
+/* Modal transition for Vue transitions (M3E: spatial spring enter, fast-effects exit, effects scrim fade) */
+.m3-dialog-wrapper {
+  transition: opacity var(--md-sys-motion-duration-fast-effects, 150ms) var(--md-sys-motion-easing-fast-effects, cubic-bezier(0.31, 0.94, 0.34, 1.00));
+}
+
+.m3-dialog-modal-enter-from,
+.m3-dialog-modal-leave-to {
+  opacity: 0;
+}
+
+.m3-dialog-modal-enter-active {
+  transition: opacity var(--md-sys-motion-duration-default-effects, 200ms) var(--md-sys-motion-easing-default-effects, cubic-bezier(0.34, 0.80, 0.34, 1.00));
+}
+
+.m3-dialog-modal-leave-active {
+  transition: opacity var(--md-sys-motion-duration-fast-effects, 150ms) var(--md-sys-motion-easing-fast-effects, cubic-bezier(0.31, 0.94, 0.34, 1.00));
+}
+
 .m3-dialog-card {
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
@@ -1138,32 +1155,32 @@ button:not(.no-state-layer):active:not(:disabled)::before,
 }
 
 .m3-dialog-modal-enter-active .m3-dialog-card {
-  animation: m3-dialog-card-enter var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial) forwards;
+  animation: m3-dialog-card-enter var(--md-sys-motion-duration-default-spatial, 500ms) var(--md-sys-motion-easing-default-spatial, cubic-bezier(0.38, 1.21, 0.22, 1.00)) forwards;
 }
 
 .m3-dialog-modal-leave-active .m3-dialog-card {
-  animation: m3-dialog-card-exit var(--md-sys-motion-duration-effects-fast) var(--md-sys-motion-easing-effects) forwards;
+  animation: m3-dialog-card-exit var(--md-sys-motion-duration-fast-effects, 150ms) var(--md-sys-motion-easing-fast-effects, cubic-bezier(0.31, 0.94, 0.34, 1.00)) forwards;
 }
 
 @keyframes m3-dialog-card-enter {
   from {
     opacity: 0;
-    transform: scale(0.92);
+    transform: translateY(10px) scale(0.94);
   }
   to {
     opacity: 1;
-    transform: scale(1);
+    transform: translateY(0) scale(1);
   }
 }
 
 @keyframes m3-dialog-card-exit {
   from {
     opacity: 1;
-    transform: scale(1);
+    transform: translateY(0) scale(1);
   }
   to {
     opacity: 0;
-    transform: scale(0.95);
+    transform: translateY(6px) scale(0.96);
   }
 }
 
@@ -1248,15 +1265,15 @@ button:not(.no-state-layer):active:not(:disabled)::before,
   overscroll-behavior: contain;
 }
 
-/* Scrims & Modal Overlays: restored blur with opaque fallback */
+/* Scrims & Modal Overlays: unified M3E scrim with subtle blur */
 .m3-dialog-wrapper,
 .m3-dialog-overlay {
-  background-color: rgba(0, 0, 0, 0.68);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background-color: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 
-/* Dialog content elevation pseudo-elements */
+/* Dialog content elevation pseudo-elements (neutral M3 Level 3 elevation, seed-agnostic) */
 .m3-dialog-card {
   position: relative;
   isolation: isolate;
@@ -1268,8 +1285,8 @@ button:not(.no-state-layer):active:not(:disabled)::before,
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  box-shadow: 0 24px 48px -8px rgba(0, 0, 0, 0.55),
-              0 0 48px -12px oklch(0.78 0.14 245 / 20%);
+  box-shadow: 0 12px 32px -4px rgba(0, 0, 0, 0.42),
+              0 4px 12px -2px rgba(0, 0, 0, 0.24);
   opacity: 1;
   pointer-events: none;
   z-index: -1;
@@ -1322,77 +1339,96 @@ button:not(.no-state-layer):active:not(:disabled)::before,
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.32);
 }
 
-/* M3 Expressive glowing dashed/dotted upload drop card */
+/* M3 Expressive upload drop card (spatial spring for shape/scale, effects spring for color/glow) */
 .m3-drop-zone-glow {
   position: relative;
   border-style: dashed !important;
   border-width: 2px !important;
+  border-radius: var(--md-sys-shape-corner-extra-large, 28px);
   border-color: var(--md-sys-color-outline-variant);
   box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.25);
-  transition: border-color var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial),
-              box-shadow var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial),
-              background-color var(--md-sys-motion-duration-spatial) var(--md-sys-motion-easing-spatial);
+  transition:
+    transform var(--md-sys-motion-duration-fast-spatial, 350ms) var(--md-sys-motion-easing-fast-spatial, cubic-bezier(0.42, 1.67, 0.21, 0.90)),
+    border-radius var(--md-sys-motion-duration-fast-spatial, 350ms) var(--md-sys-motion-easing-fast-spatial, cubic-bezier(0.42, 1.67, 0.21, 0.90)),
+    border-color var(--md-sys-motion-duration-default-effects, 200ms) var(--md-sys-motion-easing-default-effects, cubic-bezier(0.34, 0.80, 0.34, 1.00)),
+    box-shadow var(--md-sys-motion-duration-default-effects, 200ms) var(--md-sys-motion-easing-default-effects, cubic-bezier(0.34, 0.80, 0.34, 1.00)),
+    background-color var(--md-sys-motion-duration-default-effects, 200ms) var(--md-sys-motion-easing-default-effects, cubic-bezier(0.34, 0.80, 0.34, 1.00)),
+    color var(--md-sys-motion-duration-default-effects, 200ms) var(--md-sys-motion-easing-default-effects, cubic-bezier(0.34, 0.80, 0.34, 1.00));
 }
 
-.m3-drop-zone-glow:hover {
+.m3-drop-zone-glow:hover:not(.is-disabled) {
   border-color: var(--md-sys-color-primary);
-  box-shadow: 0 0 24px -2px color-mix(in srgb, var(--md-sys-color-primary) 40%, transparent),
+  box-shadow: 0 0 24px -2px color-mix(in srgb, var(--md-sys-color-primary) 36%, transparent),
               0 6px 20px rgba(0, 0, 0, 0.35);
 }
 
 .m3-drop-zone-glow.is-dragging,
 .m3-drop-zone-glow.file-drop-target-active,
 .m3-drop-zone-glow.is-active {
+  border-style: solid !important;
   border-color: var(--md-sys-color-primary) !important;
-  background-color: color-mix(in srgb, var(--md-sys-color-primary) 12%, var(--md-sys-color-surface-container)) !important;
-  box-shadow: 0 0 36px 6px color-mix(in srgb, var(--md-sys-color-primary) 45%, transparent),
-              inset 0 0 24px color-mix(in srgb, var(--md-sys-color-primary) 20%, transparent) !important;
-  animation: m3-dashed-glow-pulse 2s ease-in-out infinite alternate;
+  border-radius: var(--md-sys-shape-corner-extra-large-increased, 32px);
+  transform: scale(1.015);
+  box-shadow: 0 0 36px 6px color-mix(in srgb, var(--md-sys-color-primary) 40%, transparent),
+              inset 0 0 24px color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent) !important;
 }
 
-@keyframes m3-dashed-glow-pulse {
+/* Persistent 80x80 M3E icon tile: 24px resting corners -> 40px exact circle on drag-over.
+   Uses exact circle radius (not 9999px) to prevent spatial spring overshoot underflow to 0px. */
+.m3-drop-zone-icon {
+  border-radius: var(--md-sys-shape-corner-large, 24px);
+  transition:
+    transform var(--md-sys-motion-duration-fast-spatial, 350ms) var(--md-sys-motion-easing-fast-spatial, cubic-bezier(0.42, 1.67, 0.21, 0.90)),
+    border-radius var(--md-sys-motion-duration-fast-spatial, 350ms) var(--md-sys-motion-easing-fast-spatial, cubic-bezier(0.42, 1.67, 0.21, 0.90)),
+    background-color var(--md-sys-motion-duration-fast-effects, 150ms) var(--md-sys-motion-easing-fast-effects, cubic-bezier(0.31, 0.94, 0.34, 1.00)),
+    color var(--md-sys-motion-duration-fast-effects, 150ms) var(--md-sys-motion-easing-fast-effects, cubic-bezier(0.31, 0.94, 0.34, 1.00));
+}
+
+.m3-drop-zone-glow:hover:not(.is-disabled):not(.is-dragging) .m3-drop-zone-icon {
+  transform: scale(1.05);
+  border-radius: var(--md-sys-shape-corner-extra-large, 28px);
+}
+
+.m3-drop-zone-icon.is-dragging {
+  border-radius: 40px;
+  transform: scale(1.1);
+  animation: m3-drop-zone-bob 900ms var(--md-sys-motion-easing-default-spatial, cubic-bezier(0.38, 1.21, 0.22, 1.00)) infinite alternate;
+}
+
+/* Action buttons: fade via effects spring (damping 1.0, no overshoot), collapse/slide via spatial spring */
+.m3-drop-zone-actions {
+  transition:
+    opacity var(--md-sys-motion-duration-fast-effects, 150ms) var(--md-sys-motion-easing-fast-effects, cubic-bezier(0.31, 0.94, 0.34, 1.00)),
+    max-height var(--md-sys-motion-duration-default-spatial, 500ms) var(--md-sys-motion-easing-default-spatial, cubic-bezier(0.38, 1.21, 0.22, 1.00)),
+    padding-top var(--md-sys-motion-duration-default-spatial, 500ms) var(--md-sys-motion-easing-default-spatial, cubic-bezier(0.38, 1.21, 0.22, 1.00)),
+    padding-bottom var(--md-sys-motion-duration-default-spatial, 500ms) var(--md-sys-motion-easing-default-spatial, cubic-bezier(0.38, 1.21, 0.22, 1.00)),
+    transform var(--md-sys-motion-duration-fast-spatial, 350ms) var(--md-sys-motion-easing-fast-spatial, cubic-bezier(0.42, 1.67, 0.21, 0.90));
+}
+
+@keyframes m3-drop-zone-bob {
   0% {
-    box-shadow: 0 0 20px 2px color-mix(in srgb, var(--md-sys-color-primary) 30%, transparent),
-                inset 0 0 12px color-mix(in srgb, var(--md-sys-color-primary) 15%, transparent);
-    border-color: var(--md-sys-color-primary);
+    transform: scale(1.08) translateY(-3px);
   }
   100% {
-    box-shadow: 0 0 44px 8px color-mix(in srgb, var(--md-sys-color-primary) 65%, transparent),
-                inset 0 0 32px color-mix(in srgb, var(--md-sys-color-primary) 30%, transparent);
-    border-color: var(--md-sys-color-primary);
+    transform: scale(1.12) translateY(5px);
   }
 }
 
-/* Active drag-over state: shifts to primary-container, morphs shape within bounds, NO scale */
-.drop-zone.file-drop-target-active,
-.drop-zone.is-active {
-  border-radius: 40px;
-  border-color: var(--md-sys-color-primary) !important;
-  background-color: var(--md-sys-color-primary-container) !important;
-  box-shadow: 0 8px 28px -4px oklch(0.70 0.22 250 / 30%);
-}
-
-.drop-zone.file-drop-target-active h2,
-.drop-zone.file-drop-target-active p,
-.drop-zone.is-active h2,
-.drop-zone.is-active p {
-  color: var(--md-sys-color-on-primary-container) !important;
-}
-
-.drop-zone.file-drop-target-active svg,
-.drop-zone.is-active svg {
-  animation: m3-icon-bounce 450ms var(--md-sys-motion-easing-spatial);
-}
-
-@keyframes m3-icon-bounce {
-  0%, 100% {
-    transform: translateY(0);
+@media (prefers-reduced-motion: reduce) {
+  .m3-drop-zone-glow,
+  .m3-drop-zone-icon,
+  .m3-drop-zone-actions {
+    transition:
+      opacity 120ms linear,
+      background-color 120ms linear,
+      border-color 120ms linear,
+      color 120ms linear;
   }
-  40% {
-    transform: translateY(-8px) scale(1.1);
-  }
-  70% {
-    transform: translateY(2px) scale(0.96);
+  .m3-drop-zone-glow.is-dragging,
+  .m3-drop-zone-glow:hover .m3-drop-zone-icon,
+  .m3-drop-zone-icon.is-dragging {
+    transform: none;
+    animation: none;
   }
 }
 

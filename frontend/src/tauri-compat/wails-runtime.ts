@@ -87,7 +87,9 @@ export const Events = {
       if (tauriListen) {
         tauriListen(eventName, (tauriEvent: any) => {
           const payload = tauriEvent.payload;
-          console.log(`[EVENT RECEIVED] ${eventName}:`, JSON.stringify(payload));
+          if (import.meta.env.DEV) {
+            console.log(`[EVENT RECEIVED] ${eventName}:`, JSON.stringify(payload));
+          }
           const set = eventListeners[eventName];
           if (set) {
             set.forEach((cb) => {

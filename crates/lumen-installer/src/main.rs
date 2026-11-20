@@ -11,12 +11,64 @@ use tauri::{AppHandle, Window};
 use tauri_plugin_dialog::DialogExt;
 
 const EMBEDDED_PAYLOAD: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/payload.tar.gz"));
+#[cfg(windows)]
+const WINDOWS_NOTIFICATION_ICON_PNG: &[u8] = include_bytes!("../../lumen-tauri/icons/128x128.png");
+
+const IS_DEV_CHANNEL: bool = cfg!(debug_assertions);
+const APP_DISPLAY_NAME: &str = if IS_DEV_CHANNEL { "Lumen Dev" } else { "Lumen" };
+#[cfg(windows)]
+const APP_AUMID: &str = if IS_DEV_CHANNEL { "com.reiux.lumen.dev" } else { "com.reiux.lumen" };
+#[cfg(windows)]
+const UNINSTALL_REG_KEY_NAME: &str = if IS_DEV_CHANNEL { "LumenDev" } else { "Lumen" };
+#[cfg(windows)]
+const SHORTCUT_FILENAME: &str = if IS_DEV_CHANNEL { "Lumen Dev.lnk" } else { "Lumen.lnk" };
+#[cfg(windows)]
+const STARTUP_REG_VALUE_NAME: &str = if IS_DEV_CHANNEL { "Lumen Dev" } else { "Lumen" };
+#[cfg(windows)]
+const INSTALL_DIR_NAME_WIN: &str = if IS_DEV_CHANNEL { "Lumen Dev" } else { "Lumen" };
+#[cfg(unix)]
+const INSTALL_DIR_NAME_UNIX: &str = if IS_DEV_CHANNEL { "Lumen-dev" } else { "Lumen" };
+const CONFIG_DIR_NAME: &str = if IS_DEV_CHANNEL { "lumen-dev" } else { "lumen" };
+#[cfg(windows)]
+const WINDOWS_MAIN_EXE_NAME: &str = if IS_DEV_CHANNEL { "Lumen-dev.exe" } else { "Lumen.exe" };
+
+fn channel_install_dir_name() -> &'static str {
+    #[cfg(windows)]
+    {
+        INSTALL_DIR_NAME_WIN
+    }
+    #[cfg(not(windows))]
+    {
+        INSTALL_DIR_NAME_UNIX
+    }
+}
+
+fn is_dedicated_lumen_folder_name(name: &str) -> bool {
+    name.eq_ignore_ascii_case(channel_install_dir_name())
+        || name.eq_ignore_ascii_case("lumen")
+        || name.eq_ignore_ascii_case("lumen dev")
+        || name.eq_ignore_ascii_case("lumen-dev")
+        || name.eq_ignore_ascii_case("gotohp")
+}
+
+fn ensure_dedicated_install_subdir(selected: &Path) -> PathBuf {
+    let raw = selected.to_string_lossy();
+    let trimmed = raw.trim().trim_end_matches(['/', '\\']);
+    let last_component = trimmed.rsplit(['/', '\\']).next().unwrap_or("");
+    if !last_component.is_empty() && is_dedicated_lumen_folder_name(last_component) {
+        selected.to_path_buf()
+    } else {
+        selected.join(channel_install_dir_name())
+    }
+}
 
 #[derive(Serialize)]
 pub struct SetupInfo {
     pub is_uninstall: bool,
     pub is_installed: bool,
     pub is_update: bool,
+    pub is_dev: bool,
+    pub app_name: String,
     pub installed_version: String,
     pub current_version: String,
     pub default_path: String,
@@ -34,11 +86,19 @@ struct InstalledAppInfo {
 fn app_binary_names() -> &'static [&'static str] {
     #[cfg(windows)]
     {
-        &["Lumen.exe", "lumen.exe"]
+        if IS_DEV_CHANNEL {
+            &["Lumen-dev.exe", "lumen-dev.exe"]
+        } else {
+            &["Lumen.exe", "lumen.exe"]
+        }
     }
     #[cfg(not(windows))]
     {
-        &["Lumen", "lumen"]
+        if IS_DEV_CHANNEL {
+            &["Lumen-dev", "lumen-dev", "Lumen", "lumen"]
+        } else {
+            &["Lumen", "lumen"]
+        }
     }
 }
 
@@ -91,6 +151,17 @@ fn is_older_version(installed: &str, current: &str) -> bool {
     }
 }
 
+#[cfg(any(windows, test))]
+fn extract_exe_path_from_uninstall_string(uninst_str: &str) -> PathBuf {
+    let clean = uninst_str.trim().trim_matches('"');
+    let exe_part = if let Some(idx) = clean.to_ascii_lowercase().find(".exe") {
+        &clean[..idx + 4]
+    } else {
+        clean
+    };
+    PathBuf::from(exe_part.trim().trim_matches('"'))
+}
+
 #[cfg(windows)]
 fn extract_dir_from_reg_key(key: &winreg::RegKey) -> Option<PathBuf> {
     if let Ok(loc) = key.get_value::<String, _>("InstallLocation") {
@@ -103,13 +174,7 @@ fn extract_dir_from_reg_key(key: &winreg::RegKey) -> Option<PathBuf> {
         }
     }
     if let Ok(uninst_str) = key.get_value::<String, _>("UninstallString") {
-        let clean = uninst_str.trim().trim_matches('"');
-        let exe_part = if let Some(idx) = clean.to_lowercase().find(".exe") {
-            &clean[..idx + 4]
-        } else {
-            clean
-        };
-        let p = PathBuf::from(exe_part.trim().trim_matches('"'));
+        let p = extract_exe_path_from_uninstall_string(&uninst_str);
         if let Some(parent) = p.parent() {
             if parent.exists() {
                 return Some(parent.to_path_buf());
@@ -138,7 +203,7 @@ fn get_hkcu_modern_install() -> Option<(PathBuf, String)> {
     let uninstall_root = hkcu
         .open_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall")
         .ok()?;
-    let app_key = uninstall_root.open_subkey("Lumen").ok()?;
+    let app_key = uninstall_root.open_subkey(UNINSTALL_REG_KEY_NAME).ok()?;
     let version = app_key
         .get_value::<String, _>("DisplayVersion")
         .unwrap_or_default();
@@ -168,6 +233,12 @@ fn is_modern_v2_dir(candidate: &Path, modern: Option<&(PathBuf, String)>) -> boo
 }
 
 fn get_legacy_nsis_info() -> Option<InstalledAppInfo> {
+    // Dev channel is strictly isolated from release installs and must never
+    // detect, update, or remove a legacy v1.x NSIS release installation.
+    if IS_DEV_CHANNEL {
+        return None;
+    }
+
     let current_exe_dir = env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()))
@@ -193,26 +264,19 @@ fn get_legacy_nsis_info() -> Option<InstalledAppInfo> {
                     if is_modern_v2_dir(&candidate, hkcu_modern.as_ref()) {
                         continue;
                     }
-                    if candidate.is_dir() {
-                        let has_app = candidate.join("Lumen.exe").is_file()
-                            || candidate.join("lumen.exe").is_file()
-                            || candidate.join("uninstall.exe").is_file()
-                            || candidate.join("wails.json").is_file()
-                            || candidate.read_dir().map(|mut d| d.next().is_some()).unwrap_or(false);
-                        if has_app {
-                            if let Some(ref cur) = current_exe_dir {
-                                if let Ok(canon) = candidate.canonicalize() {
-                                    if canon == *cur {
-                                        continue;
-                                    }
+                    if candidate.is_dir() && has_legacy_nsis_marker(&candidate) {
+                        if let Some(ref cur) = current_exe_dir {
+                            if let Ok(canon) = candidate.canonicalize() {
+                                if canon == *cur {
+                                    continue;
                                 }
                             }
-                            return Some(InstalledAppInfo {
-                                dir: candidate,
-                                version: "1.0.1".to_string(),
-                                is_nsis: true,
-                            });
                         }
+                        return Some(InstalledAppInfo {
+                            dir: candidate,
+                            version: "1.0.1".to_string(),
+                            is_nsis: true,
+                        });
                     }
                 }
             }
@@ -340,8 +404,7 @@ fn has_any_modern_install_marker(dir: &Path) -> bool {
     }
     #[cfg(windows)]
     {
-        dir.join("Lumen.exe").is_file()
-            || dir.join("lumen.exe").is_file()
+        find_app_binary(dir).is_some()
             || dir.join("lumen-cli.exe").is_file()
             || dir.join("uninstall.exe").is_file()
     }
@@ -362,7 +425,7 @@ fn get_modern_installed_info_with_opts(include_current_dir: bool) -> Option<Inst
     #[cfg(windows)]
     {
         if let Some((p, version)) = get_hkcu_modern_install() {
-            let has_bin = p.join("Lumen.exe").is_file() || p.join("lumen.exe").is_file();
+            let has_bin = find_app_binary(&p).is_some();
             let has_partial = include_current_dir && has_any_modern_install_marker(&p);
             if has_bin || has_partial {
                 if !include_current_dir {
@@ -454,17 +517,17 @@ fn get_config_display_path() -> String {
     #[cfg(windows)]
     {
         if let Ok(appdata) = env::var("APPDATA") {
-            return format!("{}\\Lumen", appdata);
+            return format!("{}\\{}", appdata, CONFIG_DIR_NAME);
         }
-        return "%APPDATA%\\Lumen".to_string();
+        return format!("%APPDATA%\\{}", CONFIG_DIR_NAME);
     }
     #[cfg(target_os = "macos")]
     {
-        "~/Library/Application Support/lumen".to_string()
+        format!("~/Library/Application Support/{}", CONFIG_DIR_NAME)
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
-        "~/.config/lumen".to_string()
+        format!("~/.config/{}", CONFIG_DIR_NAME)
     }
 }
 
@@ -488,17 +551,22 @@ fn get_default_install_dir() -> PathBuf {
     #[cfg(windows)]
     {
         if let Ok(local_appdata) = env::var("LOCALAPPDATA") {
-            return PathBuf::from(local_appdata).join("Programs").join("Lumen");
+            return PathBuf::from(local_appdata)
+                .join("Programs")
+                .join(INSTALL_DIR_NAME_WIN);
         }
-        PathBuf::from("C:\\Program Files\\Lumen")
+        PathBuf::from("C:\\Program Files").join(INSTALL_DIR_NAME_WIN)
     }
 
     #[cfg(unix)]
     {
         if let Ok(home) = env::var("HOME") {
-            return PathBuf::from(home).join(".local").join("share").join("Lumen");
+            return PathBuf::from(home)
+                .join(".local")
+                .join("share")
+                .join(INSTALL_DIR_NAME_UNIX);
         }
-        env::temp_dir().join("Lumen")
+        env::temp_dir().join(INSTALL_DIR_NAME_UNIX)
     }
 }
 
@@ -547,6 +615,8 @@ fn get_setup_info() -> SetupInfo {
         is_uninstall,
         is_installed,
         is_update,
+        is_dev: IS_DEV_CHANNEL,
+        app_name: APP_DISPLAY_NAME.to_string(),
         installed_version,
         current_version,
         default_path,
@@ -561,7 +631,12 @@ async fn pick_directory(app: AppHandle) -> Result<Option<String>, String> {
     app.dialog()
         .file()
         .pick_folder(move |path| {
-            let res = path.map(|p| p.to_string());
+            let res = path.map(|p| {
+                let pb = PathBuf::from(p.to_string());
+                ensure_dedicated_install_subdir(&pb)
+                    .to_string_lossy()
+                    .to_string()
+            });
             let _ = tx.send(res);
         });
     Ok(rx.await.unwrap_or(None))
@@ -661,7 +736,13 @@ fn normalize_path(path: &Path) -> PathBuf {
 }
 
 fn is_safe_dedicated_install_dir(dir: &Path) -> bool {
-    let raw = strip_windows_verbatim_prefix(&dir.to_string_lossy());
+    let orig = dir.to_string_lossy();
+    let orig_slashes_upper = orig.replace('\\', "/").to_ascii_uppercase();
+    if orig_slashes_upper.starts_with("//./") || orig_slashes_upper.starts_with("//?/GLOBALROOT") {
+        return false;
+    }
+
+    let raw = strip_windows_verbatim_prefix(&orig);
     if !is_explicit_absolute_path_str(&raw) {
         return false;
     }
@@ -678,7 +759,7 @@ fn is_safe_dedicated_install_dir(dir: &Path) -> bool {
     }
 
     let folder_name = parts[parts.len() - 1];
-    if !folder_name.eq_ignore_ascii_case("lumen") && !folder_name.eq_ignore_ascii_case("gotohp") {
+    if !is_dedicated_lumen_folder_name(folder_name) {
         return false;
     }
 
@@ -744,8 +825,36 @@ fn is_safe_dedicated_install_dir(dir: &Path) -> bool {
     true
 }
 
-#[tauri::command]
-fn is_app_running() -> bool {
+fn channel_install_dirs(extra_dir: Option<&Path>) -> Vec<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Some(d) = extra_dir {
+        candidates.push(d.to_path_buf());
+    }
+    if let Some(m) = get_modern_installed_info_with_opts(true) {
+        candidates.push(m.dir);
+    }
+    candidates.push(get_default_install_dir());
+    let mut dirs = Vec::new();
+    for d in candidates {
+        let resolved = d.canonicalize().unwrap_or(d);
+        let clean = PathBuf::from(strip_windows_verbatim_prefix(&resolved.to_string_lossy()));
+        if !dirs.contains(&clean) {
+            dirs.push(clean);
+        }
+    }
+    dirs
+}
+
+#[cfg(not(windows))]
+fn unix_channel_process_names() -> &'static [&'static str] {
+    if IS_DEV_CHANNEL {
+        &["Lumen-dev", "lumen-dev"]
+    } else {
+        &["Lumen", "lumen"]
+    }
+}
+
+fn is_app_running_in_dir(extra_dir: Option<&Path>) -> bool {
     let current_pid = std::process::id();
     let current_exe_str = env::current_exe()
         .ok()
@@ -757,26 +866,56 @@ fn is_app_running() -> bool {
         .trim_start_matches("\\\\?\\")
         .to_string();
 
+    let install_dirs = channel_install_dirs(extra_dir);
+
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         use std::process::Command;
         const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-        let cur_exe_escaped = escape_powershell_single_quote(&current_exe_str);
-        let script = format!(
-            "$curPid = {}; \
-             $curExe = '{}'; \
-             $procs = Get-CimInstance Win32_Process -Filter \"Name = 'Lumen.exe' or Name = 'lumen.exe'\" -ErrorAction SilentlyContinue | Where-Object {{ $_.ProcessId -ne $curPid -and $_.ExecutablePath -and $_.ExecutablePath.ToLower() -ne $curExe.ToLower() }}; \
-             foreach ($p in $procs) {{ \
-                 Write-Output \"$($p.ProcessId)|$($p.ExecutablePath)\" \
-             }}",
-            current_pid, cur_exe_escaped
-        );
+        let channel_exes = if IS_DEV_CHANNEL {
+            "Lumen-dev.exe|lumen-dev.exe"
+        } else {
+            "Lumen.exe|lumen.exe"
+        };
+        let install_dirs_env = install_dirs
+            .iter()
+            .map(|d| d.to_string_lossy().to_string())
+            .collect::<Vec<_>>()
+            .join("|");
+
+        const SCRIPT: &str = "\
+            $curPid = [int]$env:LUMEN_CUR_PID; \
+            $curExe = $env:LUMEN_CUR_EXE; \
+            $chanExes = @($env:LUMEN_CHANNEL_EXES -split '\\|' | Where-Object { $_ }); \
+            $instDirs = @($env:LUMEN_INSTALL_DIRS -split '\\|' | Where-Object { $_ } | ForEach-Object { $_.TrimEnd('\\') + '\\' }); \
+            $procs = Get-CimInstance Win32_Process -Filter \"Name = 'Lumen.exe' or Name = 'lumen.exe' or Name = 'Lumen-dev.exe' or Name = 'lumen-dev.exe' or Name = 'lumen-cli.exe'\" -ErrorAction SilentlyContinue; \
+            foreach ($p in $procs) { \
+                if ($p.ProcessId -eq $curPid -or -not $p.ExecutablePath) { continue } \
+                if ($curExe -and $p.ExecutablePath.Equals($curExe, [StringComparison]::OrdinalIgnoreCase)) { continue } \
+                $isMain = $false; \
+                foreach ($n in $chanExes) { \
+                    if ($p.Name.Equals($n, [StringComparison]::OrdinalIgnoreCase)) { $isMain = $true; break } \
+                } \
+                $isChannelCli = $false; \
+                if (-not $isMain -and $p.Name.Equals('lumen-cli.exe', [StringComparison]::OrdinalIgnoreCase)) { \
+                    foreach ($dir in $instDirs) { \
+                        if ($p.ExecutablePath.StartsWith($dir, [StringComparison]::OrdinalIgnoreCase)) { $isChannelCli = $true; break } \
+                    } \
+                } \
+                if ($isMain -or $isChannelCli) { \
+                    Write-Output \"$($p.ProcessId)|$($p.ExecutablePath)\" \
+                } \
+            }";
 
         let output = if let Some(ps_path) = get_system_powershell() {
             Command::new(ps_path)
-                .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
+                .env("LUMEN_CUR_PID", current_pid.to_string())
+                .env("LUMEN_CUR_EXE", &current_exe_str)
+                .env("LUMEN_CHANNEL_EXES", channel_exes)
+                .env("LUMEN_INSTALL_DIRS", &install_dirs_env)
+                .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", SCRIPT])
                 .creation_flags(CREATE_NO_WINDOW)
                 .output()
         } else {
@@ -813,19 +952,34 @@ fn is_app_running() -> bool {
     #[cfg(not(windows))]
     {
         use std::process::Command;
-        let output = Command::new("pgrep").arg("-x").arg("lumen").output();
-        if let Ok(out) = output {
+        for name in unix_channel_process_names() {
+            if let Ok(out) = Command::new("pgrep").arg("-x").arg(name).output() {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                for line in stdout.lines() {
+                    if let Ok(pid) = line.trim().parse::<u32>() {
+                        if pid != current_pid {
+                            if let Ok(proc_exe) = std::fs::read_link(format!("/proc/{}/exe", pid)) {
+                                let proc_clean = proc_exe.to_string_lossy().replace('\\', "/").to_lowercase();
+                                if !cur_canon.is_empty() && proc_clean == cur_canon {
+                                    continue;
+                                }
+                            }
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        if let Ok(out) = Command::new("pgrep").arg("-x").arg("lumen-cli").output() {
             let stdout = String::from_utf8_lossy(&out.stdout);
             for line in stdout.lines() {
                 if let Ok(pid) = line.trim().parse::<u32>() {
                     if pid != current_pid {
                         if let Ok(proc_exe) = std::fs::read_link(format!("/proc/{}/exe", pid)) {
-                            let proc_clean = proc_exe.to_string_lossy().replace('\\', "/").to_lowercase();
-                            if !cur_canon.is_empty() && proc_clean == cur_canon {
-                                continue;
+                            if install_dirs.iter().any(|dir| proc_exe.starts_with(dir)) {
+                                return true;
                             }
                         }
-                        return true;
                     }
                 }
             }
@@ -835,8 +989,13 @@ fn is_app_running() -> bool {
 }
 
 #[tauri::command]
-fn kill_running_app() -> Result<(), String> {
+fn is_app_running() -> bool {
+    is_app_running_in_dir(None)
+}
+
+fn kill_running_app_in_dir(extra_dir: Option<&Path>) -> Result<(), String> {
     let current_pid = std::process::id();
+    let install_dirs = channel_install_dirs(extra_dir);
 
     #[cfg(windows)]
     {
@@ -848,28 +1007,54 @@ fn kill_running_app() -> Result<(), String> {
             .ok()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
-        let cur_exe_escaped = escape_powershell_single_quote(&current_exe_str);
-        let script = format!(
-            "$curPid = {}; \
-             $curExe = '{}'; \
-             $procs = Get-CimInstance Win32_Process -Filter \"Name = 'Lumen.exe' or Name = 'lumen.exe' or Name = 'lumen-cli.exe'\" -ErrorAction SilentlyContinue | Where-Object {{ $_.ProcessId -ne $curPid }}; \
-             foreach ($p in $procs) {{ \
-                 if ($p.ExecutablePath -and $p.ExecutablePath -ne $curExe) {{ \
-                     try {{ Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }} catch {{}} \
-                 }} \
-             }}",
-            current_pid, cur_exe_escaped
-        );
+        let channel_exes = if IS_DEV_CHANNEL {
+            "Lumen-dev.exe|lumen-dev.exe"
+        } else {
+            "Lumen.exe|lumen.exe"
+        };
+        let install_dirs_env = install_dirs
+            .iter()
+            .map(|d| d.to_string_lossy().to_string())
+            .collect::<Vec<_>>()
+            .join("|");
+
+        const SCRIPT: &str = "\
+            $curPid = [int]$env:LUMEN_CUR_PID; \
+            $curExe = $env:LUMEN_CUR_EXE; \
+            $chanExes = @($env:LUMEN_CHANNEL_EXES -split '\\|' | Where-Object { $_ }); \
+            $instDirs = @($env:LUMEN_INSTALL_DIRS -split '\\|' | Where-Object { $_ } | ForEach-Object { $_.TrimEnd('\\') + '\\' }); \
+            $procs = Get-CimInstance Win32_Process -Filter \"Name = 'Lumen.exe' or Name = 'lumen.exe' or Name = 'Lumen-dev.exe' or Name = 'lumen-dev.exe' or Name = 'lumen-cli.exe'\" -ErrorAction SilentlyContinue; \
+            foreach ($p in $procs) { \
+                if ($p.ProcessId -eq $curPid -or -not $p.ExecutablePath) { continue } \
+                if ($curExe -and $p.ExecutablePath.Equals($curExe, [StringComparison]::OrdinalIgnoreCase)) { continue } \
+                $isMain = $false; \
+                foreach ($n in $chanExes) { \
+                    if ($p.Name.Equals($n, [StringComparison]::OrdinalIgnoreCase)) { $isMain = $true; break } \
+                } \
+                $isChannelCli = $false; \
+                if (-not $isMain -and $p.Name.Equals('lumen-cli.exe', [StringComparison]::OrdinalIgnoreCase)) { \
+                    foreach ($dir in $instDirs) { \
+                        if ($p.ExecutablePath.StartsWith($dir, [StringComparison]::OrdinalIgnoreCase)) { $isChannelCli = $true; break } \
+                    } \
+                } \
+                if ($isMain -or $isChannelCli) { \
+                    try { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue } catch {} \
+                } \
+            }";
 
         if let Some(ps_path) = get_system_powershell() {
             let _ = Command::new(ps_path)
-                .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
+                .env("LUMEN_CUR_PID", current_pid.to_string())
+                .env("LUMEN_CUR_EXE", &current_exe_str)
+                .env("LUMEN_CHANNEL_EXES", channel_exes)
+                .env("LUMEN_INSTALL_DIRS", &install_dirs_env)
+                .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", SCRIPT])
                 .creation_flags(CREATE_NO_WINDOW)
                 .output();
         }
 
         for _ in 0..15 {
-            if !is_app_running() {
+            if !is_app_running_in_dir(extra_dir) {
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(200));
@@ -878,14 +1063,42 @@ fn kill_running_app() -> Result<(), String> {
     #[cfg(not(windows))]
     {
         use std::process::Command;
+        let current_exe_clean = env::current_exe()
+            .ok()
+            .map(|p| p.to_string_lossy().replace('\\', "/").to_lowercase())
+            .unwrap_or_default();
         let mut target_pids = Vec::new();
-        for name in &["lumen", "lumen-cli"] {
+        for name in unix_channel_process_names() {
             if let Ok(out) = Command::new("pgrep").arg("-x").arg(name).output() {
                 let stdout = String::from_utf8_lossy(&out.stdout);
                 for line in stdout.lines() {
                     if let Ok(pid) = line.trim().parse::<u32>() {
                         if pid != current_pid {
-                            target_pids.push(pid);
+                            if let Ok(proc_exe) = std::fs::read_link(format!("/proc/{}/exe", pid)) {
+                                let proc_clean = proc_exe.to_string_lossy().replace('\\', "/").to_lowercase();
+                                if !current_exe_clean.is_empty() && proc_clean == current_exe_clean {
+                                    continue;
+                                }
+                            }
+                            if !target_pids.contains(&pid) {
+                                target_pids.push(pid);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if let Ok(out) = Command::new("pgrep").arg("-x").arg("lumen-cli").output() {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            for line in stdout.lines() {
+                if let Ok(pid) = line.trim().parse::<u32>() {
+                    if pid != current_pid {
+                        if let Ok(proc_exe) = std::fs::read_link(format!("/proc/{}/exe", pid)) {
+                            if install_dirs.iter().any(|dir| proc_exe.starts_with(dir))
+                                && !target_pids.contains(&pid)
+                            {
+                                target_pids.push(pid);
+                            }
                         }
                     }
                 }
@@ -905,6 +1118,42 @@ fn kill_running_app() -> Result<(), String> {
 }
 
 #[tauri::command]
+fn kill_running_app() -> Result<(), String> {
+    kill_running_app_in_dir(None)
+}
+
+fn check_not_symlink_or_reparse(path: &Path) -> Result<(), String> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) => {
+            if meta.file_type().is_symlink() {
+                return Err(format!(
+                    "Target install directory '{}' must not be a symlink.",
+                    path.display()
+                ));
+            }
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::MetadataExt;
+                const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x0400;
+                if (meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT) != 0 {
+                    return Err(format!(
+                        "Target install directory '{}' must not be a junction or reparse point.",
+                        path.display()
+                    ));
+                }
+            }
+            Ok(())
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(format!(
+            "Failed to inspect target install directory '{}': {}",
+            path.display(),
+            e
+        )),
+    }
+}
+
+#[tauri::command]
 async fn start_install(
     target_dir: String,
     create_desktop_shortcut: bool,
@@ -916,28 +1165,50 @@ async fn start_install(
         let _ = create_desktop_shortcut;
         let _ = launch_on_startup;
     }
-    let dest_path = if target_dir.trim().is_empty() {
+    let raw_dest_path = if target_dir.trim().is_empty() {
         get_default_install_dir()
     } else {
         PathBuf::from(&target_dir)
     };
-    if !is_safe_dedicated_install_dir(&dest_path) {
+    if !is_safe_dedicated_install_dir(&raw_dest_path) {
         return Err(format!(
             "Target install directory '{}' is not a dedicated, safe Lumen directory.",
-            dest_path.display()
+            raw_dest_path.display()
         ));
     }
-    fs::create_dir_all(&dest_path).map_err(|e| format!("Failed to create install dir: {}", e))?;
+    check_not_symlink_or_reparse(&raw_dest_path)?;
+    fs::create_dir_all(&raw_dest_path)
+        .map_err(|e| format!("Failed to create install dir: {}", e))?;
+    check_not_symlink_or_reparse(&raw_dest_path)?;
 
-    // Terminate any running Lumen instances before unpacking
-    let _ = kill_running_app();
+    let canonical_dest = raw_dest_path.canonicalize().map_err(|e| {
+        format!(
+            "Failed to resolve target install directory '{}': {}",
+            raw_dest_path.display(),
+            e
+        )
+    })?;
+    if !is_safe_dedicated_install_dir(&canonical_dest) {
+        return Err(format!(
+            "Resolved target install directory '{}' is not a dedicated, safe Lumen directory.",
+            canonical_dest.display()
+        ));
+    }
+    let dest_path = PathBuf::from(strip_windows_verbatim_prefix(
+        &canonical_dest.to_string_lossy(),
+    ));
+
+    // Terminate any running Lumen instances in this channel before unpacking
+    let _ = kill_running_app_in_dir(Some(&dest_path));
 
     #[cfg(windows)]
     {
-        remove_legacy_nsis_installation(Some(&dest_path));
+        if !IS_DEV_CHANNEL {
+            remove_legacy_nsis_installation(Some(&dest_path))?;
+        }
     }
 
-    // 1. Extract embedded payload securely (preventing Tar Slip and symlink escapes)
+    // 1. Extract embedded payload securely (preventing Tar Slip and rejecting non-file/non-dir entries)
     let decoder = GzDecoder::new(Cursor::new(EMBEDDED_PAYLOAD));
     let mut archive = Archive::new(decoder);
     for entry in archive.entries().map_err(|e| format!("Failed to read payload: {}", e))? {
@@ -954,32 +1225,64 @@ async fn start_install(
         }
 
         let entry_type = entry.header().entry_type();
-        if entry_type.is_symlink() || entry_type.is_hard_link() {
-            if let Ok(Some(link_target)) = entry.link_name() {
-                for comp in link_target.components() {
-                    match comp {
-                        std::path::Component::ParentDir | std::path::Component::Prefix(_) | std::path::Component::RootDir => {
-                            return Err(format!("Unsafe link target in payload entry: {}", link_target.display()));
-                        }
-                        _ => {}
-                    }
-                }
-            }
+        if !entry_type.is_file() && !entry_type.is_dir() {
+            return Err(format!(
+                "Unsupported entry type in payload entry: {}",
+                entry_path.display()
+            ));
         }
 
         entry.unpack_in(&dest_path).map_err(|e| format!("Failed to unpack {}: {}", entry_path.display(), e))?;
     }
 
-    // Standardize executable name on Windows and resolve primary app binary per OS
+    // Standardize executable name on Windows per channel (Lumen.exe vs Lumen-dev.exe)
     #[cfg(windows)]
-    let main_exe = if dest_path.join("Lumen.exe").is_file() {
-        dest_path.join("Lumen.exe")
-    } else if dest_path.join("lumen.exe").is_file() {
-        let target = dest_path.join("Lumen.exe");
-        let _ = fs::rename(dest_path.join("lumen.exe"), &target);
-        target
-    } else {
-        dest_path.join("Lumen.exe")
+    let main_exe = {
+        let target = dest_path.join(WINDOWS_MAIN_EXE_NAME);
+        if !WINDOWS_MAIN_EXE_NAME.eq_ignore_ascii_case("lumen.exe") {
+            let unpacked = if dest_path.join("lumen.exe").is_file() {
+                Some(dest_path.join("lumen.exe"))
+            } else if dest_path.join("Lumen.exe").is_file() {
+                Some(dest_path.join("Lumen.exe"))
+            } else {
+                None
+            };
+            if let Some(src) = unpacked {
+                if target.exists() {
+                    fs::remove_file(&target).map_err(|e| {
+                        format!(
+                            "Failed to replace existing {}: {}",
+                            target.display(),
+                            e
+                        )
+                    })?;
+                }
+                fs::rename(&src, &target).map_err(|e| {
+                    format!(
+                        "Failed to rename {} to {}: {}",
+                        src.display(),
+                        target.display(),
+                        e
+                    )
+                })?;
+            }
+            target
+        } else if target.is_file() {
+            target
+        } else if dest_path.join("lumen.exe").is_file() {
+            let src = dest_path.join("lumen.exe");
+            fs::rename(&src, &target).map_err(|e| {
+                format!(
+                    "Failed to rename {} to {}: {}",
+                    src.display(),
+                    target.display(),
+                    e
+                )
+            })?;
+            target
+        } else {
+            target
+        }
     };
     #[cfg(not(windows))]
     let main_exe = find_app_binary(&dest_path).unwrap_or_else(|| dest_path.join("lumen"));
@@ -1023,7 +1326,7 @@ async fn start_install(
                 .join("Start Menu")
                 .join("Programs");
             let _ = fs::create_dir_all(&start_menu);
-            let lnk_path = start_menu.join("Lumen.lnk");
+            let lnk_path = start_menu.join(SHORTCUT_FILENAME);
             let _ = create_windows_shortcut(&main_exe, &lnk_path);
         }
 
@@ -1032,7 +1335,7 @@ async fn start_install(
             if let Ok(userprofile) = env::var("USERPROFILE") {
                 let desktop_dir = PathBuf::from(userprofile).join("Desktop");
                 let _ = fs::create_dir_all(&desktop_dir);
-                let desktop_lnk = desktop_dir.join("Lumen.lnk");
+                let desktop_lnk = desktop_dir.join(SHORTCUT_FILENAME);
                 let _ = create_windows_shortcut(&main_exe, &desktop_lnk);
             }
         }
@@ -1044,7 +1347,7 @@ async fn start_install(
             let hkcu = RegKey::predef(HKEY_CURRENT_USER);
             if let Ok((run_key, _)) = hkcu.create_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Run") {
                 let exe_str = format!("\"{}\"", main_exe.to_string_lossy());
-                let _ = run_key.set_value("Lumen", &exe_str);
+                let _ = run_key.set_value(STARTUP_REG_VALUE_NAME, &exe_str);
             }
         }
 
@@ -1060,8 +1363,7 @@ async fn start_install(
     Ok(())
 }
 
-#[tauri::command]
-async fn start_uninstall(purge_config: bool) -> Result<(), String> {
+fn run_uninstall_sync(purge_config: bool) -> Result<(), String> {
     // 1. Terminate running app instances first so files are not locked
     let _ = kill_running_app();
 
@@ -1069,7 +1371,9 @@ async fn start_uninstall(purge_config: bool) -> Result<(), String> {
 
     #[cfg(windows)]
     {
-        remove_legacy_nsis_installation(modern_info.as_ref().map(|m| m.dir.as_path()));
+        if !IS_DEV_CHANNEL {
+            remove_legacy_nsis_installation(modern_info.as_ref().map(|m| m.dir.as_path()))?;
+        }
     }
 
     let install_dir = modern_info
@@ -1086,13 +1390,13 @@ async fn start_uninstall(purge_config: bool) -> Result<(), String> {
                 .join("Windows")
                 .join("Start Menu")
                 .join("Programs")
-                .join("Lumen.lnk");
+                .join(SHORTCUT_FILENAME);
             let _ = fs::remove_file(start_menu_lnk);
         }
 
         // 3. Remove Desktop shortcut
         if let Ok(userprofile) = env::var("USERPROFILE") {
-            let desktop_lnk = PathBuf::from(userprofile).join("Desktop").join("Lumen.lnk");
+            let desktop_lnk = PathBuf::from(userprofile).join("Desktop").join(SHORTCUT_FILENAME);
             let _ = fs::remove_file(desktop_lnk);
         }
 
@@ -1102,25 +1406,27 @@ async fn start_uninstall(purge_config: bool) -> Result<(), String> {
             use winreg::RegKey;
             let hkcu = RegKey::predef(HKEY_CURRENT_USER);
             if let Ok(run_key) = hkcu.open_subkey_with_flags("Software\\Microsoft\\Windows\\CurrentVersion\\Run", KEY_SET_VALUE) {
-                let _ = run_key.delete_value("Lumen");
+                let _ = run_key.delete_value(STARTUP_REG_VALUE_NAME);
             }
         }
 
         // 5. Remove Windows Registry Uninstall key
         let _ = unregister_windows_uninstall();
 
-        // 6. Optional: Purge configuration & local cache
+        // 6. Optional: Purge configuration & local cache (strictly scoped to current channel)
         if purge_config {
             if let Ok(appdata) = env::var("APPDATA") {
-                let lumen_config_dir = PathBuf::from(&appdata).join("Lumen");
-                let _ = fs::remove_dir_all(lumen_config_dir);
-                let legacy_dir = PathBuf::from(&appdata).join("lumen");
-                if legacy_dir.exists() {
-                    let _ = fs::remove_dir_all(legacy_dir);
+                let channel_config_dir = PathBuf::from(&appdata).join(CONFIG_DIR_NAME);
+                let _ = fs::remove_dir_all(channel_config_dir);
+                if !IS_DEV_CHANNEL {
+                    let legacy_cap_dir = PathBuf::from(&appdata).join("Lumen");
+                    if legacy_cap_dir.exists() {
+                        let _ = fs::remove_dir_all(legacy_cap_dir);
+                    }
                 }
             }
             if let Ok(userprofile) = env::var("USERPROFILE") {
-                let lumen_config_dir = PathBuf::from(userprofile).join(".config").join("lumen");
+                let lumen_config_dir = PathBuf::from(userprofile).join(".config").join(CONFIG_DIR_NAME);
                 let _ = fs::remove_dir_all(lumen_config_dir);
             }
         }
@@ -1145,9 +1451,10 @@ async fn start_uninstall(purge_config: bool) -> Result<(), String> {
         if !is_running_from_install_dir {
             // Running as setup installer outside the install dir: delete everything directly!
             if install_dir.exists() {
-                let _ = fs::remove_file(install_dir.join("Lumen.exe"));
+                let _ = fs::remove_file(install_dir.join(WINDOWS_MAIN_EXE_NAME));
                 let _ = fs::remove_file(install_dir.join("lumen.exe"));
                 let _ = fs::remove_file(install_dir.join("lumen-cli.exe"));
+                let _ = fs::remove_file(install_dir.join("app-icon.png"));
                 let _ = fs::remove_file(install_dir.join("uninstall.exe"));
                 if is_dedicated {
                     let _ = fs::remove_dir_all(&install_dir);
@@ -1159,9 +1466,10 @@ async fn start_uninstall(purge_config: bool) -> Result<(), String> {
         } else {
             // Running as uninstall.exe inside the install dir:
             // Delete main binaries immediately, then schedule deletion of uninstall.exe and dir if dedicated
-            let _ = fs::remove_file(install_dir.join("Lumen.exe"));
+            let _ = fs::remove_file(install_dir.join(WINDOWS_MAIN_EXE_NAME));
             let _ = fs::remove_file(install_dir.join("lumen.exe"));
             let _ = fs::remove_file(install_dir.join("lumen-cli.exe"));
+            let _ = fs::remove_file(install_dir.join("app-icon.png"));
             schedule_self_deletion(&install_dir, is_dedicated);
         }
     }
@@ -1175,16 +1483,18 @@ async fn start_uninstall(purge_config: bool) -> Result<(), String> {
                     let mac_config_dir = PathBuf::from(&home)
                         .join("Library")
                         .join("Application Support")
-                        .join("lumen");
+                        .join(CONFIG_DIR_NAME);
                     let _ = fs::remove_dir_all(mac_config_dir);
                 }
-                let lumen_config_dir = PathBuf::from(home).join(".config").join("lumen");
+                let lumen_config_dir = PathBuf::from(home).join(".config").join(CONFIG_DIR_NAME);
                 let _ = fs::remove_dir_all(lumen_config_dir);
             }
         }
         if install_dir.exists() {
             let _ = fs::remove_file(install_dir.join("Lumen"));
             let _ = fs::remove_file(install_dir.join("lumen"));
+            let _ = fs::remove_file(install_dir.join("Lumen-dev"));
+            let _ = fs::remove_file(install_dir.join("lumen-dev"));
             let _ = fs::remove_file(install_dir.join("lumen-cli"));
             let _ = fs::remove_file(install_dir.join("uninstall"));
             let _ = fs::remove_file(install_dir.join("uninstall.exe"));
@@ -1195,6 +1505,11 @@ async fn start_uninstall(purge_config: bool) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[tauri::command]
+async fn start_uninstall(purge_config: bool) -> Result<(), String> {
+    run_uninstall_sync(purge_config)
 }
 
 #[tauri::command]
@@ -1370,10 +1685,65 @@ fn has_legacy_nsis_marker(dir: &Path) -> bool {
         || dir.join("wails.json").is_file()
 }
 
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 fn escape_powershell_single_quote(s: &str) -> String {
-    s.replace('\'', "''").replace(['\r', '\n', '\0'], "")
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '\r' | '\n' | '\0' => {}
+            '\'' | '\u{2018}' | '\u{2019}' | '\u{201A}' | '\u{201B}' => {
+                out.push(ch);
+                out.push(ch);
+            }
+            _ => out.push(ch),
+        }
+    }
+    out
 }
+
+#[cfg(windows)]
+const PS_REMOVE_DIR_SAFE_FN: &str = r#"function Remove-DirSafe([string]$Path) {
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path)) { return }
+    try { $attrs = [IO.File]::GetAttributes($Path) } catch { return }
+    $isDir = ($attrs -band [IO.FileAttributes]::Directory) -ne 0
+    $isReparse = ($attrs -band [IO.FileAttributes]::ReparsePoint) -ne 0
+    if (-not $isDir) {
+        try {
+            if (($attrs -band [IO.FileAttributes]::ReparsePoint) -eq 0 -and ($attrs -band [IO.FileAttributes]::ReadOnly) -ne 0) {
+                [IO.File]::SetAttributes($Path, ($attrs -band (-bnot [IO.FileAttributes]::ReadOnly)))
+            }
+            [IO.File]::Delete($Path)
+        } catch {}
+        return
+    }
+    if ($isReparse) {
+        try { [IO.Directory]::Delete($Path, $false) } catch {}
+        return
+    }
+    try {
+        foreach ($f in [IO.Directory]::EnumerateFiles($Path)) {
+            try {
+                $fa = [IO.File]::GetAttributes($f)
+                if (($fa -band [IO.FileAttributes]::ReparsePoint) -eq 0 -and ($fa -band [IO.FileAttributes]::ReadOnly) -ne 0) {
+                    [IO.File]::SetAttributes($f, ($fa -band (-bnot [IO.FileAttributes]::ReadOnly)))
+                }
+                [IO.File]::Delete($f)
+            } catch {}
+        }
+    } catch {}
+    try {
+        foreach ($sub in [IO.Directory]::EnumerateDirectories($Path)) {
+            Remove-DirSafe $sub
+        }
+    } catch {}
+    try {
+        if (($attrs -band [IO.FileAttributes]::ReadOnly) -ne 0) {
+            [IO.File]::SetAttributes($Path, ($attrs -band (-bnot [IO.FileAttributes]::ReadOnly)))
+        }
+        [IO.Directory]::Delete($Path, $false)
+    } catch {}
+}
+"#;
 
 #[cfg(windows)]
 fn encode_base64(bytes: &[u8]) -> String {
@@ -1400,22 +1770,264 @@ fn encode_base64(bytes: &[u8]) -> String {
 }
 
 #[cfg(windows)]
+fn to_reg_expand_sz(s: &str) -> winreg::RegValue<'static> {
+    let mut bytes: Vec<u8> = s
+        .encode_utf16()
+        .chain(std::iter::once(0u16))
+        .flat_map(|u| u.to_le_bytes())
+        .collect();
+    if bytes.is_empty() {
+        bytes.extend_from_slice(&[0, 0]);
+    }
+    winreg::RegValue {
+        bytes: bytes.into(),
+        vtype: winreg::enums::REG_EXPAND_SZ,
+    }
+}
+
+#[cfg(windows)]
+fn create_aumid_shortcut_com(target_exe: &Path, shortcut_path: &Path, aumid: &str) -> bool {
+    use std::ffi::c_void;
+
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    struct Guid {
+        data1: u32,
+        data2: u16,
+        data3: u16,
+        data4: [u8; 8],
+    }
+
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    struct PropertyKey {
+        fmtid: Guid,
+        pid: u32,
+    }
+
+    #[repr(C)]
+    struct PropVariant {
+        vt: u16,
+        w_reserved1: u16,
+        w_reserved2: u16,
+        w_reserved3: u16,
+        data1: *const u16,
+        data2: usize,
+    }
+
+    #[repr(C)]
+    struct IShellLinkWVtbl {
+        query_interface:
+            unsafe extern "system" fn(*mut c_void, *const Guid, *mut *mut c_void) -> i32,
+        add_ref: unsafe extern "system" fn(*mut c_void) -> u32,
+        release: unsafe extern "system" fn(*mut c_void) -> u32,
+        get_path: *const c_void,
+        get_id_list: *const c_void,
+        set_id_list: *const c_void,
+        get_description: *const c_void,
+        set_description: *const c_void,
+        get_working_directory: *const c_void,
+        set_working_directory: unsafe extern "system" fn(*mut c_void, *const u16) -> i32,
+        get_arguments: *const c_void,
+        set_arguments: unsafe extern "system" fn(*mut c_void, *const u16) -> i32,
+        get_hotkey: *const c_void,
+        set_hotkey: *const c_void,
+        get_show_cmd: *const c_void,
+        set_show_cmd: *const c_void,
+        get_icon_location: *const c_void,
+        set_icon_location: unsafe extern "system" fn(*mut c_void, *const u16, i32) -> i32,
+        set_relative_path: *const c_void,
+        resolve: *const c_void,
+        set_path: unsafe extern "system" fn(*mut c_void, *const u16) -> i32,
+    }
+
+    #[repr(C)]
+    struct IPropertyStoreVtbl {
+        query_interface:
+            unsafe extern "system" fn(*mut c_void, *const Guid, *mut *mut c_void) -> i32,
+        add_ref: unsafe extern "system" fn(*mut c_void) -> u32,
+        release: unsafe extern "system" fn(*mut c_void) -> u32,
+        get_count: *const c_void,
+        get_at: *const c_void,
+        get_value: *const c_void,
+        set_value:
+            unsafe extern "system" fn(*mut c_void, *const PropertyKey, *const PropVariant) -> i32,
+        commit: unsafe extern "system" fn(*mut c_void) -> i32,
+    }
+
+    #[repr(C)]
+    struct IPersistFileVtbl {
+        query_interface:
+            unsafe extern "system" fn(*mut c_void, *const Guid, *mut *mut c_void) -> i32,
+        add_ref: unsafe extern "system" fn(*mut c_void) -> u32,
+        release: unsafe extern "system" fn(*mut c_void) -> u32,
+        get_class_id: *const c_void,
+        is_dirty: *const c_void,
+        load: *const c_void,
+        save: unsafe extern "system" fn(*mut c_void, *const u16, i32) -> i32,
+        save_completed: *const c_void,
+        get_cur_file: *const c_void,
+    }
+
+    #[link(name = "ole32")]
+    extern "system" {
+        fn CoInitializeEx(pv_reserved: *mut c_void, dw_co_init: u32) -> i32;
+        fn CoUninitialize();
+        fn CoCreateInstance(
+            rclsid: *const Guid,
+            p_unk_outer: *mut c_void,
+            dw_cls_context: u32,
+            riid: *const Guid,
+            ppv: *mut *mut c_void,
+        ) -> i32;
+    }
+
+    const COINIT_APARTMENTTHREADED: u32 = 0x2;
+    const CLSCTX_INPROC_SERVER: u32 = 0x1;
+    const VT_LPWSTR: u16 = 31;
+
+    const CLSID_SHELL_LINK: Guid = Guid {
+        data1: 0x00021401,
+        data2: 0x0000,
+        data3: 0x0000,
+        data4: [0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46],
+    };
+    const IID_ISHELL_LINK_W: Guid = Guid {
+        data1: 0x000214F9,
+        data2: 0x0000,
+        data3: 0x0000,
+        data4: [0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46],
+    };
+    const IID_IPROPERTY_STORE: Guid = Guid {
+        data1: 0x886D8EEB,
+        data2: 0x8CF2,
+        data3: 0x4446,
+        data4: [0x8D, 0x02, 0xCD, 0xBA, 0x1D, 0xBD, 0xCF, 0x99],
+    };
+    const IID_IPERSIST_FILE: Guid = Guid {
+        data1: 0x0000010B,
+        data2: 0x0000,
+        data3: 0x0000,
+        data4: [0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x46],
+    };
+    const PKEY_APP_USER_MODEL_ID: PropertyKey = PropertyKey {
+        fmtid: Guid {
+            data1: 0x9F4C2855,
+            data2: 0x9F79,
+            data3: 0x4B39,
+            data4: [0xA8, 0xD0, 0xE1, 0xD4, 0x2D, 0xE1, 0xD5, 0xF3],
+        },
+        pid: 5,
+    };
+
+    fn to_wide(s: &str) -> Vec<u16> {
+        s.encode_utf16().chain(std::iter::once(0u16)).collect()
+    }
+
+    let target_wide = to_wide(&target_exe.to_string_lossy());
+    let workdir_wide = target_exe
+        .parent()
+        .map(|p| to_wide(&p.to_string_lossy()))
+        .unwrap_or_else(|| to_wide("."));
+    let shortcut_wide = to_wide(&shortcut_path.to_string_lossy());
+    let aumid_wide = to_wide(aumid);
+    let empty_wide = to_wide("");
+
+    unsafe {
+        let hr_init = CoInitializeEx(std::ptr::null_mut(), COINIT_APARTMENTTHREADED);
+        let should_uninit = hr_init == 0 || hr_init == 1;
+
+        let mut shell_link: *mut c_void = std::ptr::null_mut();
+        let hr = CoCreateInstance(
+            &CLSID_SHELL_LINK,
+            std::ptr::null_mut(),
+            CLSCTX_INPROC_SERVER,
+            &IID_ISHELL_LINK_W,
+            &mut shell_link,
+        );
+        if hr < 0 || shell_link.is_null() {
+            if should_uninit {
+                CoUninitialize();
+            }
+            return false;
+        }
+
+        let sl_vtbl = &**(shell_link as *mut *const IShellLinkWVtbl);
+        let mut ok = (sl_vtbl.set_path)(shell_link, target_wide.as_ptr()) >= 0;
+        let _ = (sl_vtbl.set_arguments)(shell_link, empty_wide.as_ptr());
+        let _ = (sl_vtbl.set_working_directory)(shell_link, workdir_wide.as_ptr());
+        let _ = (sl_vtbl.set_icon_location)(shell_link, target_wide.as_ptr(), 0);
+
+        if ok {
+            let mut prop_store: *mut c_void = std::ptr::null_mut();
+            if (sl_vtbl.query_interface)(shell_link, &IID_IPROPERTY_STORE, &mut prop_store) >= 0
+                && !prop_store.is_null()
+            {
+                let ps_vtbl = &**(prop_store as *mut *const IPropertyStoreVtbl);
+                let pv = PropVariant {
+                    vt: VT_LPWSTR,
+                    w_reserved1: 0,
+                    w_reserved2: 0,
+                    w_reserved3: 0,
+                    data1: aumid_wide.as_ptr(),
+                    data2: 0,
+                };
+                let hr_set = (ps_vtbl.set_value)(prop_store, &PKEY_APP_USER_MODEL_ID, &pv);
+                let hr_commit = if hr_set >= 0 {
+                    (ps_vtbl.commit)(prop_store)
+                } else {
+                    hr_set
+                };
+                ok = hr_set >= 0 && hr_commit >= 0;
+                let _ = (ps_vtbl.release)(prop_store);
+            } else {
+                ok = false;
+            }
+        }
+
+        let mut saved = false;
+        if ok {
+            let mut persist_file: *mut c_void = std::ptr::null_mut();
+            if (sl_vtbl.query_interface)(shell_link, &IID_IPERSIST_FILE, &mut persist_file) >= 0
+                && !persist_file.is_null()
+            {
+                let pf_vtbl = &**(persist_file as *mut *const IPersistFileVtbl);
+                saved = (pf_vtbl.save)(persist_file, shortcut_wide.as_ptr(), 1) >= 0;
+                let _ = (pf_vtbl.release)(persist_file);
+            }
+        }
+
+        let _ = (sl_vtbl.release)(shell_link);
+        if should_uninit {
+            CoUninitialize();
+        }
+        saved
+    }
+}
+
+#[cfg(windows)]
 fn create_windows_shortcut(target_exe: &Path, shortcut_path: &Path) -> Result<(), String> {
+    if create_aumid_shortcut_com(target_exe, shortcut_path, APP_AUMID) {
+        return Ok(());
+    }
+
     use std::os::windows::process::CommandExt;
     use std::process::Command;
 
     const CREATE_NO_WINDOW: u32 = 0x08000000;
-    let target = escape_powershell_single_quote(&target_exe.to_string_lossy());
-    let shortcut = escape_powershell_single_quote(&shortcut_path.to_string_lossy());
-    let script = format!(
-        "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut('{}'); $s.TargetPath = '{}'; $s.Save()",
-        shortcut, target
-    );
+    const SCRIPT: &str = "\
+        $ws = New-Object -ComObject WScript.Shell; \
+        $s = $ws.CreateShortcut($env:LUMEN_SHORTCUT_PATH); \
+        $s.TargetPath = $env:LUMEN_TARGET_EXE; \
+        $s.IconLocation = \"$($env:LUMEN_TARGET_EXE),0\"; \
+        $s.Save()";
     let ps_exe = get_system_powershell()
         .ok_or_else(|| "System PowerShell executable not found".to_string())?;
     let output = Command::new(&ps_exe)
         .creation_flags(CREATE_NO_WINDOW)
-        .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
+        .env("LUMEN_SHORTCUT_PATH", shortcut_path)
+        .env("LUMEN_TARGET_EXE", target_exe)
+        .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", SCRIPT])
         .output()
         .map_err(|e| format!("PowerShell shortcut creation failed: {}", e))?;
     if !output.status.success() {
@@ -1434,11 +2046,15 @@ fn register_windows_uninstall(
     use winreg::RegKey;
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let reg_path = format!(
+        "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{}",
+        UNINSTALL_REG_KEY_NAME
+    );
     let (key, _) = hkcu
-        .create_subkey("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Lumen")
+        .create_subkey(&reg_path)
         .map_err(|e| e.to_string())?;
 
-    key.set_value("DisplayName", &"Lumen").map_err(|e| e.to_string())?;
+    key.set_value("DisplayName", &APP_DISPLAY_NAME).map_err(|e| e.to_string())?;
     key.set_value("DisplayVersion", &installer_app_version()).map_err(|e| e.to_string())?;
     key.set_value("Publisher", &"Reiux").map_err(|e| e.to_string())?;
     key.set_value("InstallLocation", &install_dir.to_string_lossy().to_string())
@@ -1455,11 +2071,46 @@ fn register_windows_uninstall(
     key.set_value("URLInfoAbout", &"https://github.com/Reiux/Lumen")
         .map_err(|e| e.to_string())?;
 
+    // Register Windows Toast Notification AUMID display name & icon so
+    // Windows Action Center shows "Lumen" / "Lumen Dev" + app icon instead of raw AUMID.
+    let icon_path = install_dir.join("app-icon.png");
+    let _ = fs::write(&icon_path, WINDOWS_NOTIFICATION_ICON_PNG);
+    let icon_path_str = icon_path.to_string_lossy().to_string();
+
+    let aumid_subkey = format!("Software\\Classes\\AppUserModelId\\{}", APP_AUMID);
+    let notif_settings_subkey = format!(
+        "Software\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings\\{}",
+        APP_AUMID
+    );
+    let existing_display_name = hkcu
+        .open_subkey(&aumid_subkey)
+        .ok()
+        .and_then(|k| k.get_value::<String, _>("DisplayName").ok());
+    let existing_icon_uri = hkcu
+        .open_subkey(&aumid_subkey)
+        .ok()
+        .and_then(|k| k.get_value::<String, _>("IconUri").ok());
+    let aumid_changed = existing_display_name.as_deref() != Some(APP_DISPLAY_NAME)
+        || existing_icon_uri.as_deref() != Some(icon_path_str.as_str());
+
+    if aumid_changed {
+        let _ = hkcu.delete_subkey_all(&aumid_subkey);
+        let _ = hkcu.delete_subkey_all(&notif_settings_subkey);
+    }
+    if let Ok((aumid_key, _)) = hkcu.create_subkey(&aumid_subkey) {
+        let _ = aumid_key.set_raw_value("DisplayName", &to_reg_expand_sz(APP_DISPLAY_NAME));
+        let _ = aumid_key.set_raw_value("IconUri", &to_reg_expand_sz(&icon_path_str));
+        let _ = aumid_key.set_value("IconBackgroundColor", &"FF121316");
+    }
+
     Ok(())
 }
 
 #[cfg(windows)]
-fn remove_legacy_nsis_installation(modern_dir: Option<&Path>) {
+fn remove_legacy_nsis_installation(modern_dir: Option<&Path>) -> Result<(), String> {
+    if IS_DEV_CHANNEL {
+        return Ok(());
+    }
     use std::os::windows::process::CommandExt;
     use std::process::Command;
     use winreg::enums::*;
@@ -1546,26 +2197,35 @@ fn remove_legacy_nsis_installation(modern_dir: Option<&Path>) {
         }
     }
 
-    let common_appdata = PathBuf::from(format!(
-        r"{}\ProgramData",
-        get_os_windows_dir()
-            .to_string_lossy()
-            .chars()
-            .take(2)
-            .collect::<String>()
-    ));
+    let sys_drive = get_os_windows_dir()
+        .to_string_lossy()
+        .chars()
+        .take(2)
+        .collect::<String>();
+    let common_appdata = PathBuf::from(format!(r"{}\ProgramData", sys_drive));
     let start_menu_programs = common_appdata
         .join("Microsoft")
         .join("Windows")
         .join("Start Menu")
         .join("Programs");
+    let mut public_desktop_dirs = vec![PathBuf::from(format!(r"{}\Users\Public\Desktop", sys_drive))];
+    if let Ok(public_dir) = env::var("PUBLIC") {
+        let pd = PathBuf::from(public_dir).join("Desktop");
+        if !public_desktop_dirs.contains(&pd) {
+            public_desktop_dirs.push(pd);
+        }
+    }
+    let has_public_desktop_legacy = public_desktop_dirs.iter().any(|desktop| {
+        desktop.join("Lumen.lnk").is_file() || desktop.join("gotohp.lnk").is_file()
+    });
     let has_public_legacy = start_menu_programs.join("gotohp.lnk").is_file()
         || start_menu_programs.join("Reiux").join("Lumen.lnk").is_file()
-        || start_menu_programs.join("Lumen.lnk").is_file();
+        || start_menu_programs.join("Lumen.lnk").is_file()
+        || has_public_desktop_legacy;
 
     if legacy_dirs.is_empty() && !has_hklm_legacy_registry && !has_public_legacy {
         cleanup_user_legacy_shortcuts_and_hkcu();
-        return;
+        return Ok(());
     }
 
     legacy_dirs.sort();
@@ -1589,17 +2249,14 @@ fn remove_legacy_nsis_installation(modern_dir: Option<&Path>) {
     let reiux_roots_ps = reiux_roots_ps.trim_end_matches(", ");
 
     let script = format!(
-        r#"$dirs = @({dirs});
+        r#"{remove_dir_safe_fn}
+$dirs = @({dirs});
 foreach ($d in $dirs) {{
     if (Test-Path -LiteralPath $d) {{
-        $item = Get-Item -LiteralPath $d -Force -ErrorAction SilentlyContinue;
-        if ($item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {{
-            [IO.Directory]::Delete($d) | Out-Null;
-            continue;
-        }}
-        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {{ $_.ExecutablePath -and $_.ExecutablePath.StartsWith($d, [System.StringComparison]::OrdinalIgnoreCase) }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }};
+        $dPrefix = $d.TrimEnd('\') + '\';
+        Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {{ $_.ExecutablePath -and $_.ExecutablePath.StartsWith($dPrefix, [System.StringComparison]::OrdinalIgnoreCase) }} | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }};
         for ($i = 0; $i -lt 5; $i++) {{
-            Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue;
+            Remove-DirSafe $d;
             if (-not (Test-Path -LiteralPath $d)) {{ break }}
             Start-Sleep -Milliseconds 400;
         }}
@@ -1609,10 +2266,7 @@ foreach ($d in $dirs) {{
 $reiuxRoots = @({reiux_roots});
 foreach ($r in $reiuxRoots) {{
     if (Test-Path -LiteralPath $r) {{
-        $items = Get-ChildItem -LiteralPath $r -ErrorAction SilentlyContinue;
-        if (-not $items -or $items.Count -eq 0) {{
-            Remove-Item -LiteralPath $r -Recurse -Force -ErrorAction SilentlyContinue;
-        }}
+        try {{ [IO.Directory]::Delete($r, $false) }} catch {{}}
     }}
 }}
 
@@ -1632,11 +2286,24 @@ foreach ($reg in $regKeys) {{
 
 $pdata = [Environment]::GetFolderPath('CommonApplicationData');
 if ($pdata) {{
-    Remove-Item -LiteralPath "$pdata\Microsoft\Windows\Start Menu\Programs\Lumen.lnk" -Force -ErrorAction SilentlyContinue;
-    Remove-Item -LiteralPath "$pdata\Microsoft\Windows\Start Menu\Programs\gotohp.lnk" -Force -ErrorAction SilentlyContinue;
-    Remove-Item -LiteralPath "$pdata\Microsoft\Windows\Start Menu\Programs\Reiux\Lumen.lnk" -Force -ErrorAction SilentlyContinue;
-    Remove-Item -LiteralPath "$pdata\Microsoft\Windows\Start Menu\Programs\Reiux" -Recurse -Force -ErrorAction SilentlyContinue;
-    Remove-Item -LiteralPath "$pdata\Microsoft\Windows\Start Menu\Programs\Lumen" -Recurse -Force -ErrorAction SilentlyContinue;
+    $sm = "$pdata\Microsoft\Windows\Start Menu\Programs";
+    $knownLnks = @(
+        "$sm\Lumen.lnk",
+        "$sm\gotohp.lnk",
+        "$sm\Reiux\Lumen.lnk",
+        "$sm\Reiux\gotohp.lnk",
+        "$sm\Reiux\Uninstall Lumen.lnk",
+        "$sm\Lumen\Lumen.lnk",
+        "$sm\Lumen\Uninstall Lumen.lnk"
+    );
+    foreach ($lnk in $knownLnks) {{
+        Remove-Item -LiteralPath $lnk -Force -ErrorAction SilentlyContinue;
+    }}
+    foreach ($smDir in @("$sm\Reiux", "$sm\Lumen")) {{
+        if (Test-Path -LiteralPath $smDir) {{
+            try {{ [IO.Directory]::Delete($smDir, $false) }} catch {{}}
+        }}
+    }}
 }}
 $pubDesktop = [Environment]::GetFolderPath('CommonDesktopDirectory');
 if ($pubDesktop) {{
@@ -1644,6 +2311,7 @@ if ($pubDesktop) {{
     Remove-Item -LiteralPath "$pubDesktop\gotohp.lnk" -Force -ErrorAction SilentlyContinue;
 }}
 "#,
+        remove_dir_safe_fn = PS_REMOVE_DIR_SAFE_FN,
         dirs = dir_list_ps,
         reiux_roots = reiux_roots_ps
     );
@@ -1652,20 +2320,40 @@ if ($pubDesktop) {{
     let utf16_bytes: Vec<u8> = script.encode_utf16().flat_map(|u| u.to_le_bytes()).collect();
     let b64_encoded = encode_base64(&utf16_bytes);
 
-    if let Some(ps_path) = get_system_powershell() {
-        let ps_bin = escape_powershell_single_quote(&ps_path.to_string_lossy());
-        let ps_arg = format!(
-            "Start-Process '{}' -WindowStyle Hidden -ArgumentList '-NoProfile -NonInteractive -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand {}' -Verb RunAs -Wait",
-            ps_bin,
-            b64_encoded
-        );
-        let _ = Command::new(&ps_path)
-            .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &ps_arg])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output();
+    let ps_path = get_system_powershell()
+        .ok_or_else(|| "System PowerShell executable not found for legacy cleanup.".to_string())?;
+    const ELEVATE_SCRIPT: &str = "\
+        try { \
+            $p = Start-Process -FilePath $env:LUMEN_PS_EXE \
+                -WindowStyle Hidden \
+                -ArgumentList @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-EncodedCommand', $env:LUMEN_ENCODED_CMD) \
+                -Verb RunAs -Wait -PassThru -ErrorAction Stop; \
+            if (-not $p) { exit 1 } \
+            exit $p.ExitCode \
+        } catch { \
+            Write-Error $_.Exception.Message; \
+            exit 1 \
+        }";
+    let output = Command::new(&ps_path)
+        .env("LUMEN_PS_EXE", &ps_path)
+        .env("LUMEN_ENCODED_CMD", &b64_encoded)
+        .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", ELEVATE_SCRIPT])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| format!("Failed to request administrator elevation for legacy cleanup: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let detail = if stderr.is_empty() {
+            "Administrator elevation was canceled or failed.".to_string()
+        } else {
+            stderr
+        };
+        return Err(format!("Failed to remove legacy Lumen installation: {}", detail));
     }
 
     cleanup_user_legacy_shortcuts_and_hkcu();
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -1681,7 +2369,8 @@ fn cleanup_user_legacy_shortcuts_and_hkcu() {
             .join("Programs");
         let _ = fs::remove_file(user_start.join("gotohp.lnk"));
         let _ = fs::remove_file(user_start.join("Reiux").join("Lumen.lnk"));
-        let _ = fs::remove_dir_all(user_start.join("Reiux"));
+        let _ = fs::remove_file(user_start.join("Reiux").join("gotohp.lnk"));
+        let _ = fs::remove_dir(user_start.join("Reiux"));
     }
     if let Ok(userprofile) = env::var("USERPROFILE") {
         let user_desktop = PathBuf::from(userprofile).join("Desktop");
@@ -1702,9 +2391,17 @@ fn unregister_windows_uninstall() -> Result<(), String> {
     use winreg::RegKey;
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let _ = hkcu.delete_subkey_all("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Lumen");
-    let _ = hkcu.delete_subkey_all("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ReiuxLumen");
-    let _ = hkcu.delete_subkey_all("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\gotohp");
+    let reg_path = format!(
+        "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{}",
+        UNINSTALL_REG_KEY_NAME
+    );
+    let _ = hkcu.delete_subkey_all(&reg_path);
+    let aumid_subkey = format!("Software\\Classes\\AppUserModelId\\{}", APP_AUMID);
+    let _ = hkcu.delete_subkey_all(&aumid_subkey);
+    if !IS_DEV_CHANNEL {
+        let _ = hkcu.delete_subkey_all("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ReiuxLumen");
+        let _ = hkcu.delete_subkey_all("Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\gotohp");
+    }
 
     Ok(())
 }
@@ -1721,30 +2418,33 @@ fn schedule_self_deletion(install_dir: &Path, delete_dir: bool) {
     } else {
         install_dir.join("uninstall.exe")
     };
-    let target = escape_powershell_single_quote(&target_path.to_string_lossy());
 
     let local_installer = env::var("LOCALAPPDATA")
-        .map(|l| escape_powershell_single_quote(&PathBuf::from(l).join("com.reiux.lumen.installer").to_string_lossy()))
+        .map(|l| PathBuf::from(l).join("com.reiux.lumen.installer"))
         .unwrap_or_default();
 
-    let remove_local_cmd = if !local_installer.is_empty() {
-        format!("Remove-Item -LiteralPath '{}' -Recurse -Force -ErrorAction SilentlyContinue; ", local_installer)
-    } else {
-        String::new()
-    };
-
     let script = format!(
-        "for ($i = 0; $i -lt 30; $i++) {{ \
+        "{}\
+        for ($i = 0; $i -lt 30; $i++) {{ \
             Start-Sleep -Seconds 1; \
-            Remove-Item -LiteralPath '{}' -Recurse -Force -ErrorAction SilentlyContinue; \
-            {} \
-            if (-not (Test-Path -LiteralPath '{}')) {{ break }} \
+            if ($env:LUMEN_DELETE_IS_DIR -eq '1') {{ \
+                Remove-DirSafe $env:LUMEN_DELETE_TARGET; \
+            }} else {{ \
+                Remove-Item -LiteralPath $env:LUMEN_DELETE_TARGET -Force -ErrorAction SilentlyContinue; \
+            }} \
+            if ($env:LUMEN_LOCAL_INSTALLER_CACHE) {{ \
+                Remove-DirSafe $env:LUMEN_LOCAL_INSTALLER_CACHE; \
+            }} \
+            if (-not (Test-Path -LiteralPath $env:LUMEN_DELETE_TARGET)) {{ break }} \
         }}",
-        target, remove_local_cmd, target
+        PS_REMOVE_DIR_SAFE_FN
     );
 
     if let Some(ps_path) = get_system_powershell() {
         let _ = Command::new(ps_path)
+            .env("LUMEN_DELETE_TARGET", &target_path)
+            .env("LUMEN_DELETE_IS_DIR", if delete_dir { "1" } else { "0" })
+            .env("LUMEN_LOCAL_INSTALLER_CACHE", &local_installer)
             .args(["-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden", "-Command", &script])
             .creation_flags(CREATE_NO_WINDOW)
             .spawn();
@@ -1761,6 +2461,19 @@ fn main() {
                 let _ = fs::remove_dir_all(legacy_roaming);
             }
         }
+    }
+
+    let args: Vec<String> = env::args().collect();
+    if args.iter().any(|a| a == "--silent" || a == "-s") && is_uninstall_invocation() {
+        let purge_config = args.iter().any(|a| a == "--purge-config" || a == "--purge");
+        let exit_code = match run_uninstall_sync(purge_config) {
+            Ok(()) => 0,
+            Err(err) => {
+                eprintln!("Silent uninstall failed: {}", err);
+                1
+            }
+        };
+        std::process::exit(exit_code);
     }
 
     tauri::Builder::default()
@@ -1799,7 +2512,9 @@ mod tests {
         assert!(!is_safe_dedicated_install_dir(Path::new("C:\\Users\\User\\Downloads\\Lumen\\..")));
         assert!(!is_safe_dedicated_install_dir(Path::new("/home/user/Desktop/Lumen/..")));
         assert!(is_safe_dedicated_install_dir(Path::new("/home/user/.local/share/Lumen")));
+        assert!(is_safe_dedicated_install_dir(Path::new("/home/user/.local/share/Lumen-dev")));
         assert!(is_safe_dedicated_install_dir(Path::new("C:\\Users\\User\\AppData\\Local\\Programs\\Lumen")));
+        assert!(is_safe_dedicated_install_dir(Path::new("C:\\Users\\User\\AppData\\Local\\Programs\\Lumen Dev")));
         assert!(is_safe_dedicated_install_dir(Path::new("C:\\Program Files\\Reiux\\Lumen")));
         assert!(is_safe_dedicated_install_dir(Path::new("C:\\Program Files\\Lumen")));
     }
@@ -1879,5 +2594,70 @@ mod tests {
             &trusted,
             true
         ));
+    }
+
+    #[test]
+    fn test_escape_powershell_single_quote() {
+        assert_eq!(escape_powershell_single_quote("C:\\Apps\\Lumen"), "C:\\Apps\\Lumen");
+        assert_eq!(escape_powershell_single_quote("O'Reilly"), "O''Reilly");
+        assert_eq!(
+            escape_powershell_single_quote("a\u{2018}b\u{2019}c\u{201A}d\u{201B}e"),
+            "a\u{2018}\u{2018}b\u{2019}\u{2019}c\u{201A}\u{201A}d\u{201B}\u{201B}e"
+        );
+        assert_eq!(
+            escape_powershell_single_quote("line1\r\nline2\0'end"),
+            "line1line2''end"
+        );
+    }
+
+    #[test]
+    fn test_is_safe_dedicated_install_dir_rejects_device_and_globalroot() {
+        assert!(!is_safe_dedicated_install_dir(Path::new(r"\\.\C:\Program Files\Lumen")));
+        assert!(!is_safe_dedicated_install_dir(Path::new("//./C:/Program Files/Lumen")));
+        assert!(!is_safe_dedicated_install_dir(Path::new(
+            r"\\?\GLOBALROOT\Device\HarddiskVolume1\Program Files\Lumen"
+        )));
+        assert!(!is_safe_dedicated_install_dir(Path::new(
+            "//?/GLOBALROOT/Device/HarddiskVolume1/Program Files/Lumen"
+        )));
+        assert!(!is_safe_dedicated_install_dir(Path::new(
+            r"\\?\GlobalRoot\Device\HarddiskVolume1\Lumen"
+        )));
+    }
+
+    #[test]
+    fn test_extract_exe_path_from_uninstall_string_turkish_i() {
+        // Turkish capital dotted 'İ' (\u{0130}) expands from 2 bytes to 3 bytes under
+        // Unicode .to_lowercase(), which previously panicked when slicing clean[..idx + 4].
+        let input = "\"C:\\Users\\\u{0130}stanbul\\AppData\\Local\\Programs\\Lumen\\uninstall.exe\" --silent";
+        let extracted = extract_exe_path_from_uninstall_string(input);
+        assert_eq!(
+            extracted,
+            PathBuf::from("C:\\Users\\\u{0130}stanbul\\AppData\\Local\\Programs\\Lumen\\uninstall.exe")
+        );
+
+        let upper_ext = "C:\\\u{0130}\u{0130}\u{0130}\\Lumen\\UNINSTALL.EXE /S";
+        assert_eq!(
+            extract_exe_path_from_uninstall_string(upper_ext),
+            PathBuf::from("C:\\\u{0130}\u{0130}\u{0130}\\Lumen\\UNINSTALL.EXE")
+        );
+    }
+
+    #[test]
+    fn test_ensure_dedicated_install_subdir() {
+        let base = PathBuf::from("/opt/apps");
+        assert_eq!(
+            ensure_dedicated_install_subdir(&base),
+            base.join(channel_install_dir_name())
+        );
+
+        let already_lumen = PathBuf::from("/opt/apps/Lumen");
+        assert_eq!(ensure_dedicated_install_subdir(&already_lumen), already_lumen);
+
+        let already_dev = PathBuf::from("/opt/apps/Lumen-dev");
+        assert_eq!(ensure_dedicated_install_subdir(&already_dev), already_dev);
+
+        let already_win_dev = PathBuf::from("D:\\Apps\\Lumen Dev");
+        assert_eq!(ensure_dedicated_install_subdir(&already_win_dev), already_win_dev);
     }
 }

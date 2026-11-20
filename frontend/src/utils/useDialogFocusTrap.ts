@@ -22,8 +22,46 @@ function getFocusableElements(container: HTMLElement): HTMLElement[] {
   })
 }
 
-function isTopmostDialog(container: HTMLElement): boolean {
-  const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
+interface ActiveTrapEntry {
+  containerRef: Ref<HTMLElement | null>
+}
+
+const DIALOG_ROLE_SELECTOR = '[role="dialog"], [role="alertdialog"]'
+const activeTrapStack: ActiveTrapEntry[] = []
+const managedContainers = new WeakSet<HTMLElement>()
+
+function pushTrap(entry: ActiveTrapEntry) {
+  const idx = activeTrapStack.indexOf(entry)
+  if (idx !== -1) {
+    activeTrapStack.splice(idx, 1)
+  }
+  activeTrapStack.push(entry)
+}
+
+function removeTrap(entry: ActiveTrapEntry) {
+  const idx = activeTrapStack.indexOf(entry)
+  if (idx !== -1) {
+    activeTrapStack.splice(idx, 1)
+  }
+}
+
+function isTopmostDialog(entry: ActiveTrapEntry, container: HTMLElement): boolean {
+  if (activeTrapStack.length > 0) {
+    if (activeTrapStack[activeTrapStack.length - 1] !== entry) {
+      return false
+    }
+    const domDialogs = Array.from(document.querySelectorAll<HTMLElement>(DIALOG_ROLE_SELECTOR)).filter(
+      (el) => !managedContainers.has(el) || activeTrapStack.some((t) => t.containerRef.value === el),
+    )
+    if (domDialogs.length > 0) {
+      const lastDom = domDialogs[domDialogs.length - 1]
+      if (lastDom !== container && !managedContainers.has(lastDom)) {
+        return false
+      }
+    }
+    return true
+  }
+  const dialogs = Array.from(document.querySelectorAll<HTMLElement>(DIALOG_ROLE_SELECTOR))
   return dialogs.length === 0 || dialogs[dialogs.length - 1] === container
 }
 
@@ -33,6 +71,7 @@ export function useDialogFocusTrap(
   options: DialogFocusTrapOptions = {},
 ) {
   let openerElement: HTMLElement | null = null
+  const trapEntry: ActiveTrapEntry = { containerRef }
 
   function restoreOpener() {
     if (openerElement && typeof openerElement.focus === 'function') {
@@ -44,6 +83,7 @@ export function useDialogFocusTrap(
   function focusDialog() {
     const container = containerRef.value
     if (!container) return
+    managedContainers.add(container)
     const target = options.initialFocus?.()
     if (target && typeof target.focus === 'function') {
       target.focus({ preventScroll: true })
@@ -62,12 +102,15 @@ export function useDialogFocusTrap(
   function handleKeydown(e: KeyboardEvent) {
     if (!toValue(isOpen)) return
     const container = containerRef.value
-    if (!container || !isTopmostDialog(container)) return
+    if (!container) return
+    managedContainers.add(container)
+    if (!isTopmostDialog(trapEntry, container)) return
 
     if (e.key === 'Escape') {
       if (options.onEscape) {
         e.preventDefault()
         e.stopPropagation()
+        e.stopImmediatePropagation()
         options.onEscape()
       }
       return
@@ -101,8 +144,10 @@ export function useDialogFocusTrap(
     (open, wasOpen) => {
       if (open && !wasOpen) {
         openerElement = (document.activeElement as HTMLElement) || null
+        pushTrap(trapEntry)
         nextTick(() => focusDialog())
       } else if (!open && wasOpen) {
+        removeTrap(trapEntry)
         restoreOpener()
       }
     },
@@ -112,12 +157,17 @@ export function useDialogFocusTrap(
     window.addEventListener('keydown', handleKeydown, true)
     if (toValue(isOpen)) {
       openerElement = (document.activeElement as HTMLElement) || null
+      pushTrap(trapEntry)
+      if (containerRef.value) {
+        managedContainers.add(containerRef.value)
+      }
       nextTick(() => focusDialog())
     }
   })
 
   onUnmounted(() => {
     window.removeEventListener('keydown', handleKeydown, true)
+    removeTrap(trapEntry)
     if (toValue(isOpen)) {
       restoreOpener()
     }

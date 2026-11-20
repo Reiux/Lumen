@@ -25,8 +25,11 @@ jobs:
     outputs:
       version: ${{ steps.ver.outputs.version }}
       tag: ${{ steps.ver.outputs.tag }}
+      is_prerelease: ${{ steps.ver.outputs.is_prerelease }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - id: ver
         shell: bash
         env:
@@ -40,17 +43,30 @@ jobs:
             CARGO_VER=$(grep -m1 '^version =' crates/lumen-tauri/Cargo.toml | cut -d '"' -f2)
             TAG="v$CARGO_VER"
           fi
+          if [[ ! "$TAG" =~ ^v[0-9A-Za-z._-]+$ ]] || [[ "$TAG" == *".."* ]]; then
+            echo "Error: Invalid release tag '$TAG'. Expected format ^v[0-9A-Za-z._-]+$ without '..'." >&2
+            exit 1
+          fi
           VERSION="${TAG#v}"
+          if [[ "$TAG" == *-* ]]; then
+            IS_PRERELEASE="true"
+          else
+            IS_PRERELEASE="false"
+          fi
           echo "Release tag: $TAG"
           echo "Detected version: $VERSION"
+          echo "Is prerelease: $IS_PRERELEASE"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "is_prerelease=$IS_PRERELEASE" >> "$GITHUB_OUTPUT"
 
   test:
     name: Test Suite (Linux x64)
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
       - name: Install Protoc
@@ -88,6 +104,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
@@ -194,6 +212,8 @@ jobs:
             extra_deps: "libfuse2t64 patchelf"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
@@ -297,6 +317,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
@@ -325,12 +347,14 @@ jobs:
       - name: Build Application Binaries
         shell: pwsh
         run: |
+          $PSNativeCommandUseErrorActionPreference = $true
           cargo build --release -p lumen-tauri --bin lumen
           cargo build --release -p lumen-cli --bin lumen-cli
 
       - name: Package Custom Installer
         shell: pwsh
         run: |
+          $PSNativeCommandUseErrorActionPreference = $true
           tar -czf crates/lumen-installer/payload.tar.gz -C target/release lumen.exe lumen-cli.exe
           cargo build --release -p lumen-installer --bin lumen-installer
 
@@ -339,6 +363,7 @@ jobs:
         env:
           RELEASE_VERSION: ${{ needs.get-version.outputs.version }}
         run: |
+          $PSNativeCommandUseErrorActionPreference = $true
           $V = $env:RELEASE_VERSION
           New-Item -ItemType Directory -Force -Path dist
 
@@ -380,6 +405,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
@@ -408,12 +435,14 @@ jobs:
       - name: Build Application Binaries
         shell: pwsh
         run: |
+          $PSNativeCommandUseErrorActionPreference = $true
           cargo build --release -p lumen-tauri --bin lumen --target aarch64-pc-windows-msvc
           cargo build --release -p lumen-cli --bin lumen-cli --target aarch64-pc-windows-msvc
 
       - name: Package Custom Installer
         shell: pwsh
         run: |
+          $PSNativeCommandUseErrorActionPreference = $true
           tar -czf crates/lumen-installer/payload.tar.gz -C target/aarch64-pc-windows-msvc/release lumen.exe lumen-cli.exe
           cargo build --release -p lumen-installer --bin lumen-installer --target aarch64-pc-windows-msvc
 
@@ -422,6 +451,7 @@ jobs:
         env:
           RELEASE_VERSION: ${{ needs.get-version.outputs.version }}
         run: |
+          $PSNativeCommandUseErrorActionPreference = $true
           $V = $env:RELEASE_VERSION
           New-Item -ItemType Directory -Force -Path dist
 
@@ -467,6 +497,7 @@ jobs:
       - name: Checkout Release Notes
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          persist-credentials: false
           sparse-checkout: |
             .github/release-notes
 
@@ -516,4 +547,4 @@ jobs:
           append_body: ${{ steps.notes.outputs.has_custom != 'true' }}
           generate_release_notes: ${{ steps.notes.outputs.has_custom != 'true' }}
           draft: false
-          prerelease: false
+          prerelease: ${{ needs.get-version.outputs.is_prerelease == 'true' }}

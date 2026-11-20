@@ -20,6 +20,8 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
@@ -76,6 +78,8 @@ jobs:
             extra_deps: "libfuse2t64 patchelf"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
@@ -201,6 +205,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
@@ -318,6 +324,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
@@ -346,12 +354,14 @@ jobs:
       - name: Build Application Binaries
         shell: pwsh
         run: |
+          $PSNativeCommandUseErrorActionPreference = $true
           cargo build -p lumen-tauri --bin lumen
           cargo build -p lumen-cli --bin lumen-cli
 
       - name: Package Custom Installer
         shell: pwsh
         run: |
+          $PSNativeCommandUseErrorActionPreference = $true
           tar -czf crates/lumen-installer/payload.tar.gz -C target/debug lumen.exe lumen-cli.exe
           cargo build -p lumen-installer --bin lumen-installer
 
@@ -360,6 +370,7 @@ jobs:
         env:
           COMMIT_SHA: ${{ github.sha }}
         run: |
+          $PSNativeCommandUseErrorActionPreference = $true
           $CARGO_VER = (Select-String -Path crates/lumen-tauri/Cargo.toml -Pattern '^version = "(.*)"').Matches.Groups[1].Value
           $SHORT_SHA = $env:COMMIT_SHA.Substring(0, 7)
           $V = "$CARGO_VER-dev.$SHORT_SHA"
@@ -408,6 +419,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@39008827e6b4319a349e9a42dfc90579dd25f1ca # stable
         with:
@@ -436,12 +449,14 @@ jobs:
       - name: Build Application Binaries
         shell: pwsh
         run: |
+          $PSNativeCommandUseErrorActionPreference = $true
           cargo build -p lumen-tauri --bin lumen --target aarch64-pc-windows-msvc
           cargo build -p lumen-cli --bin lumen-cli --target aarch64-pc-windows-msvc
 
       - name: Package Custom Installer
         shell: pwsh
         run: |
+          $PSNativeCommandUseErrorActionPreference = $true
           tar -czf crates/lumen-installer/payload.tar.gz -C target/aarch64-pc-windows-msvc/debug lumen.exe lumen-cli.exe
           cargo build -p lumen-installer --bin lumen-installer --target aarch64-pc-windows-msvc
 
@@ -450,6 +465,7 @@ jobs:
         env:
           COMMIT_SHA: ${{ github.sha }}
         run: |
+          $PSNativeCommandUseErrorActionPreference = $true
           $CARGO_VER = (Select-String -Path crates/lumen-tauri/Cargo.toml -Pattern '^version = "(.*)"').Matches.Groups[1].Value
           $SHORT_SHA = $env:COMMIT_SHA.Substring(0, 7)
           $V = "$CARGO_VER-dev.$SHORT_SHA"

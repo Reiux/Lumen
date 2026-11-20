@@ -1,7 +1,11 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-pub const KEYRING_SERVICE_NAME: &str = "com.reiux.lumen";
+pub const KEYRING_SERVICE_NAME: &str = if cfg!(debug_assertions) {
+    "com.reiux.lumen.dev"
+} else {
+    "com.reiux.lumen"
+};
 pub const KEYRING_ACCOUNT_PREFIX: &str = "account_";
 
 pub trait KeyringProvider: Send + Sync {

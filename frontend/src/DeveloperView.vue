@@ -113,7 +113,7 @@ function sanitizeUserMessage(msg?: string, fileName?: string): string {
   let sanitized = msg
   // Replace full filesystem paths first (including paths with spaces and single-slash Unix root files)
   sanitized = sanitized.replace(
-    /(?:[a-zA-Z]:[/\\]|\/)(?:[^\r\n:"*?<>|]+[/\\])*([^\r\n/:\\"*?<>|\s]+(?:\.[^\r\n/:\\"*?<>|\s]+)?)/g,
+    /(?:[a-zA-Z]:[/\\]|\/)(?:[^\r\n/\\:"*?<>|]+[/\\])*([^\r\n/:\\"*?<>|\s]+(?:\.[^\r\n/:\\"*?<>|\s]+)?)/g,
     (match, base) => {
       if (match.startsWith('//')) return match
       return anonymizeFileName(base)

@@ -28,10 +28,12 @@ pub fn setup_tray(app: &AppHandle) -> Result<tauri::tray::TrayIcon, Box<dyn std:
                 }
             }
             "quit" => {
+                crate::webview_signin::cancel_active_sign_in(app);
                 crate::cdp::cancel_active_browser();
                 if let Some(state) = app.try_state::<crate::commands::AppState>() {
                     state.upload_cancel.store(true, std::sync::atomic::Ordering::SeqCst);
                     state.scan_cancel.store(true, std::sync::atomic::Ordering::SeqCst);
+                    state.review_scan_cancel.store(true, std::sync::atomic::Ordering::SeqCst);
                     if let Ok(mut guard) = state.watcher.try_lock() {
                         if let Some(ref mut w) = *guard {
                             w.stop();

@@ -37,6 +37,10 @@ pub fn calculate_file_sha1(path: &Path) -> io::Result<(Vec<u8>, String)> {
     Ok((hash_bytes, b64))
 }
 
+fn normalize_account_email(account_email: &str) -> String {
+    account_email.trim().to_ascii_lowercase()
+}
+
 #[derive(Clone)]
 pub struct HashCache {
     conn: Arc<Mutex<Connection>>,
@@ -45,12 +49,7 @@ pub struct HashCache {
 impl HashCache {
     pub fn open(db_path: &Path) -> Result<Self, DedupError> {
         if let Some(parent) = db_path.parent().filter(|p| !p.as_os_str().is_empty()) {
-            std::fs::create_dir_all(parent)?;
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
-            }
+            crate::config::ensure_private_parent_dir(parent)?;
         }
         #[cfg(unix)]
         {
@@ -111,16 +110,16 @@ impl HashCache {
             "SELECT COUNT(*) FROM pragma_table_info('file_hashes') WHERE name = 'account_email'",
             [],
             |r| r.get(0),
-        ).unwrap_or(0);
+        )?;
 
         if has_acc_col == 0 {
             let table_exists: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='file_hashes'",
                 [],
                 |r| r.get(0),
-            ).unwrap_or(0);
+            )?;
             if table_exists > 0 {
-                let _ = conn.execute("DROP TABLE IF EXISTS file_hashes", []);
+                conn.execute("DROP TABLE IF EXISTS file_hashes", [])?;
             }
         }
 
@@ -149,14 +148,15 @@ impl HashCache {
     }
 
     pub fn get(&self, account_email: &str, sha1_b64: &str, file_size: i64) -> Result<Option<String>, DedupError> {
-        if account_email.is_empty() || sha1_b64.is_empty() {
+        let email = normalize_account_email(account_email);
+        if email.is_empty() || sha1_b64.is_empty() {
             return Ok(None);
         }
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT media_key FROM file_hashes WHERE account_email = ?1 AND sha1_b64 = ?2 AND file_size = ?3"
+            "SELECT media_key FROM file_hashes WHERE LOWER(account_email) = ?1 AND sha1_b64 = ?2 AND file_size = ?3"
         )?;
-        let mut rows = stmt.query(params![account_email, sha1_b64, file_size])?;
+        let mut rows = stmt.query(params![email, sha1_b64, file_size])?;
         if let Some(row) = rows.next()? {
             let key: String = row.get(0)?;
             Ok(Some(key))
@@ -166,7 +166,8 @@ impl HashCache {
     }
 
     pub fn put(&self, account_email: &str, sha1_b64: &str, media_key: &str, file_size: i64, mtime: i64) -> Result<(), DedupError> {
-        if account_email.is_empty() || sha1_b64.is_empty() || media_key.is_empty() {
+        let email = normalize_account_email(account_email);
+        if email.is_empty() || sha1_b64.is_empty() || media_key.is_empty() {
             return Ok(());
         }
         let conn = self.conn.lock().unwrap();
@@ -182,17 +183,17 @@ impl HashCache {
                 media_key = excluded.media_key,
                 mtime = excluded.mtime,
                 created_at = excluded.created_at;",
-            params![account_email, sha1_b64, media_key, file_size, mtime, now],
+            params![email, sha1_b64, media_key, file_size, mtime, now],
         )?;
         Ok(())
     }
 
     pub fn count(&self, account_email: Option<&str>) -> Result<i64, DedupError> {
         let conn = self.conn.lock().unwrap();
-        let count: i64 = match account_email {
-            Some(email) if !email.is_empty() => {
+        let count: i64 = match account_email.map(normalize_account_email) {
+            Some(ref email) if !email.is_empty() => {
                 conn.query_row(
-                    "SELECT COUNT(*) FROM file_hashes WHERE account_email = ?1",
+                    "SELECT COUNT(*) FROM file_hashes WHERE LOWER(account_email) = ?1",
                     params![email],
                     |r| r.get(0),
                 )?
@@ -206,17 +207,30 @@ impl HashCache {
 
     pub fn clear(&self, account_email: Option<&str>) -> Result<usize, DedupError> {
         let conn = self.conn.lock().unwrap();
-        let rows = match account_email {
-            Some(email) if !email.is_empty() => {
-                conn.execute("DELETE FROM file_hashes WHERE account_email = ?1", params![email])?
+        let rows = match account_email.map(normalize_account_email) {
+            Some(ref email) if !email.is_empty() => {
+                let deleted = conn.execute(
+                    "DELETE FROM file_hashes WHERE LOWER(account_email) = ?1",
+                    params![email],
+                )?;
+                let _ = conn.execute(
+                    "DELETE FROM upload_sessions WHERE LOWER(account_email) = ?1",
+                    params![email],
+                )?;
+                deleted
             }
-            _ => conn.execute("DELETE FROM file_hashes", [])?,
+            _ => {
+                let deleted = conn.execute("DELETE FROM file_hashes", [])?;
+                let _ = conn.execute("DELETE FROM upload_sessions", [])?;
+                deleted
+            }
         };
         let _ = conn.execute("VACUUM", []);
         Ok(rows)
     }
 
     pub fn save_upload_session(&self, account_email: &str, sha1_b64: &str, file_size: i64, token: &str) -> Result<(), DedupError> {
+        let email = normalize_account_email(account_email);
         let conn = self.conn.lock().unwrap();
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -224,17 +238,18 @@ impl HashCache {
             .as_secs() as i64;
         conn.execute(
             "INSERT OR REPLACE INTO upload_sessions (account_email, sha1_b64, file_size, upload_token, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![account_email, sha1_b64, file_size, token, now],
+            params![email, sha1_b64, file_size, token, now],
         )?;
         Ok(())
     }
 
     pub fn get_upload_session(&self, account_email: &str, sha1_b64: &str, file_size: i64) -> Result<Option<String>, DedupError> {
+        let email = normalize_account_email(account_email);
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT upload_token FROM upload_sessions WHERE account_email = ?1 AND sha1_b64 = ?2 AND file_size = ?3"
+            "SELECT upload_token FROM upload_sessions WHERE LOWER(account_email) = ?1 AND sha1_b64 = ?2 AND file_size = ?3"
         )?;
-        let mut rows = stmt.query(params![account_email, sha1_b64, file_size])?;
+        let mut rows = stmt.query(params![email, sha1_b64, file_size])?;
         if let Some(row) = rows.next()? {
             let tok: String = row.get(0)?;
             Ok(Some(tok))
@@ -244,10 +259,11 @@ impl HashCache {
     }
 
     pub fn remove_upload_session(&self, account_email: &str, sha1_b64: &str, file_size: i64) -> Result<(), DedupError> {
+        let email = normalize_account_email(account_email);
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "DELETE FROM upload_sessions WHERE account_email = ?1 AND sha1_b64 = ?2 AND file_size = ?3",
-            params![account_email, sha1_b64, file_size],
+            "DELETE FROM upload_sessions WHERE LOWER(account_email) = ?1 AND sha1_b64 = ?2 AND file_size = ?3",
+            params![email, sha1_b64, file_size],
         )?;
         Ok(())
     }

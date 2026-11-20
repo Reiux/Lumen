@@ -4,8 +4,12 @@ import { useI18n } from 'vue-i18n'
 import { Browser } from '@wailsio/runtime'
 import { ConfigManager } from '../../bindings/app/core'
 import type { UpdateInfo } from '../../bindings/app/core/models'
+import { hasTauri } from '../tauri-compat/wails-runtime'
+import { isSafeHttpUrl } from '../utils/markdown'
 import M3Button from './ui/M3Button.vue'
 import M3Icon from './ui/M3Icon.vue'
+import M3LoadingIndicator from './ui/M3LoadingIndicator.vue'
+import M3Markdown from './ui/M3Markdown.vue'
 import { useDialogFocusTrap } from '../utils/useDialogFocusTrap'
 
 const { t } = useI18n()
@@ -55,7 +59,7 @@ watch(() => [props.modelValue, props.updateInfo] as const, async ([open, info]) 
           return
         }
         const msg = err instanceof Error ? err.message : String(err)
-        notes.value = msg || 'Could not load release notes.'
+        notes.value = msg || t('updater.notesLoadFailed')
       } finally {
         if (props.updateInfo?.latestVersion === requestedVersion || !props.modelValue) {
           isLoadingNotes.value = false
@@ -70,12 +74,15 @@ function close() {
 }
 
 function openDownload() {
-  if (props.updateInfo?.releaseUrl) {
-    Browser.OpenURL(props.updateInfo.releaseUrl).catch(() => {
-      window.open(props.updateInfo!.releaseUrl, '_blank', 'noopener,noreferrer')
+  const url = props.updateInfo?.releaseUrl
+  close()
+  if (url && isSafeHttpUrl(url)) {
+    Browser.OpenURL(url).catch(() => {
+      if (!hasTauri()) {
+        window.open(url, '_blank', 'noopener,noreferrer')
+      }
     })
   }
-  close()
 }
 </script>
 
@@ -84,82 +91,88 @@ function openDownload() {
     <Transition name="m3-dialog-modal">
       <div
         v-if="modelValue && updateInfo"
-        class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 select-none overflow-y-auto"
+        class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center p-4 select-none overflow-y-auto"
         style="--wails-draggable: none"
         @click.self="close"
       >
         <div
           ref="dialogCardRef"
           tabindex="-1"
-          class="m3-dialog-card relative flex flex-col w-full max-w-lg rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container-high)] shadow-2xl overflow-hidden select-none outline-none"
+          class="m3-dialog-card relative flex flex-col w-full max-w-xl max-h-[85vh] rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] shadow-2xl overflow-hidden select-none outline-none focus-visible:outline-[3px] focus-visible:outline-[var(--md-sys-color-primary)]"
           role="dialog"
           aria-modal="true"
           aria-labelledby="update-modal-title"
         >
-          <!-- Header -->
-          <div class="flex items-center justify-between border-b border-[var(--md-sys-color-outline-variant)]/30 px-6 py-5">
-            <div class="flex items-center gap-3">
-              <div class="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
+          <!-- M3E Header (tonal hierarchy, no hairline border hacks) -->
+          <div class="flex items-start justify-between gap-3 px-6 pt-6 pb-4">
+            <div class="flex items-center gap-3.5 min-w-0">
+              <div class="flex size-12 shrink-0 items-center justify-center rounded-[16px] bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
                 <M3Icon
                   name="system_update"
                   :filled="true"
                   :size="24"
                 />
               </div>
-              <div class="flex flex-col">
+              <div class="flex flex-col min-w-0">
                 <h2
                   id="update-modal-title"
                   class="m3-headline-small text-[var(--md-sys-color-on-surface)]"
                 >
                   {{ t('updater.newVersion') }}
                 </h2>
-                <div class="flex items-center gap-2 mt-0.5 m3-body-medium">
+                <div class="flex flex-wrap items-center gap-2 mt-1 m3-body-medium text-[var(--md-sys-color-on-surface-variant)]">
                   <span>{{ t('updater.currentVersion', { version: updateInfo.currentVersion }) }}</span>
-                  <span>&rarr;</span>
-                  <span class="m3-title-medium text-[var(--md-sys-color-primary)]">v{{ updateInfo.latestVersion.replace(/^v/i, '') }}</span>
+                  <span aria-hidden="true">&rarr;</span>
+                  <span class="rounded-full bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)] px-2.5 py-0.5 m3-label-large text-xs">
+                    v{{ updateInfo.latestVersion.replace(/^v/i, '') }}
+                  </span>
                 </div>
               </div>
             </div>
 
             <M3Button
               variant="text"
-              size="xs"
+              size="s"
               icon="close"
               :aria-label="t('updater.close')"
-              class="!size-9 !min-w-0 !p-0"
+              class="!size-10 !min-w-0 !p-0 shrink-0"
               @click="close"
             />
           </div>
 
-          <!-- Body with Release Notes -->
-          <div class="max-h-80 overflow-y-auto px-6 py-5 flex flex-col gap-3">
-            <div class="flex items-center justify-between m3-label-small text-[var(--md-sys-color-on-surface-variant)]">
-              <span>{{ t('updater.releaseNotes') }}</span>
+          <!-- Body with GitHub-style Markdown Release Notes -->
+          <div class="flex-1 min-h-0 px-6 py-2 flex flex-col gap-2.5 overflow-hidden">
+            <div class="flex items-center justify-between px-1 shrink-0">
+              <span class="m3-label-large text-[var(--md-sys-color-on-surface-variant)]">
+                {{ t('updater.releaseNotes') }}
+              </span>
               <span
                 v-if="updateInfo.publishedAt"
-                class="opacity-75"
+                class="m3-body-small text-[var(--md-sys-color-on-surface-variant)]"
               >
                 {{ new Date(updateInfo.publishedAt).toLocaleDateString() }}
               </span>
             </div>
 
-            <div class="rounded-2xl border border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container)] p-4 m3-mono m3-body-medium text-[var(--md-sys-color-on-surface)] whitespace-pre-wrap break-words max-h-60 overflow-y-auto">
+            <div class="rounded-[20px] bg-[var(--md-sys-color-surface-container)] p-5 max-h-[420px] overflow-y-auto">
               <div
                 v-if="isLoadingNotes"
-                class="text-[var(--md-sys-color-on-surface-variant)] italic"
+                class="flex items-center justify-center gap-3 py-8 text-[var(--md-sys-color-on-surface-variant)]"
               >
-                {{ t('updater.loadingNotes') }}
+                <M3LoadingIndicator size="xs" />
+                <span class="m3-body-medium">{{ t('updater.loadingNotes') }}</span>
               </div>
-              <div v-else>
-                {{ notes || updateInfo.releaseNotes || t('updater.noNotes') }}
-              </div>
+              <M3Markdown
+                v-else
+                :content="notes || updateInfo.releaseNotes || t('updater.noNotes')"
+              />
             </div>
           </div>
 
-          <!-- Footer Actions -->
-          <div class="border-t border-[var(--md-sys-color-outline-variant)]/30 bg-[var(--md-sys-color-surface-container-high)] px-6 py-4 flex items-center justify-end gap-2.5">
+          <!-- M3E Footer Actions (Text dismiss + Filled primary pill) -->
+          <div class="px-6 pt-4 pb-6 flex items-center justify-end gap-2">
             <M3Button
-              variant="outlined"
+              variant="text"
               size="s"
               @click="close"
             >
@@ -167,7 +180,7 @@ function openDownload() {
             </M3Button>
             <M3Button
               variant="filled"
-              size="s"
+              size="m"
               icon="open_in_new"
               @click="openDownload"
             >

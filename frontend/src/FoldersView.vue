@@ -11,6 +11,7 @@ import M3Button from './components/ui/M3Button.vue'
 import M3Icon from './components/ui/M3Icon.vue'
 import M3Switch from './components/ui/M3Switch.vue'
 import M3TextField from './components/ui/M3TextField.vue'
+import { useDialogFocusTrap } from './utils/useDialogFocusTrap'
 
 const emit = defineEmits<{
   (e: 'uploadFolder', path: string): void
@@ -25,13 +26,20 @@ const inotifyError = ref('')
 const isAddingFolder = ref(false)
 const recentAlbums = ref<string[]>([])
 const albumNicknamesByAccount = ref<Record<string, Record<string, string | undefined>>>({})
+const nicknameDrafts = ref<Record<string, string>>({})
 
 // Pending backlog dialog state
 const pendingBacklog = ref<{ folder: string; count: number; account: string } | null>(null)
+const isConfirmingBacklog = ref(false)
 
 // Broad folder confirmation state
 const pendingBroadFolder = ref<WatchedFolderConfig | null>(null)
 const showBroadWarning = ref(false)
+const broadWarningDialogCardRef = ref<HTMLElement | null>(null)
+
+useDialogFocusTrap(() => showBroadWarning.value, broadWarningDialogCardRef, {
+  onEscape: cancelBroadFolder,
+})
 
 // Expand/collapse per folder card
 const expandedFolders = ref<Record<string, boolean>>({})
@@ -55,8 +63,7 @@ function isBroadDirectory(path: string): boolean {
     p === '/home' ||
     p === '/root' ||
     p === '/Users' ||
-    p === 'C:' ||
-    p === 'C:\\'
+    /^[a-zA-Z]:$/.test(p)
   )
 }
 
@@ -74,6 +81,10 @@ function getAlbumNickname(keyOrName: string, accountEmail?: string): string {
 function getAlbumLabel(keyOrName: string, accountEmail?: string): string {
   if (!keyOrName) return ''
   return getAlbumNickname(keyOrName, accountEmail) || keyOrName
+}
+
+function syncNicknameDraft(cfg: WatchedFolderConfig) {
+  nicknameDrafts.value[cfg.path] = getAlbumNickname(cfg.albumNameOrKey || '', resolveFolderAccount(cfg))
 }
 
 async function loadData() {
@@ -107,11 +118,12 @@ async function loadData() {
     albumNicknamesByAccount.value = nextNicknames
     recentAlbums.value = (await ConfigManager.GetRecentAlbums()) || []
 
-    // Default expand all enabled folders
+    // Default expand all enabled folders and sync nickname drafts
     for (const fc of watchedConfigs.value) {
       if (expandedFolders.value[fc.path] === undefined) {
         expandedFolders.value[fc.path] = fc.enabled
       }
+      syncNicknameDraft(fc)
     }
   } catch (err) {
     console.error('Failed to load folders config:', err)
@@ -169,8 +181,9 @@ async function addFolder() {
 }
 
 async function confirmBacklog(uploadBacklog: boolean) {
-  if (!pendingBacklog.value) return
+  if (!pendingBacklog.value || isConfirmingBacklog.value) return
   const { folder, account } = pendingBacklog.value
+  isConfirmingBacklog.value = true
   try {
     await ConfigManager.AddWatchedFolderWithAccount(folder, account)
     await loadData()
@@ -184,11 +197,13 @@ async function confirmBacklog(uploadBacklog: boolean) {
     console.error('Failed to add watched folder with backlog:', err)
     toast.error(t('folders.toastFolderWatchError'))
   } finally {
+    isConfirmingBacklog.value = false
     pendingBacklog.value = null
   }
 }
 
 function cancelBacklog() {
+  if (isConfirmingBacklog.value) return
   pendingBacklog.value = null
 }
 
@@ -231,16 +246,19 @@ function cancelBroadFolder() {
 async function updateFolderField(cfg: WatchedFolderConfig, patch: Partial<WatchedFolderConfig>) {
   const prevSnapshot = { ...cfg }
   Object.assign(cfg, patch)
+  syncNicknameDraft(cfg)
   await saveFolderConfig(cfg, prevSnapshot)
 }
 
 async function saveFolderConfig(cfg: WatchedFolderConfig, prevSnapshot?: WatchedFolderConfig) {
   try {
     await ConfigManager.UpdateWatchedFolderConfig(cfg)
+    syncNicknameDraft(cfg)
     inotifyError.value = (await ConfigManager.GetInotifyError()) || ''
   } catch (err) {
     if (prevSnapshot) {
       Object.assign(cfg, prevSnapshot)
+      syncNicknameDraft(cfg)
     } else {
       await loadData()
     }
@@ -254,6 +272,7 @@ async function removeFolder(cfg: WatchedFolderConfig) {
     await ConfigManager.RemoveWatchedFolder(cfg.path)
     watchedConfigs.value = watchedConfigs.value.filter((c) => c.path !== cfg.path)
     delete expandedFolders.value[cfg.path]
+    delete nicknameDrafts.value[cfg.path]
     inotifyError.value = (await ConfigManager.GetInotifyError()) || ''
     toast.success(t('folders.toastFolderRemoved', { name: folderBasename(cfg.path) }))
   } catch (err) {
@@ -262,12 +281,19 @@ async function removeFolder(cfg: WatchedFolderConfig) {
   }
 }
 
-function onUploadNow(cfg: WatchedFolderConfig) {
-  emit('uploadFolder', cfg.path)
-  toast.success(t('folders.toastBackupQueued', { name: folderBasename(cfg.path) }))
+async function onUploadNow(cfg: WatchedFolderConfig) {
+  try {
+    await ConfigManager.StartWatchedFolderUpload(cfg.path)
+    toast.success(t('folders.toastBackupQueued', { name: folderBasename(cfg.path) }))
+  } catch (err) {
+    console.error('Failed to start watched folder backup:', err)
+    toast.error(t('backup.toastStartFailed'), {
+      description: err instanceof Error ? err.message : String(err),
+    })
+  }
 }
 
-async function saveAlbumNickname(accountEmail: string, key: string, nickname: string) {
+async function saveAlbumNickname(accountEmail: string, key: string, nickname: string, folderPath?: string) {
   const targetAccount = accountEmail || selectedAccount.value
   if (!targetAccount || !key.trim()) return
   try {
@@ -275,6 +301,9 @@ async function saveAlbumNickname(accountEmail: string, key: string, nickname: st
     albumNicknamesByAccount.value = {
       ...albumNicknamesByAccount.value,
       [targetAccount]: (await ConfigManager.GetAlbumNicknames(targetAccount)) || {},
+    }
+    if (folderPath) {
+      nicknameDrafts.value[folderPath] = getAlbumNickname(key, targetAccount)
     }
     toast.success(t('folders.toastNicknameSaved'))
   } catch (err) {
@@ -308,7 +337,7 @@ onMounted(() => {
         :disabled="isAddingFolder"
         @click="addFolder"
       >
-        <span>{{ isAddingFolder ? 'Selecting...' : t('folders.addFolder') }}</span>
+        <span>{{ isAddingFolder ? t('folders.selecting') : t('folders.addFolder') }}</span>
       </M3Button>
     </div>
 
@@ -588,12 +617,12 @@ onMounted(() => {
                       <div class="pt-2">
                         <M3TextField
                           :id="`album-nickname-${cfg.path}`"
-                          :model-value="getAlbumNickname(cfg.albumNameOrKey, resolveFolderAccount(cfg))"
+                          v-model="nicknameDrafts[cfg.path]"
                           :label="t('dialogs.album.nicknameLabel')"
                           :placeholder="t('dialogs.album.nicknamePlaceholder')"
                           variant="outlined"
                           leading-icon="label"
-                          @change="(val: string) => saveAlbumNickname(resolveFolderAccount(cfg), cfg.albumNameOrKey, val)"
+                          @change="(val: string) => saveAlbumNickname(resolveFolderAccount(cfg), cfg.albumNameOrKey, val, cfg.path)"
                         />
                       </div>
                     </div>
@@ -673,42 +702,82 @@ onMounted(() => {
     <!-- Backlog Confirmation Modal -->
     <BacklogConfirmModal
       :pending-backlog="pendingBacklog"
+      :loading="isConfirmingBacklog"
       @cancel="cancelBacklog"
       @confirm="confirmBacklog"
     />
 
-    <!-- Broad Folder Confirmation Modal -->
+    <!-- Broad Folder Confirmation Modal (M3E Alert Dialog) -->
     <Teleport to="body">
       <Transition name="m3-dialog-modal">
         <div
           v-if="showBroadWarning"
-          class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 select-none overflow-y-auto"
+          class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center p-4 select-none overflow-y-auto"
           @click.self="cancelBroadFolder"
         >
           <div
-            class="m3-dialog-card relative flex flex-col gap-4 w-full max-w-md rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl border border-[var(--md-sys-color-outline-variant)]/40"
-            role="dialog"
+            ref="broadWarningDialogCardRef"
+            tabindex="-1"
+            class="m3-dialog-card relative flex flex-col gap-5 w-full max-w-[440px] rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl outline-none focus-visible:outline-[3px] focus-visible:outline-[var(--md-sys-color-primary)]"
+            role="alertdialog"
             aria-modal="true"
+            aria-labelledby="broad-warning-title"
+            aria-describedby="broad-warning-desc"
           >
-            <div class="flex items-center gap-3 text-[var(--md-sys-color-error)]">
-              <div class="flex size-10 items-center justify-center rounded-[16px] bg-[var(--md-sys-color-error-container)]">
-                <M3Icon name="warning" :filled="true" :size="22" />
+            <!-- M3E Centered Hero Icon + Headline -->
+            <div class="flex flex-col items-center text-center gap-3">
+              <div class="flex size-14 items-center justify-center rounded-[20px] bg-[var(--md-sys-color-error-container)] text-[var(--md-sys-color-on-error-container)]">
+                <M3Icon
+                  name="warning"
+                  :filled="true"
+                  :size="28"
+                />
               </div>
-              <h3 class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
-                {{ t('folders.broadWarningTitle') }}
-              </h3>
+              <div class="flex flex-col gap-1.5">
+                <h3
+                  id="broad-warning-title"
+                  class="m3-headline-small text-[var(--md-sys-color-on-surface)]"
+                >
+                  {{ t('folders.broadWarningTitle') }}
+                </h3>
+                <p
+                  id="broad-warning-desc"
+                  class="m3-body-medium leading-relaxed text-[var(--md-sys-color-on-surface-variant)]"
+                >
+                  {{ t('folders.broadWarningP1', { path: pendingBroadFolder?.path }) }}
+                </p>
+              </div>
             </div>
-            <p class="m3-body-medium leading-relaxed">
-              {{ t('folders.broadWarningP1', { path: pendingBroadFolder?.path }) }}
-            </p>
-            <p class="m3-body-medium leading-relaxed">
-              {{ t('folders.broadWarningP2') }}
-            </p>
-            <div class="flex flex-col sm:flex-row items-center justify-end gap-2 pt-2">
-              <M3Button variant="text" size="s" @click="cancelBroadFolder">
+
+            <!-- Tonal Warning Callout -->
+            <div class="flex items-start gap-3 rounded-[16px] bg-[var(--md-sys-color-surface-container)] px-4 py-3.5 text-[var(--md-sys-color-on-surface)]">
+              <M3Icon
+                name="folder_special"
+                :filled="true"
+                :size="20"
+                class="shrink-0 mt-0.5 text-[var(--md-sys-color-error)]"
+              />
+              <p class="m3-body-medium leading-snug text-[var(--md-sys-color-on-surface-variant)]">
+                {{ t('folders.broadWarningP2') }}
+              </p>
+            </div>
+
+            <!-- M3E Action Row -->
+            <div class="flex flex-col sm:flex-row items-center justify-end gap-2 pt-1">
+              <M3Button
+                variant="text"
+                size="s"
+                class="w-full sm:w-auto"
+                @click="cancelBroadFolder"
+              >
                 {{ t('settings.cancel') }}
               </M3Button>
-              <M3Button variant="filled" size="s" @click="confirmBroadFolder">
+              <M3Button
+                variant="filled"
+                size="m"
+                class="w-full sm:w-auto"
+                @click="confirmBroadFolder"
+              >
                 {{ t('folders.enableSubfolders') }}
               </M3Button>
             </div>

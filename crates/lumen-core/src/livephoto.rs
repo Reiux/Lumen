@@ -138,22 +138,33 @@ fn parse_apple_maker_note(data: &[u8]) -> Result<String, LivePhotoError> {
         }
     };
 
-    // Offset of first IFD is at 14..18 relative to TIFF header (offset 12)
-    if data.len() < 20 {
-        return Err(LivePhotoError::ParseError("data too short".to_string()));
-    }
-    let ifd_offset = read_u32(&data[16..20]) as usize;
-    let tiff_base = 12usize;
-    let mut curr_offset = match tiff_base.checked_add(ifd_offset) {
-        Some(o) => o,
-        None => return Err(LivePhotoError::ParseError("ifd offset overflow".to_string())),
+    // Real Apple iOS MakerNote layout:
+    //   0..10  "Apple iOS\0"
+    //   10..12 version (e.g. 0x0001)
+    //   12..14 endianness ("MM" or "II")
+    //   14..16 IFD entry count (or 0x002A if a standard TIFF header follows)
+    //   16..   IFD entries (12 bytes each), with value offsets relative to base 0.
+    // Some producers/fixtures embed a full TIFF header starting at offset 12
+    // (14..16 == 0x002A, 16..20 == IFD offset relative to 12).
+    let (offset_base, mut curr_offset, num_entries) = if read_u16(&data[14..16]) == 0x002A {
+        if data.len() < 20 {
+            return Err(LivePhotoError::ParseError("data too short".to_string()));
+        }
+        let ifd_offset = read_u32(&data[16..20]) as usize;
+        let tiff_base = 12usize;
+        let ifd_pos = match tiff_base.checked_add(ifd_offset) {
+            Some(o) => o,
+            None => return Err(LivePhotoError::ParseError("ifd offset overflow".to_string())),
+        };
+        if data.len() < ifd_pos.saturating_add(2) {
+            return Err(LivePhotoError::ParseError("ifd out of bounds".to_string()));
+        }
+        let entries = read_u16(&data[ifd_pos..ifd_pos + 2]) as usize;
+        (tiff_base, ifd_pos + 2, entries)
+    } else {
+        let entries = read_u16(&data[14..16]) as usize;
+        (0usize, 16usize, entries)
     };
-
-    if data.len() < curr_offset.saturating_add(2) {
-        return Err(LivePhotoError::ParseError("ifd out of bounds".to_string()));
-    }
-    let num_entries = read_u16(&data[curr_offset..curr_offset + 2]) as usize;
-    curr_offset += 2;
 
     for _ in 0..num_entries {
         if data.len() < curr_offset.saturating_add(12) {
@@ -168,7 +179,7 @@ fn parse_apple_maker_note(data: &[u8]) -> Result<String, LivePhotoError> {
             let val_bytes = if count <= 4 {
                 &value_or_offset[..count]
             } else {
-                let offset = match tiff_base.checked_add(read_u32(value_or_offset) as usize) {
+                let offset = match offset_base.checked_add(read_u32(value_or_offset) as usize) {
                     Some(o) => o,
                     None => return Err(LivePhotoError::ParseError("offset overflow".to_string())),
                 };
@@ -201,7 +212,7 @@ fn scan_quicktime_buffer(buf: &[u8]) -> (String, bool) {
 
     if let Some(pos) = buf.windows(id_key.len()).position(|w| w == id_key) {
         let search_start = pos + id_key.len();
-        let search_end = std::cmp::min(search_start + 256, buf.len());
+        let search_end = std::cmp::min(search_start + 4096, buf.len());
         if search_start < search_end {
             let slice = &buf[search_start..search_end];
             for window in slice.windows(36) {

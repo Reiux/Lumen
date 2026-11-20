@@ -35,7 +35,7 @@ import M3Icon from './components/ui/M3Icon.vue'
 import { launchReplayTrigger } from './utils/launchState'
 import { uploadManager } from './utils/UploadManager'
 import { detectDebugBuild, devOptionsState, isDevMode, mockBatches, mockLogEntries, mockProblems, mockState, setMockView } from './utils/mockMode'
-import { preferencesState, refreshPreferences } from './utils/configStore'
+import { preferencesState, refreshLastUpdateCheck, refreshPreferences } from './utils/configStore'
 import { useDialogFocusTrap } from './utils/useDialogFocusTrap'
 import { cycleNextTheme, themePulseCounter } from './utils/theme'
 import {
@@ -117,7 +117,29 @@ async function handleReviewToggleSubfolders(value: boolean) {
   }
 }
 
+const isUploadBlocked = computed(() => uploadState.accountBlocked.isBlocked)
+
+watch(isUploadBlocked, (blocked) => {
+  if (blocked) {
+    clearDragState()
+  }
+})
+
+function notifyIfUploadBlocked(): boolean {
+  if (!uploadManager.isUploadBlocked()) return false
+  const reason = uploadState.accountBlocked.reason
+  if (reason === 'RATE_LIMITED') {
+    toast.warning(t('circuitBreaker.rateLimited'))
+  } else if (reason === 'ACCOUNT_RESTRICTED') {
+    toast.error(t('circuitBreaker.accountRestricted'))
+  } else {
+    toast.warning(t('circuitBreaker.signInRequired'))
+  }
+  return true
+}
+
 async function handleConfirmReview() {
+  if (notifyIfUploadBlocked()) return
   showReviewModal.value = false
   const files = pendingReviewFiles.value
   pendingReviewFiles.value = []
@@ -168,6 +190,7 @@ function handleCancelReview() {
 
 async function initiateUpload(files: string[]) {
   if (!files || files.length === 0) return
+  if (notifyIfUploadBlocked()) return
 
   let cfg: Awaited<ReturnType<typeof ConfigManager.GetSettings>> | null = null
   try {
@@ -247,6 +270,7 @@ async function initiateUpload(files: string[]) {
 }
 
 async function handleStartRealUpload() {
+  if (notifyIfUploadBlocked()) return
   const candidatePaths = uploadState.results.success.map(item =>
     typeof item === 'string' ? item : item.path
   ).filter(Boolean)
@@ -730,6 +754,14 @@ function updateCustomAvatar(email: string) {
 
 watch(selectedOption, async (newValue) => {
   if (newValue) {
+    // Switching to a different healthy account clears a per-account circuit breaker for another email
+    if (
+      uploadState.accountBlocked.isBlocked
+      && uploadState.accountBlocked.email
+      && uploadState.accountBlocked.email.toLowerCase() !== newValue.toLowerCase()
+    ) {
+      uploadManager.clearAccountBlocked()
+    }
     updateCustomAvatar(newValue)
     try {
       await ConfigManager.SetSelected(newValue)
@@ -894,7 +926,6 @@ const dropZoneRef = ref<HTMLElement | null>(null)
 let dropObserver: MutationObserver | null = null
 let dragCounter = 0
 let isNativeDragging = false
-let dragWatchdogTimer: ReturnType<typeof setTimeout> | null = null
 
 function hasDragFiles(e: DragEvent): boolean {
   if (!e.dataTransfer) return false
@@ -910,53 +941,49 @@ function hasDragFiles(e: DragEvent): boolean {
 }
 
 function clearDragState() {
-  if (dragWatchdogTimer) {
-    clearTimeout(dragWatchdogTimer)
-    dragWatchdogTimer = null
-  }
   dragCounter = 0
   isNativeDragging = false
   isDraggingFiles.value = false
 }
 
-function touchDragWatchdog() {
-  if (dragWatchdogTimer) clearTimeout(dragWatchdogTimer)
-  dragWatchdogTimer = setTimeout(() => {
-    if (isDraggingFiles.value) {
-      clearDragState()
-    }
-  }, 700)
-}
-
 const onDragEnter = (e: DragEvent) => {
   if (!hasDragFiles(e)) return
   e.preventDefault()
+  if (uploadManager.isUploadBlocked()) {
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'none'
+    clearDragState()
+    return
+  }
   dragCounter++
   isNativeDragging = true
   isDraggingFiles.value = true
-  touchDragWatchdog()
 }
 
 const onDragOver = (e: DragEvent) => {
   if (!hasDragFiles(e)) return
   e.preventDefault()
+  if (uploadManager.isUploadBlocked()) {
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'none'
+    clearDragState()
+    return
+  }
   if (e.dataTransfer) {
     e.dataTransfer.dropEffect = 'copy'
   }
   isNativeDragging = true
   isDraggingFiles.value = true
-  touchDragWatchdog()
 }
 
 const onDragLeave = (e: DragEvent) => {
   if (!hasDragFiles(e)) return
   e.preventDefault()
-  dragCounter--
+  dragCounter = Math.max(0, dragCounter - 1)
 
-  const leftWindow = !e.relatedTarget ||
+  const outOfBounds =
+    (e.clientX !== 0 || e.clientY !== 0) &&
     (e.clientX <= 0 || e.clientY <= 0 || e.clientX >= window.innerWidth || e.clientY >= window.innerHeight)
 
-  if (dragCounter <= 0 || leftWindow) {
+  if (dragCounter <= 0 || outOfBounds) {
     clearDragState()
   }
 }
@@ -969,25 +996,36 @@ const onDrop = (e?: DragEvent) => {
 const onDropZoneDragEnter = (e: DragEvent) => {
   if (!hasDragFiles(e)) return
   e.preventDefault()
+  if (uploadManager.isUploadBlocked()) {
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'none'
+    clearDragState()
+    return
+  }
   isNativeDragging = true
   isDraggingFiles.value = true
-  touchDragWatchdog()
 }
 
 const onDropZoneDragOver = (e: DragEvent) => {
   if (!hasDragFiles(e)) return
   e.preventDefault()
+  if (uploadManager.isUploadBlocked()) {
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'none'
+    clearDragState()
+    return
+  }
   if (e.dataTransfer) {
     e.dataTransfer.dropEffect = 'copy'
   }
   isNativeDragging = true
   isDraggingFiles.value = true
-  touchDragWatchdog()
 }
 
 const onDropZoneDragLeave = (e: DragEvent) => {
   e.preventDefault()
-  if (dragCounter <= 0) {
+  const current = e.currentTarget as HTMLElement | null
+  const related = e.relatedTarget as Node | null
+  if (current && related && current.contains(related)) return
+  if (dragCounter <= 0 && !isNativeDragging) {
     clearDragState()
   }
 }
@@ -1027,6 +1065,10 @@ async function handleFilesDropped(files: string[], dropZone = 'regular') {
     return
   }
 
+  if (notifyIfUploadBlocked()) {
+    return
+  }
+
   if (dropZone === 'album') {
     snapshotAlbumModalState()
     pendingFiles.value = files
@@ -1042,6 +1084,7 @@ const onDropZoneDrop = (e: DragEvent) => {
   dragCounter = 0
   isNativeDragging = false
   isDraggingFiles.value = false
+  if (notifyIfUploadBlocked()) return
   if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
     const fileList = Array.from(e.dataTransfer.files)
     const paths = fileList.map((f: any) => f.path).filter(Boolean)
@@ -1225,8 +1268,13 @@ async function onUploadFolderFromSettings(folderPath: string) {
 
 const isPickingMedia = ref(false)
 
+async function handleAccountAdded() {
+  uploadManager.clearAccountBlocked()
+  await refreshCredentials()
+}
+
 async function handlePickFiles() {
-  if (isPickingMedia.value) return
+  if (isPickingMedia.value || notifyIfUploadBlocked()) return
   isPickingMedia.value = true
   try {
     if (isDevMode() && mockState.enabled) {
@@ -1246,7 +1294,7 @@ async function handlePickFiles() {
 }
 
 async function handlePickFolder() {
-  if (isPickingMedia.value) return
+  if (isPickingMedia.value || notifyIfUploadBlocked()) return
   isPickingMedia.value = true
   try {
     if (isDevMode() && mockState.enabled) {
@@ -1266,6 +1314,7 @@ async function handlePickFolder() {
 }
 
 async function handleRetryAll() {
+  if (notifyIfUploadBlocked()) return
   if (isDevMode() && mockState.enabled) {
     mockState.currentView = 'uploading'
     uploadManager.state.isUploading = true
@@ -1275,6 +1324,7 @@ async function handleRetryAll() {
 }
 
 async function handleRetryItem(filePath: string) {
+  if (notifyIfUploadBlocked()) return
   if (isDevMode() && mockState.enabled) {
     mockState.currentView = 'uploading'
     uploadManager.state.isUploading = true
@@ -1397,6 +1447,7 @@ onMounted(async () => {
       toast.info(t('backup.toastAutoWatchDetected', { count }))
     }),
     Events.On('app:update-available', (event: { data: UpdateInfo }) => {
+      void refreshLastUpdateCheck()
       if (event?.data?.hasUpdate) {
         startupUpdateInfo.value = event.data
         showStartupUpdateModal.value = true
@@ -1493,10 +1544,22 @@ onMounted(async () => {
       }
     }),
 
+    Events.On('file-drag-enter', () => {
+      if (uploadManager.isUploadBlocked()) {
+        clearDragState()
+        return
+      }
+      if (activeTab.value === 'upload' && displayOptions.value.length > 0) {
+        isNativeDragging = true
+        isDraggingFiles.value = true
+      }
+    }),
+
     Events.On('files-dropped', async (event: { data: { files: string[]; dropZone: string } }) => {
       isDraggingFiles.value = false
       dragCounter = 0
       isNativeDragging = false
+      if (notifyIfUploadBlocked()) return
       await handleFilesDropped(event.data.files, event.data.dropZone)
     }),
 
@@ -1946,6 +2009,7 @@ onUnmounted(() => {
             style="--wails-draggable: none"
           >
             <Upload
+              :is-dragging-files="isDraggingFiles && !isUploadBlocked"
               @open-sign-in="isAccountSetupOpen = true"
               @account-removed="refreshCredentials"
               @pick-more="handlePickFiles"
@@ -2069,8 +2133,14 @@ onUnmounted(() => {
               ref="dropZoneRef"
               data-file-drop-target
               data-drop-zone="regular"
-              class="drop-zone m3-drop-zone-glow group relative flex w-full min-h-[320px] flex-col items-center justify-center rounded-[28px] border-2 border-dashed p-10 text-center transition-all duration-300 shadow-lg cursor-default select-none"
-              :class="isDraggingFiles ? 'is-dragging border-[var(--md-sys-color-primary)] bg-[var(--md-sys-color-primary-container)]/20 shadow-2xl ring-4 ring-[var(--md-sys-color-primary)]/20' : 'border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container)] hover:border-[var(--md-sys-color-outline)]/80'"
+              class="drop-zone m3-drop-zone-glow group relative flex w-full min-h-[320px] flex-col items-center justify-center p-10 text-center shadow-lg cursor-default select-none"
+              :class="[
+                isUploadBlocked
+                  ? 'is-disabled opacity-50 pointer-events-none border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container)]'
+                  : isDraggingFiles
+                    ? 'is-dragging border-[var(--md-sys-color-primary)] bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)] shadow-2xl ring-4 ring-[var(--md-sys-color-primary)]/20'
+                    : 'border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container)] hover:border-[var(--md-sys-color-primary)]/70',
+              ]"
               style="--wails-draggable: none"
               @dragenter.prevent="onDropZoneDragEnter"
               @dragover.prevent="onDropZoneDragOver"
@@ -2078,101 +2148,82 @@ onUnmounted(() => {
               @drop.prevent="onDropZoneDrop"
               @click="clearDragState"
             >
-              <Transition name="fade" mode="out-in">
-                <!-- State A: Actively Dragging Files Over (Animated Drop State, buttons hidden) -->
-                <div
-                  v-if="isDraggingFiles"
-                  key="dragging"
-                  class="flex flex-col items-center justify-center py-4 pointer-events-none"
-                >
-                  <div class="relative flex size-24 items-center justify-center rounded-[32px] bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-primary)] shadow-lg animate-bounce">
-                    <M3Icon
-                      name="arrow_downward"
-                      :size="48"
-                    />
-                  </div>
-                  <h2 class="mt-6 m3-headline-small text-[var(--md-sys-color-primary)]">
-                    {{ t('backup.dropFiles') }}
-                  </h2>
-                  <p class="mt-2 m3-body-medium">
-                    {{ t('backup.releaseFiles') }}
-                  </p>
-                </div>
+              <!-- Persistent M3E Morphing Icon Tile (80x80: 24px resting -> 40px exact circle on drag-over) -->
+              <div
+                class="m3-drop-zone-icon pointer-events-none flex size-20 items-center justify-center mb-5"
+                :class="
+                  isDraggingFiles
+                    ? 'is-dragging bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] shadow-lg'
+                    : 'bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-primary)] group-hover:bg-[var(--md-sys-color-primary-container)] group-hover:text-[var(--md-sys-color-on-primary-container)]'
+                "
+              >
+                <M3Icon
+                  :name="isDraggingFiles ? 'arrow_downward' : 'add_photo_alternate'"
+                  :filled="isDraggingFiles"
+                  :size="isDraggingFiles ? 40 : 36"
+                />
+              </div>
 
-                <!-- State B: Resting Idle Drop Target State -->
-                <div
-                  v-else
-                  key="idle"
-                  class="flex flex-col items-center justify-center w-full"
-                >
-                  <!-- 80x80 Icon Tile -->
-                  <div class="w-20 h-20 rounded-[28px] bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-primary)] flex items-center justify-center mb-5 group-hover:scale-105 transition duration-300">
-                    <svg
-                      class="w-10 h-10"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="1.8"
-                        d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
-                      />
-                    </svg>
-                  </div>
+              <!-- Headline & Supporting Copy -->
+              <h2
+                class="m3-headline-small pointer-events-none select-none"
+                :class="isDraggingFiles ? 'text-[var(--md-sys-color-on-primary-container)]' : 'text-[var(--md-sys-color-on-surface)]'"
+              >
+                {{ isDraggingFiles ? t('backup.dropFiles') : t('dropzone.readyToBackup') }}
+              </h2>
 
-                  <!-- 24px Medium Title -->
-                  <h2 class="m3-headline-small text-[var(--md-sys-color-on-surface)] select-none">
-                    {{ t('dropzone.readyToBackup') }}
-                  </h2>
+              <p
+                class="m3-body-medium pointer-events-none mt-1.5 max-w-[384px] select-none"
+                :class="isDraggingFiles ? '!text-[var(--md-sys-color-on-primary-container)]/85' : ''"
+              >
+                {{ isDraggingFiles ? t('backup.releaseFiles') : t('backup.dragPrompt') }}
+              </p>
 
-                  <!-- 12-13px Description Line -->
-                  <p class="m3-body-medium mt-1 max-w-[384px] select-none">
-                    {{ t('backup.dragPrompt') }}
-                  </p>
-
-                  <!-- Action buttons directly under text with 24px gap -->
-                  <div
-                    class="flex flex-col items-center gap-3 mt-6 z-10"
-                    style="--wails-draggable: none"
+              <!-- Action buttons (collapsed & hidden smoothly while dragging over so icon + text center vertically) -->
+              <div
+                class="m3-drop-zone-actions flex flex-col items-center gap-3 overflow-hidden z-10"
+                :class="
+                  isDraggingFiles
+                    ? 'max-h-0 pt-0 pb-0 px-3 opacity-0 scale-95 pointer-events-none'
+                    : 'max-h-40 pt-6 pb-1 px-3 opacity-100 scale-100'
+                "
+                style="--wails-draggable: none"
+              >
+                <!-- Connected button group (segmented) for Choose from Files / Choose folder -->
+                <M3ButtonGroup :connected="true">
+                  <M3Button
+                    variant="filled"
+                    size="m"
+                    icon="add"
+                    :disabled="isPickingMedia || isUploadBlocked"
+                    @click="handlePickFiles"
                   >
-                    <!-- Connected button group (segmented) for Choose from Files / Choose folder -->
-                    <M3ButtonGroup :connected="true">
-                      <M3Button
-                        variant="filled"
-                        size="m"
-                        icon="add"
-                        :disabled="isPickingMedia"
-                        @click="handlePickFiles"
-                      >
-                        <span>{{ t('backup.chooseFromFiles') }}</span>
-                      </M3Button>
+                    <span>{{ t('backup.chooseFromFiles') }}</span>
+                  </M3Button>
 
-                      <M3Button
-                        variant="tonal"
-                        size="m"
-                        icon="folder"
-                        :disabled="isPickingMedia"
-                        @click="handlePickFolder"
-                      >
-                        <span>{{ t('backup.chooseFolder') }}</span>
-                      </M3Button>
-                    </M3ButtonGroup>
+                  <M3Button
+                    variant="tonal"
+                    size="m"
+                    icon="folder"
+                    :disabled="isPickingMedia || isUploadBlocked"
+                    @click="handlePickFolder"
+                  >
+                    <span>{{ t('backup.chooseFolder') }}</span>
+                  </M3Button>
+                </M3ButtonGroup>
 
-                    <!-- Album Option Button -->
-                    <M3Button
-                      variant="tonal"
-                      size="s"
-                      icon="folder_special"
-                      :title="t('backup.albumButtonTitle')"
-                      @click="openAlbumPrompt"
-                    >
-                      <span>{{ t('backup.albumPrefix', { name: albumDisplayLabel }) }}</span>
-                    </M3Button>
-                  </div>
-                </div>
-              </Transition>
+                <!-- Album Option Button -->
+                <M3Button
+                  variant="tonal"
+                  size="s"
+                  icon="folder_special"
+                  :disabled="isUploadBlocked"
+                  :title="t('backup.albumButtonTitle')"
+                  @click="openAlbumPrompt"
+                >
+                  <span>{{ t('backup.albumPrefix', { name: albumDisplayLabel }) }}</span>
+                </M3Button>
+              </div>
             </div>
 
             <!-- Below the card: one slim row -->
@@ -2795,75 +2846,84 @@ onUnmounted(() => {
     <!-- Add Account Dialog -->
     <GoogleAuthSetup
       v-model:open="isAccountSetupOpen"
-      @account-added="refreshCredentials"
+      @account-added="handleAccountAdded"
     />
 
-    <!-- Album Name Input State (Modal Dialog with Scrim & Spatial Spring) -->
+    <!-- Album Name Input State (M3E Modal Dialog) -->
     <Teleport to="body">
       <Transition name="m3-dialog-modal">
         <div
           v-if="showAlbumInput"
-          class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 select-none overflow-y-auto"
+          class="m3-dialog-wrapper fixed inset-0 z-50 grid place-items-center p-4 select-none overflow-y-auto"
           style="--wails-draggable: none"
           @click.self="cancelAlbumUpload"
         >
           <div
             ref="albumDialogCardRef"
             tabindex="-1"
-            class="m3-dialog-card relative flex w-full max-w-md flex-col items-center justify-center gap-5 rounded-[28px] border border-[var(--md-sys-color-outline-variant)]/50 bg-[var(--md-sys-color-surface-container-high)] p-8 text-center shadow-2xl outline-none"
+            class="m3-dialog-card relative flex w-full max-w-[460px] flex-col gap-5 rounded-[28px] bg-[var(--md-sys-color-surface-container-high)] p-6 shadow-2xl outline-none focus-visible:outline-[3px] focus-visible:outline-[var(--md-sys-color-primary)]"
             role="dialog"
             aria-modal="true"
             aria-labelledby="album-dialog-title"
+            aria-describedby="album-dialog-desc"
             @click.stop
           >
-            <div class="flex size-16 items-center justify-center rounded-full bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-primary)]">
-              <M3Icon
-                name="folder_special"
-                :filled="true"
-                :size="32"
-              />
-            </div>
-            <div class="flex flex-col gap-1">
-              <h2
-                id="album-dialog-title"
-                class="m3-headline-small text-[var(--md-sys-color-on-surface)] select-none"
-              >
-                {{ pendingFiles.length > 0 ? t('dialogs.album.titleBackup') : t('dialogs.album.titleOptions') }}
-              </h2>
-              <p class="m3-body-medium select-none">
-                {{ pendingFiles.length > 0 ? t('dialogs.album.itemsSelected', { count: pendingFileCount }) : t('dialogs.album.organizeSubtitle') }}
-              </p>
+            <!-- M3E Centered Hero Icon + Headline -->
+            <div class="flex flex-col items-center text-center gap-3">
+              <div class="flex size-14 items-center justify-center rounded-[20px] bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]">
+                <M3Icon
+                  name="folder_special"
+                  :filled="true"
+                  :size="28"
+                />
+              </div>
+              <div class="flex flex-col gap-1">
+                <h2
+                  id="album-dialog-title"
+                  class="m3-headline-small text-[var(--md-sys-color-on-surface)] select-none"
+                >
+                  {{ pendingFiles.length > 0 ? t('dialogs.album.titleBackup') : t('dialogs.album.titleOptions') }}
+                </h2>
+                <p
+                  id="album-dialog-desc"
+                  class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)] select-none"
+                >
+                  {{ pendingFiles.length > 0 ? t('dialogs.album.itemsSelected', { count: pendingFileCount }) : t('dialogs.album.organizeSubtitle') }}
+                </p>
+              </div>
             </div>
 
-            <!-- Mode selector pills -->
-            <div class="flex flex-wrap items-center justify-center gap-2">
-              <M3Button
-                size="xs"
-                :toggle="true"
-                :selected="albumTargetMode === 'none' && !albumNameOrKey"
-                :variant="albumTargetMode === 'none' && !albumNameOrKey ? 'filled' : 'outlined'"
-                @click="albumTargetMode = 'none'; albumNameOrKey = ''"
-              >
-                {{ t('dialogs.album.none') }}
-              </M3Button>
-              <M3Button
-                size="xs"
-                :toggle="true"
-                :selected="albumTargetMode === 'auto'"
-                :variant="albumTargetMode === 'auto' ? 'filled' : 'outlined'"
-                @click="albumTargetMode = 'auto'; albumNameOrKey = ''"
-              >
-                {{ t('dialogs.album.autoByFolder') }}
-              </M3Button>
-              <M3Button
-                size="xs"
-                :toggle="true"
-                :selected="albumTargetMode === 'custom' || !!albumNameOrKey"
-                :variant="albumTargetMode === 'custom' || !!albumNameOrKey ? 'filled' : 'outlined'"
-                @click="albumTargetMode = 'custom'"
-              >
-                {{ t('dialogs.album.namedAlbum') }}
-              </M3Button>
+            <!-- M3E Connected Button Group Mode Selector -->
+            <div class="flex justify-center">
+              <M3ButtonGroup :connected="true">
+                <M3Button
+                  size="s"
+                  :toggle="true"
+                  :selected="albumTargetMode === 'none' && !albumNameOrKey"
+                  :variant="albumTargetMode === 'none' && !albumNameOrKey ? 'tonal' : 'outlined'"
+                  @click="albumTargetMode = 'none'; albumNameOrKey = ''"
+                >
+                  {{ t('dialogs.album.none') }}
+                </M3Button>
+                <M3Button
+                  size="s"
+                  :toggle="true"
+                  :selected="albumTargetMode === 'auto'"
+                  :variant="albumTargetMode === 'auto' ? 'tonal' : 'outlined'"
+                  @click="albumTargetMode = 'auto'; albumNameOrKey = ''"
+                >
+                  {{ t('dialogs.album.autoByFolder') }}
+                </M3Button>
+                <M3Button
+                  size="s"
+                  :toggle="true"
+                  :selected="albumTargetMode === 'custom' || !!albumNameOrKey"
+                  :variant="albumTargetMode === 'custom' || !!albumNameOrKey ? 'tonal' : 'outlined'"
+                  @click="albumTargetMode = 'custom'"
+                >
+                  {{ t('dialogs.album.namedAlbum') }}
+                </M3Button>
+              </M3ButtonGroup>
             </div>
 
             <div
@@ -2880,21 +2940,24 @@ onUnmounted(() => {
                 autofocus
                 @keydown.enter="confirmAlbumUpload"
               />
-              <p class="m3-body-medium px-1 whitespace-normal break-words">
+              <p class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)] px-1 whitespace-normal break-words">
                 {{ t('dialogs.album.helpText') }}
               </p>
               <div class="px-1 text-left">
                 <button
                   type="button"
-                  class="inline-flex items-center gap-1 m3-body-medium text-[var(--md-sys-color-primary)] hover:underline focus:outline-none cursor-pointer"
+                  class="inline-flex items-center gap-1.5 m3-label-large text-[var(--md-sys-color-primary)] hover:underline focus-visible:outline-[2px] focus-visible:outline-[var(--md-sys-color-primary)] rounded cursor-pointer"
                   @click="showAlbumKeyHelp = !showAlbumKeyHelp"
                 >
-                  <M3Icon name="help_outline" :size="13" />
+                  <M3Icon
+                    name="help_outline"
+                    :size="15"
+                  />
                   <span>{{ t('dialogs.album.whereKey') }}</span>
                 </button>
                 <div
                   v-if="showAlbumKeyHelp"
-                  class="mt-1.5 p-2.5 rounded-xl bg-[var(--md-sys-color-surface-container-highest)]/70 m3-body-medium whitespace-normal break-words"
+                  class="mt-2 p-3.5 rounded-[16px] bg-[var(--md-sys-color-surface-container)] m3-body-medium text-[var(--md-sys-color-on-surface-variant)] whitespace-normal break-words leading-relaxed"
                 >
                   {{ t('dialogs.album.keyHelp') }}
                 </div>
@@ -2903,13 +2966,13 @@ onUnmounted(() => {
               <!-- Editable Nickname if using an AF1Qip album key -->
               <div
                 v-if="isInputAnAlbumKey"
-                class="flex flex-col gap-2 rounded-2xl bg-[var(--md-sys-color-surface-container)] p-4 sm:p-5 text-left border border-[var(--md-sys-color-outline-variant)]/30 mt-2"
+                class="flex flex-col gap-2 rounded-[20px] bg-[var(--md-sys-color-surface-container)] p-4 text-left mt-1"
               >
                 <div class="flex flex-col gap-0.5">
                   <span class="m3-title-medium text-[var(--md-sys-color-on-surface)]">
                     {{ t('dialogs.album.nickname') }}
                   </span>
-                  <span class="m3-body-medium">
+                  <span class="m3-body-medium text-[var(--md-sys-color-on-surface-variant)]">
                     {{ t('dialogs.album.nicknameSubtitle') }}
                   </span>
                 </div>
@@ -2930,19 +2993,19 @@ onUnmounted(() => {
             <!-- Recent Albums Quick-select Chips -->
             <div
               v-if="(albumTargetMode === 'custom' || albumNameOrKey) && recentAlbums.length > 0"
-              class="flex w-full flex-col gap-1.5 text-left"
+              class="flex w-full flex-col gap-2 text-left"
             >
-              <span class="m3-label-small text-[var(--md-sys-color-on-surface-variant)]">
+              <span class="m3-label-large text-[var(--md-sys-color-on-surface-variant)] px-1">
                 {{ t('dialogs.album.recentAlbums') }}
               </span>
               <div class="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
                 <M3Button
                   v-for="recent in recentAlbums"
                   :key="recent"
-                  size="xs"
+                  size="s"
                   :toggle="true"
                   :selected="albumNameOrKey === recent"
-                  :variant="albumNameOrKey === recent ? 'filled' : 'outlined'"
+                  :variant="albumNameOrKey === recent ? 'tonal' : 'outlined'"
                   icon="folder"
                   @click="onSelectRecentAlbum(recent)"
                 >
@@ -2954,17 +3017,17 @@ onUnmounted(() => {
                   >
                     <M3Icon
                       name="close"
-                      :size="12"
+                      :size="14"
                     />
                   </span>
                 </M3Button>
               </div>
             </div>
 
-            <div class="flex gap-3 mt-1">
+            <!-- M3E Action Row: right-aligned Text Cancel (non-destructive) + Primary Filled Pill -->
+            <div class="flex w-full items-center justify-end gap-2 pt-1">
               <M3Button
-                variant="outlined"
-                destructive
+                variant="text"
                 size="s"
                 @click="cancelAlbumUpload"
               >
@@ -2972,7 +3035,7 @@ onUnmounted(() => {
               </M3Button>
               <M3Button
                 variant="filled"
-                size="s"
+                size="m"
                 :disabled="albumTargetMode === 'custom' && !albumNameOrKey.trim()"
                 @click="confirmAlbumUpload"
               >

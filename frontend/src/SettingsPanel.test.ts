@@ -35,6 +35,7 @@ vi.mock('../bindings/app/core', () => ({
     }),
     GetHashCacheCount: vi.fn().mockResolvedValue(0),
     IsTrayAvailable: vi.fn().mockResolvedValue(true),
+    HasBattery: vi.fn().mockResolvedValue(false),
     GetCredentials: vi.fn().mockResolvedValue({ credentials: [], selected: '' }),
   },
 }))
@@ -60,6 +61,8 @@ describe('SettingsPanel', () => {
     expect(wrapper.find('#section-danger').exists()).toBe(true)
     expect(wrapper.find('#exclude-pattern-input').exists()).toBe(true)
     expect(wrapper.text()).toContain('\\.tmp$|@eaDir')
+    // Desktop PC (HasBattery = false) hides Pause on Battery Power
+    expect(wrapper.find('#battery-pause-switch').exists()).toBe(false)
 
     wrapper.unmount()
   })
