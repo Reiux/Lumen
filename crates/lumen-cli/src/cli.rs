@@ -189,6 +189,10 @@ pub enum CredsCommands {
     Add {
         /// OAuth token or raw credential string
         credential: String,
+
+        /// Overwrite existing credentials for this account without prompting
+        #[arg(short, long)]
+        force: bool,
     },
 
     /// List all configured accounts
@@ -477,7 +481,7 @@ pub async fn handle_upload(
 
 pub async fn handle_creds(args: CredsArgs, config_manager: Arc<ConfigManager>) -> Result<()> {
     match args.command {
-        CredsCommands::Add { credential } => {
+        CredsCommands::Add { credential, force } => {
             let cred_input = if credential.trim() == "-" {
                 use std::io::Read;
                 let mut buf = String::new();
@@ -547,6 +551,19 @@ pub async fn handle_creds(args: CredsArgs, config_manager: Arc<ConfigManager>) -
                     e
                 )
             })?;
+
+            let in_config = {
+                let cfg = config_manager.get_config();
+                cfg.account.credentials.iter().any(|cred| {
+                    url::form_urlencoded::parse(cred.as_bytes()).find(|(k, _)| k == "Email").is_some_and(|(_, e)| e.eq_ignore_ascii_case(&email))
+                }) || cfg.account.selected.trim().eq_ignore_ascii_case(&email)
+            };            
+
+            let exists = in_config || config_manager.get_credential_for_account(Some(&email)).is_ok();
+
+            if exists && !force && !confirm_overwrite(&email)? {
+                bail!("Aborted: credential for {email} was not overwritten.");
+            }
 
             let save_status = config_manager.save_credential(&email, &full_credential)
                 .map_err(|e| anyhow::anyhow!("Failed to save credential: {}", e))?;
@@ -917,6 +934,46 @@ pub async fn handle_watch(
     Ok(())
 }
 
+fn confirm_overwrite(email: &str) -> Result<bool> {
+    use std::io::{BufRead, BufReader, IsTerminal, Write};
+
+    let prompt = format!("\nCredential for {email} already exists. Overwrite? [y/N]: ");
+
+    #[cfg(unix)]
+    if let Ok(mut tty) = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/tty")
+    {
+        write!(tty, "{prompt}")?;
+        tty.flush()?;
+
+        let mut input = String::new();
+        BufReader::new(tty).read_line(&mut input)?;
+        return Ok(matches!(
+            input.trim().to_ascii_lowercase().as_str(),
+            "y" | "yes"
+        ));
+    }
+
+    // Fallback for Windows or headless environments without /dev/tty
+    if !std::io::stdin().is_terminal() {
+        anyhow::bail!(
+            "Credential for {email} already exists. Re-run with --force in non-interactive mode."
+        );
+    }
+
+    eprint!("{prompt}");
+    std::io::stderr().flush()?;
+
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    Ok(matches!(
+        input.trim().to_ascii_lowercase().as_str(),
+        "y" | "yes"
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -999,6 +1056,7 @@ mod tests {
         let args = CredsArgs {
             command: CredsCommands::Add {
                 credential: "Email=unknown@example.com&Token=dummy123".to_string(),
+                force: true,
             },
         };
         let res = handle_creds(args, cfg_mgr.clone()).await;
@@ -1013,6 +1071,7 @@ mod tests {
         let args_no_email = CredsArgs {
             command: CredsCommands::Add {
                 credential: "Token=dummy123".to_string(),
+                force: true,
             },
         };
         let res_no_email = handle_creds(args_no_email, cfg_mgr.clone()).await;
@@ -1030,6 +1089,7 @@ mod tests {
         let args = CredsArgs {
             command: CredsCommands::Add {
                 credential: "oauth_token=fake_invalid_token_123456789".to_string(),
+                force: true,
             },
         };
         let res = handle_creds(args, cfg_mgr.clone()).await;
@@ -1040,6 +1100,38 @@ mod tests {
         // Verify nothing was saved as unknown@example.com
         assert_ne!(cfg_mgr.get_config().account.selected, "unknown@example.com");
         assert!(cfg_mgr.get_config().account.credentials.is_empty());
+    }
+
+    #[test]
+    fn test_creds_add_force_flag_parsing() {
+        // Without -> force must be false
+        let cli = Cli::try_parse_from(["lumen-cli", "creds", "add", "dummy_token"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Commands::Creds(CredsArgs {
+                command: CredsCommands::Add { force: false, .. }
+            })
+        ));
+
+        // With -f -> force must be true
+        let cli_short =
+            Cli::try_parse_from(["lumen-cli", "creds", "add", "-f", "dummy_token"]).unwrap();
+        assert!(matches!(
+            cli_short.command,
+            Commands::Creds(CredsArgs {
+                command: CredsCommands::Add { force: true, .. }
+            })
+        ));
+
+        // With --force -> force must be true
+        let cli_long =
+            Cli::try_parse_from(["lumen-cli", "creds", "add", "--force", "dummy_token"]).unwrap();
+        assert!(matches!(
+            cli_long.command,
+            Commands::Creds(CredsArgs {
+                command: CredsCommands::Add { force: true, .. }
+            })
+        ));
     }
 
     #[tokio::test]
